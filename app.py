@@ -55,6 +55,241 @@ def api_ping():
         return jsonify({"error": "unauthorized"}), 401
     return jsonify({"ok": True, "service": "ED_Downtime"}), 200
 
+
+# ========= External API Endpoints (for Power Automate / Power Apps) =========
+# All endpoints require header:  X-API-Key: <ED_API_KEY>
+
+@app.route("/api/register", methods=["POST"])
+def api_register():
+    """Register patient + start visit.
+    Expected JSON:
+      name (required), id_number, phone, insurance, insurance_no, dob, sex, nationality, comment
+    """
+    if not require_api_key():
+        return jsonify({"error": "unauthorized"}), 401
+
+    data = request.get_json(silent=True) or {}
+    name = (data.get("name") or "").strip()
+    if not name:
+        return jsonify({"error": "name is required"}), 400
+
+    id_number = (data.get("id_number") or data.get("id") or "").strip()
+    phone = (data.get("phone") or "").strip()
+    insurance = (data.get("insurance") or "").strip()
+    insurance_no = (data.get("insurance_no") or data.get("insurance_number") or "").strip()
+    dob = (data.get("dob") or "").strip()
+    sex = (data.get("sex") or "").strip()
+    nationality = (data.get("nationality") or "").strip()
+    comment = (data.get("comment") or "").strip()
+
+    db = get_db()
+    now_ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+    # Create patient
+    cur = db.cursor()
+    cur.execute("""
+        INSERT INTO patients
+            (name, id_number, phone, insurance, insurance_no, dob, sex, nationality, created_at, created_by)
+        VALUES (?,?,?,?,?,?,?,?,?,?)
+    """, (name, id_number, phone, insurance, insurance_no, dob, sex, nationality, now_ts, "API"))
+    patient_id = cur.lastrowid
+
+    # Create visit
+    visit_id = generate_visit_id()
+    queue_no = generate_queue_no()
+    cur.execute("""
+        INSERT INTO visits
+            (visit_id, patient_id, queue_no, triage_status, status, comment, created_at, created_by)
+        VALUES (?,?,?,?,?,?,?,?)
+    """, (visit_id, patient_id, queue_no, "NO", "OPEN", comment, now_ts, "API"))
+
+    db.commit()
+
+    # Log
+    cur.execute("""
+        INSERT INTO activity_log (action, visit_id, username, details, created_at)
+        VALUES (?,?,?,?,?)
+    """, ("API_REGISTER", visit_id, "API", f"name={name}, id_number={id_number}", now_ts))
+    db.commit()
+
+    return jsonify({
+        "ok": True,
+        "visit_id": visit_id,
+        "queue_no": queue_no,
+        "patient_id": patient_id
+    }), 201
+
+
+@app.route("/api/triage", methods=["POST"])
+def api_triage():
+    """Update triage/vitals for a visit.
+    Expected JSON:
+      visit_id (required),
+      triage_cat (required),
+      allergy_status, pulse_rate, resp_rate, bp_systolic, bp_diastolic,
+      temperature, consciousness_level, spo2, pain_score, comment
+    """
+    if not require_api_key():
+        return jsonify({"error": "unauthorized"}), 401
+
+    data = request.get_json(silent=True) or {}
+    visit_id = (data.get("visit_id") or "").strip()
+    if not visit_id:
+        return jsonify({"error": "visit_id is required"}), 400
+
+    cat = (data.get("triage_cat") or data.get("cat") or "").strip()
+    if not cat:
+        return jsonify({"error": "triage_cat is required"}), 400
+
+    allowed_fields = [
+        "comment",
+        "allergy_status", "pulse_rate", "resp_rate",
+        "bp_systolic", "bp_diastolic",
+        "temperature", "consciousness_level",
+        "spo2", "pain_score"
+    ]
+
+    updates = {"triage_status": "YES", "triage_cat": cat}
+    for f in allowed_fields:
+        if f in data:
+            updates[f] = (data.get(f) or "").strip()
+
+    set_clause = ", ".join([f"{k}=?" for k in updates.keys()])
+    values = list(updates.values()) + [visit_id]
+
+    db = get_db()
+    cur = db.cursor()
+    cur.execute(f"UPDATE visits SET {set_clause} WHERE visit_id=?", values)
+    if cur.rowcount == 0:
+        return jsonify({"error": "visit not found"}), 404
+
+    now_ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    cur.execute("""
+        INSERT INTO activity_log (action, visit_id, username, details, created_at)
+        VALUES (?,?,?,?,?)
+    """, ("API_TRIAGE", visit_id, "API", json.dumps({k: updates[k] for k in updates}), now_ts))
+    db.commit()
+
+    return jsonify({"ok": True, "visit_id": visit_id}), 200
+
+
+@app.route("/api/visit", methods=["GET"])
+def api_visit():
+    """Get visit + patient data. Use ?visit_id=YYYYMMDD00001"""
+    if not require_api_key():
+        return jsonify({"error": "unauthorized"}), 401
+
+    visit_id = (request.args.get("visit_id") or "").strip()
+    if not visit_id:
+        return jsonify({"error": "visit_id query param is required"}), 400
+
+    db = get_db()
+    v = db.execute("""
+        SELECT v.*, p.name as patient_name, p.id_number, p.phone, p.insurance, p.insurance_no
+        FROM visits v
+        JOIN patients p ON p.id=v.patient_id
+        WHERE v.visit_id=?
+    """, (visit_id,)).fetchone()
+    if not v:
+        return jsonify({"error": "visit not found"}), 404
+
+    return jsonify(dict(v)), 200
+
+
+@app.route("/api/logs/add", methods=["POST"])
+def api_logs_add():
+    """Add an activity log entry from external system.
+    Expected JSON: action (required), visit_id (optional), username, details
+    """
+    if not require_api_key():
+        return jsonify({"error": "unauthorized"}), 401
+
+    data = request.get_json(silent=True) or {}
+    action = (data.get("action") or "").strip()
+    if not action:
+        return jsonify({"error": "action is required"}), 400
+
+    visit_id = (data.get("visit_id") or "").strip() or None
+    username = (data.get("username") or "API").strip()
+    details = data.get("details")
+    if details is not None and not isinstance(details, str):
+        details = json.dumps(details)
+
+    now_ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    db = get_db()
+    db.execute("""
+        INSERT INTO activity_log (action, visit_id, username, details, created_at)
+        VALUES (?,?,?,?,?)
+    """, (action, visit_id, username, details, now_ts))
+    db.commit()
+
+    return jsonify({"ok": True}), 201
+
+
+@app.route("/api/notify", methods=["POST"])
+def api_notify():
+    """Simple notify stub (stores to activity_log)."""
+    if not require_api_key():
+        return jsonify({"error": "unauthorized"}), 401
+
+    data = request.get_json(silent=True) or {}
+    message = (data.get("message") or "").strip()
+    visit_id = (data.get("visit_id") or "").strip() or None
+    level = (data.get("level") or "info").strip()
+
+    if not message:
+        return jsonify({"error": "message is required"}), 400
+
+    now_ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    db = get_db()
+    db.execute("""
+        INSERT INTO activity_log (action, visit_id, username, details, created_at)
+        VALUES (?,?,?,?,?)
+    """, ("API_NOTIFY", visit_id, "API", json.dumps({"level": level, "message": message}), now_ts))
+    db.commit()
+
+    return jsonify({"ok": True}), 200
+
+
+@app.route("/api/alerts", methods=["GET", "POST"])
+def api_alerts():
+    """GET: return high-acuity open visits.
+       POST: add manual alert to log."""
+    if not require_api_key():
+        return jsonify({"error": "unauthorized"}), 401
+
+    db = get_db()
+
+    if request.method == "POST":
+        data = request.get_json(silent=True) or {}
+        visit_id = (data.get("visit_id") or "").strip() or None
+        alert = (data.get("alert") or data.get("message") or "").strip()
+        level = (data.get("level") or "info").strip()
+        if not alert:
+            return jsonify({"error": "alert/message is required"}), 400
+        now_ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        db.execute("""
+            INSERT INTO activity_log (action, visit_id, username, details, created_at)
+            VALUES (?,?,?,?,?)
+        """, ("API_ALERT", visit_id, "API", json.dumps({"level": level, "alert": alert}), now_ts))
+        db.commit()
+        return jsonify({"ok": True}), 201
+
+    # GET
+    rows = db.execute("""
+        SELECT v.visit_id, v.queue_no, v.triage_cat, v.triage_status,
+               v.comment, v.created_at, p.name as patient_name
+        FROM visits v
+        JOIN patients p ON p.id=v.patient_id
+        WHERE v.status='OPEN'
+          AND v.triage_status='YES'
+          AND v.triage_cat IN ('Red','Orange','Yellow')
+        ORDER BY v.created_at DESC
+        LIMIT 50
+    """).fetchall()
+
+    return jsonify([dict(r) for r in rows]), 200
+
 app.config["SESSION_COOKIE_HTTPONLY"] = True
 app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
 app.config["SESSION_COOKIE_SECURE"] = False
