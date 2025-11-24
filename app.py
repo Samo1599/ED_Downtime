@@ -392,10 +392,19 @@ def do_backup():
         return None
 
 def backup_scheduler_loop():
+    """Run automatic DB backup every day at exactly 05:00 AM server local time."""
     while True:
-        time.sleep(3600)  # hourly
+        now = datetime.now()
+        next_run = now.replace(hour=5, minute=0, second=0, microsecond=0)
+        if now >= next_run:
+            next_run = next_run + timedelta(days=1)
+        sleep_seconds = (next_run - now).total_seconds()
+        try:
+            time.sleep(sleep_seconds)
+        except Exception:
+            time.sleep(60)
+            continue
         do_backup()
-
 def start_backup_scheduler_once():
     # Avoid duplicate threads on debug reload
     if app.config.get("DEBUG") and os.environ.get("WERKZEUG_RUN_MAIN") != "true":
@@ -642,6 +651,58 @@ def admin_backup_now():
         flash("Backup failed.", "danger")
     return redirect(url_for("ed_board"))
 
+@app.route("/admin/restore", methods=["GET","POST"])
+@login_required
+@role_required("admin")
+def admin_restore():
+    # List available backups
+    backups = []
+    try:
+        for fn in os.listdir(BACKUP_FOLDER):
+            if fn.lower().endswith(".db") and fn.startswith("triage_ed_"):
+                full = os.path.join(BACKUP_FOLDER, fn)
+                try:
+                    mtime = os.path.getmtime(full)
+                except Exception:
+                    mtime = 0
+                backups.append({"name": fn, "mtime": mtime})
+        backups.sort(key=lambda x: x["mtime"], reverse=True)
+    except Exception:
+        backups = []
+
+    if request.method == "POST":
+        selected = request.form.get("backup_file","").strip()
+        if not selected:
+            flash("Please select a backup file.", "danger")
+            return redirect(url_for("admin_restore"))
+
+        # Security: allow only files inside BACKUP_FOLDER
+        safe = os.path.basename(selected)
+        full_path = os.path.join(BACKUP_FOLDER, safe)
+
+        if not (safe.lower().endswith(".db") and os.path.exists(full_path)):
+            flash("Backup file not found.", "danger")
+            return redirect(url_for("admin_restore"))
+
+        try:
+            # Close current DB connection if open
+            try:
+                db = g.pop("db", None)
+                if db:
+                    db.close()
+            except Exception:
+                pass
+
+            shutil.copy2(full_path, DATABASE)
+            log_action("RESTORE_BACKUP", details=safe)
+            flash(f"Backup restored successfully: {safe}. Please restart the app to ensure all connections reload.", "success")
+        except Exception as e:
+            flash(f"Restore failed: {e}", "danger")
+
+        return redirect(url_for("admin_restore"))
+
+    return render_template("admin_restore.html", backups=backups)
+
 # ============================================================
 # Register / Search
 # ============================================================
@@ -766,7 +827,7 @@ def search_patients():
 @app.route("/")
 @login_required
 def ed_board():
-    status_filter = request.args.get("status","OPEN")
+    status_filter = request.args.get("status","ALL")
     cat_filter = request.args.get("cat","ALL")
     visit_f = request.args.get("visit_id","").strip()
     user_f  = request.args.get("user","").strip()
@@ -1233,6 +1294,33 @@ def duplicate_clinical_order(visit_id, oid):
         flash("Order not found.", "danger")
         return redirect(url_for("clinical_orders_page", visit_id=visit_id))
 
+@app.route("/clinical_orders/<visit_id>/delete/<int:oid>", methods=["POST"])
+@login_required
+@role_required("doctor","nurse","admin")
+def delete_clinical_order(visit_id, oid):
+    db = get_db()
+    order = db.execute("SELECT id FROM clinical_orders WHERE id=? AND visit_id=?", (oid, visit_id)).fetchone()
+    if not order:
+        flash("Order not found.", "danger")
+        return redirect(url_for("clinical_orders_page", visit_id=visit_id))
+
+    db.execute("DELETE FROM clinical_orders WHERE id=? AND visit_id=?", (oid, visit_id))
+    db.commit()
+
+    # re-build auto summary after delete
+    try:
+        auto_text = build_auto_summary(visit_id)
+        db.execute("UPDATE discharge_summaries SET auto_summary_text=?, updated_at=?, updated_by=? WHERE visit_id=?",
+                   (auto_text, datetime.now().strftime("%Y-%m-%d %H:%M:%S"), session.get("username"), visit_id))
+        db.commit()
+    except Exception:
+        pass
+
+    log_action("DELETE_ORDER", visit_id=visit_id, details=str(oid))
+    flash("Clinical Order deleted.", "success")
+    return redirect(url_for("clinical_orders_page", visit_id=visit_id))
+
+
     db.execute("""
         INSERT INTO clinical_orders
         (visit_id, diagnosis, radiology_orders, lab_orders, medications, duplicated_from, created_at, created_by)
@@ -1656,7 +1744,7 @@ TEMPLATES = {
   <meta charset="utf-8">
   <title>ED Downtime</title>
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
-  <meta http-equiv="refresh" content="30">
+  <meta http-equiv="refresh" content="3600">
   <style>
     body { background:#f7f7f7; }
     .nav-link { font-weight:600; }
@@ -1674,6 +1762,7 @@ TEMPLATES = {
   <span class="navbar-brand fw-bold">ED Downtime</span>
 
   <div class="d-flex gap-3 align-items-center">
+    <button type="button" class="btn btn-sm btn-outline-secondary" onclick="location.reload()">Refresh</button>
     <a class="nav-link" href="{{ url_for('ed_board') }}">ED Board</a>
     <a class="nav-link" href="{{ url_for('search_patients') }}">Search</a>
     {% if session.get('role') in ['reception','admin'] %}
@@ -1685,10 +1774,12 @@ TEMPLATES = {
       <a class="nav-link" href="{{ url_for('admin_logs') }}">Logs</a>
       <a class="nav-link" href="{{ url_for('admin_backup') }}">Backup DB</a>
       <a class="nav-link text-primary" href="{{ url_for('admin_backup_now') }}">Backup Now</a>
+      <a class="nav-link text-warning" href="{{ url_for('admin_restore') }}">Restore Backup</a>
     {% endif %}
     <span class="text-muted">User: {{ session.get('username') }} ({{ session.get('role') }})</span>
     <a class="text-danger nav-link" href="{{ url_for('logout') }}">Logout</a>
   </div>
+  <button class="btn btn-sm btn-outline-secondary" onclick="location.reload()">🔄 Manual Refresh</button>
 </nav>
 
 <div class="container py-3">
@@ -1803,6 +1894,41 @@ TEMPLATES = {
 {% endblock %}
 """,
 
+"admin_restore.html": """
+{% extends "base.html" %}
+{% block content %}
+<h4 class="mb-3">Restore Backup</h4>
+
+<div class="alert alert-warning">
+  Restoring will overwrite the current database. Make sure you selected the correct backup file.
+</div>
+
+{% with messages = get_flashed_messages(with_categories=true) %}
+  {% for category, msg in messages %}
+    <div class="alert alert-{{ category }}">{{ msg }}</div>
+  {% endfor %}
+{% endwith %}
+
+<form method="POST" class="card p-3 bg-white">
+  <label class="form-label fw-bold">Select Backup File</label>
+  <select class="form-select mb-3" name="backup_file" required>
+    <option value="">-- choose backup --</option>
+    {% for b in backups %}
+      <option value="{{ b.name }}">{{ b.name }}</option>
+    {% endfor %}
+  </select>
+
+  <button class="btn btn-danger" onclick="return confirm('Restore selected backup? This will overwrite current data.')">
+    Restore Selected Backup
+  </button>
+</form>
+
+{% if not backups %}
+  <p class="text-muted mt-3">No backup files found in backups/ folder.</p>
+{% endif %}
+
+{% endblock %}
+""",
 "admin_logs.html": """
 {% extends "base.html" %}
 {% block content %}
@@ -1978,6 +2104,7 @@ TEMPLATES = {
       <a class="page-link" href="{{ url_for('ed_board', status=status_filter, cat=cat_filter, visit_id=visit_f, user=user_f, date_from=dfrom, date_to=dto, per_page=per_page, page=page+1) }}">Next</a>
     </li>
   </ul>
+  <button class="btn btn-sm btn-outline-secondary" onclick="location.reload()">🔄 Manual Refresh</button>
 </nav>
 
 """,
@@ -1996,14 +2123,14 @@ TEMPLATES = {
     <div class="col-md-2">
       <label class="form-label fw-bold small">Status</label>
       <select name="status" class="form-select form-select-sm" onchange="this.form.submit()">
-        <option value="OPEN" {% if status_filter=="OPEN" %}selected{% endif %}>OPEN</option>
-        <option value="IN_TREATMENT" {% if status_filter=="IN_TREATMENT" %}selected{% endif %}>IN_TREATMENT</option>
-        <option value="ADMITTED" {% if status_filter=="ADMITTED" %}selected{% endif %}>ADMITTED</option>
-        <option value="DISCHARGED" {% if status_filter=="DISCHARGED" %}selected{% endif %}>DISCHARGED</option>
-        <option value="TRANSFERRED" {% if status_filter=="TRANSFERRED" %}selected{% endif %}>TRANSFERRED</option>
-        <option value="LAMA" {% if status_filter=="LAMA" %}selected{% endif %}>LAMA</option>
-        <option value="EXPIRED" {% if status_filter=="EXPIRED" %}selected{% endif %}>EXPIRED</option>
         <option value="ALL" {% if status_filter=="ALL" %}selected{% endif %}>ALL</option>
+<option value="OPEN" {% if status_filter=="OPEN" %}selected{% endif %}>OPEN</option>
+<option value="IN_TREATMENT" {% if status_filter=="IN_TREATMENT" %}selected{% endif %}>IN_TREATMENT</option>
+<option value="ADMITTED" {% if status_filter=="ADMITTED" %}selected{% endif %}>ADMITTED</option>
+<option value="DISCHARGED" {% if status_filter=="DISCHARGED" %}selected{% endif %}>DISCHARGED</option>
+<option value="TRANSFERRED" {% if status_filter=="TRANSFERRED" %}selected{% endif %}>TRANSFERRED</option>
+<option value="LAMA" {% if status_filter=="LAMA" %}selected{% endif %}>LAMA</option>
+<option value="EXPIRED" {% if status_filter=="EXPIRED" %}selected{% endif %}>EXPIRED</option>
       </select>
     </div>
 
@@ -2115,6 +2242,7 @@ TEMPLATES = {
       <a class="page-link" href="{{ url_for('ed_board', status=status_filter, cat=cat_filter, visit_id=visit_f, user=user_f, date_from=dfrom, date_to=dto, per_page=per_page, page=page+1) }}">Next</a>
     </li>
   </ul>
+  <button class="btn btn-sm btn-outline-secondary" onclick="location.reload()">🔄 Manual Refresh</button>
 </nav>
 
 """,
@@ -2370,11 +2498,19 @@ TEMPLATES = {
         <button type="button" class="btn btn-sm btn-outline-primary" onclick="applyBundle('chest_pain')">Chest Pain Bundle</button>
         <button type="button" class="btn btn-sm btn-outline-danger" onclick="applyBundle('stroke')">Stroke Bundle</button>
         <button type="button" class="btn btn-sm btn-outline-dark" onclick="applyBundle('trauma')">Trauma Bundle</button>
-        <button type="button" class="btn btn-sm btn-outline-secondary" onclick="clearAllBundles()">Clear Selections</button>
+        
+        <button type="button" class="btn btn-sm btn-outline-success" onclick="applyBundle('abdominal_pain')">Abdominal Pain Bundle</button>
+        <button type="button" class="btn btn-sm btn-outline-info" onclick="applyBundle('sob')">SOB Bundle</button>
+        <button type="button" class="btn btn-sm btn-outline-warning" onclick="applyBundle('sepsis')">Sepsis Bundle</button>
+        <button type="button" class="btn btn-sm btn-outline-primary" onclick="applyBundle('fever')">Fever Bundle</button>
+        <button type="button" class="btn btn-sm btn-outline-dark" onclick="applyBundle('gi_bleed')">GI Bleed Bundle</button>
+        <button type="button" class="btn btn-sm btn-outline-danger" onclick="applyBundle('anaphylaxis')">Anaphylaxis Bundle</button>
+<button type="button" class="btn btn-sm btn-outline-secondary" onclick="clearAllBundles()">Clear Selections</button>
       </div>
 
       {% if session.get('role') not in ['reception'] %}
       <form method="POST" action="{{ url_for('add_clinical_order', visit_id=visit.visit_id) }}">
+
         <label class="form-label fw-bold">Diagnosis / Chief Complaint</label>
         <textarea class="form-control mb-3" name="diagnosis" rows="2" placeholder="Write diagnosis or chief complaint..."></textarea>
 
@@ -2557,8 +2693,9 @@ TEMPLATES = {
                href="{{ url_for('clinical_order_pdf', visit_id=visit.visit_id, oid=o.id) }}">Print PDF</a>
 
             {% if session.get('role') in ['nurse','doctor','admin'] %}
-              <a class="btn btn-sm btn-outline-primary"
-                 href="{{ url_for('duplicate_clinical_order', visit_id=visit.visit_id, oid=o.id) }}">Duplicate</a>
+              <form method="post" class="d-inline" action="{{ url_for('delete_clinical_order', visit_id=visit.visit_id, oid=o.id) }}" onsubmit="return confirm('Delete this order?');">
+                <button class="btn btn-sm btn-outline-danger">Delete</button>
+              </form>
 
               <button class="btn btn-sm btn-outline-dark"
                       data-bs-toggle="collapse"
@@ -2647,7 +2784,37 @@ const bundles = {
     radiology: ["CT Trauma Pan-Scan","X-Ray Chest","X-Ray Pelvis","FAST Ultrasound"],
     labs: ["CBC","CMP (Kidney/Liver)","PT/PTT/INR","Lactate","Type & Screen / Crossmatch","ABG"],
     meds: ["Tetanus Toxoid IM","Cefazolin IV","Morphine IV","Ringer Lactate","Normal Saline 0.9%"]
-  }
+  },
+abdominal_pain: {
+  radiology: ["US Abdomen","CT Abdomen/Pelvis"],
+  labs: ["CBC","CRP","Electrolytes","LFT","Lipase","Urine Analysis","BHCG (Pregnancy Test)"],
+  meds: ["Paracetamol IV/PO","Ondansetron IV","Hyoscine (Buscopan) IV/IM","Normal Saline 0.9%"]
+},
+sob: {
+  radiology: ["X-Ray Chest","CT Chest"],
+  labs: ["CBC","Electrolytes","ABG","D-Dimer","Troponin","BNP","RBS (Random Blood Sugar)"],
+  meds: ["Oxygen Therapy","Salbutamol Nebulizer","Ipratropium Nebulizer","Hydrocortisone IV","Normal Saline 0.9%"]
+},
+sepsis: {
+  radiology: ["X-Ray Chest","US Abdomen"],
+  labs: ["CBC","CRP","Lactate","Blood Culture","Urine Analysis","Electrolytes","ABG"],
+  meds: ["Broad Spectrum Antibiotic (per policy)","Normal Saline 0.9% Bolus"]
+},
+fever: {
+  radiology: ["X-Ray Chest","US Abdomen"],
+  labs: ["CBC","CRP","Urine Analysis","Blood Culture","RBS (Random Blood Sugar)"],
+  meds: ["Paracetamol IV/PO","Normal Saline 0.9%"]
+},
+gi_bleed: {
+  radiology: ["X-Ray Chest"],
+  labs: ["CBC","PT/PTT/INR","Electrolytes","Type & Screen / Crossmatch"],
+  meds: ["Pantoprazole IV","Normal Saline 0.9%","Tranexamic Acid IV (if indicated)"]
+},
+anaphylaxis: {
+  radiology: [],
+  labs: ["CBC","ABG"],
+  meds: ["Epinephrine IM","Hydrocortisone IV","Chlorpheniramine IV/IM","Normal Saline 0.9%","Salbutamol Nebulizer"]
+}
 };
 
 function clearAllBundles(){
@@ -2673,6 +2840,95 @@ function applyBundle(name){
 </script>
 
 {% endblock %}
+
+<script>
+const BUNDLES = {
+  "chest_pain": {
+    "radiology": "X-Ray Chest",
+    "labs": "CBC, Electrolytes, Troponin, CK-MB, PT/PTT/INR, RBS, D-Dimer",
+    "meds": "Morphine IV, Ondansetron IV, Aspirin PO 300mg, Nitroglycerin SL, Normal Saline 0.9%",
+    "diagnosis": ""
+  },
+  "stroke": {
+    "radiology": "CT Brain (Non-Contrast), CT Angio Head/Neck (if indicated)",
+    "labs": "CBC, Electrolytes, PT/PTT/INR, RBS, Troponin",
+    "meds": "Normal Saline 0.9%, Labetalol IV (if hypertensive), Thrombolysis protocol (if eligible)",
+    "diagnosis": ""
+  },
+  "trauma": {
+    "radiology": "FAST US, X-Ray Chest, X-Ray Pelvis, CT Trauma (Head/C-Spine/Chest/Abdomen/Pelvis) as indicated",
+    "labs": "CBC, Electrolytes, Lactate, Type & Screen, Crossmatch, Coags",
+    "meds": "Normal Saline / Ringer Lactate, Tranexamic Acid (if indicated), Analgesia per protocol",
+    "diagnosis": ""
+  },
+  "abdominal_pain": {
+    "radiology": "US Abdomen, CT Abdomen/Pelvis (if indicated)",
+    "labs": "CBC, CRP, LFT, Lipase, Electrolytes, Urinalysis, Beta-hCG (females)",
+    "meds": "Hyoscine/Buscopan, Paracetamol IV/PO, Ondansetron IV, Normal Saline 0.9%",
+    "diagnosis": ""
+  },
+  "sob": {
+    "radiology": "X-Ray Chest, CT Pulmonary Angio (if indicated)",
+    "labs": "CBC, Electrolytes, ABG/VBG, Troponin, BNP, D-Dimer, COVID/Flu Swab",
+    "meds": "O2 therapy, Nebulizer (Salbutamol/Ipratropium), Steroid IV, Normal Saline 0.9%",
+    "diagnosis": ""
+  },
+  "sepsis": {
+    "radiology": "X-Ray Chest, US/CT source control as indicated",
+    "labs": "CBC, CRP, Lactate, Electrolytes, Blood Culture x2, Urine Culture",
+    "meds": "Broad-spectrum antibiotics (per policy), Normal Saline 30ml/kg, Paracetamol",
+    "diagnosis": ""
+  },
+  "fever_adult": {
+    "radiology": "X-Ray Chest (if respiratory), US/CT if source suspected",
+    "labs": "CBC, CRP, Electrolytes, Urinalysis, Blood Culture (if indicated)",
+    "meds": "Paracetamol, Normal Saline, Empiric antibiotics if indicated",
+    "diagnosis": ""
+  },
+  "fever_peds": {
+    "radiology": "X-Ray Chest (if cough), US if source suspected",
+    "labs": "CBC, CRP, Urinalysis, RBS",
+    "meds": "Paracetamol syrup/suppository, Oral rehydration / IV fluids if needed",
+    "diagnosis": ""
+  },
+  "gi_bleed": {
+    "radiology": "NG tube / Endoscopy referral, CT Abdomen (if indicated)",
+    "labs": "CBC, PT/PTT/INR, Type & Screen, Crossmatch, Electrolytes",
+    "meds": "Pantoprazole IV, Normal Saline, Tranexamic Acid (if severe, per policy)",
+    "diagnosis": ""
+  },
+  "anaphylaxis": {
+    "radiology": "CXR (if respiratory), ECG monitoring",
+    "labs": "CBC, Electrolytes (optional)",
+    "meds": "Epinephrine IM, Hydrocortisone IV, Chlorpheniramine IV/IM, Nebulizer, Normal Saline",
+    "diagnosis": ""
+  }
+};
+
+function applyBundle(key){
+  const b = BUNDLES[key];
+  if(!b) return;
+  const dx = document.querySelector('textarea[name="diagnosis"]');
+  const rad = document.querySelector('textarea[name="radiology_orders"]');
+  const lab = document.querySelector('textarea[name="lab_orders"]');
+  const med = document.querySelector('textarea[name="medications"]');
+  if(dx) dx.value = b.diagnosis || "";
+  if(rad) rad.value = b.radiology || "";
+  if(lab) lab.value = b.labs || "";
+  if(med) med.value = b.meds || "";
+}
+function clearBundle(){
+  const dx = document.querySelector('textarea[name="diagnosis"]');
+  const rad = document.querySelector('textarea[name="radiology_orders"]');
+  const lab = document.querySelector('textarea[name="lab_orders"]');
+  const med = document.querySelector('textarea[name="medications"]');
+  if(dx) dx.value = "";
+  if(rad) rad.value = "";
+  if(lab) lab.value = "";
+  if(med) med.value = "";
+}
+
+</script>
 """,
 
 "sticker.html": """
