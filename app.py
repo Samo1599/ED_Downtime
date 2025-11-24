@@ -18,8 +18,8 @@ V5 adds:
 - Sticker HTML + ZPL 5x3cm (fixed)
 """
 from flask import (
-    Flask, request, g, redirect, url_for,
-    render_template, session, Response, send_from_directory, flash, jsonify
+    Flask, request, g, redirect, url_for, render_template, session, Response, send_from_directory, flash,
+    jsonify
 )
 import sqlite3
 from datetime import datetime, timedelta
@@ -40,12 +40,10 @@ from reportlab.lib.units import cm
 
 app = Flask(__name__)
 app.config["SECRET_KEY"] = "CHANGE_ME_TO_SECURE_KEY"
-app.config["SESSION_COOKIE_HTTPONLY"] = True
-app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
-app.config["SESSION_COOKIE_SECURE"] = False
 
-# ===================== Power Automate / API =====================
-API_KEY = os.environ.get("ED_API_KEY", "CHANGE_ME")  # put same value in Render Env
+
+# ========= Simple API Key protection for Power Automate / Power Apps =========
+API_KEY = os.environ.get("ED_API_KEY", "CHANGE_ME")  # put same value in Render Environment
 
 def require_api_key():
     key = request.headers.get("X-API-Key")
@@ -56,8 +54,10 @@ def api_ping():
     if not require_api_key():
         return jsonify({"error": "unauthorized"}), 401
     return jsonify({"ok": True, "service": "ED_Downtime"}), 200
-# ================================================================
 
+app.config["SESSION_COOKIE_HTTPONLY"] = True
+app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
+app.config["SESSION_COOKIE_SECURE"] = False
 
 # Session lifetime (2 hours default)
 app.config["PERMANENT_SESSION_LIFETIME"] = 7200
