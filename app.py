@@ -19,7 +19,7 @@ V5 adds:
 """
 from flask import (
     Flask, request, g, redirect, url_for,
-    render_template, session, Response, send_from_directory, flash
+    render_template, session, Response, send_from_directory, flash, jsonify
 )
 import sqlite3
 from datetime import datetime, timedelta
@@ -43,6 +43,21 @@ app.config["SECRET_KEY"] = "CHANGE_ME_TO_SECURE_KEY"
 app.config["SESSION_COOKIE_HTTPONLY"] = True
 app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
 app.config["SESSION_COOKIE_SECURE"] = False
+
+# ===================== Power Automate / API =====================
+API_KEY = os.environ.get("ED_API_KEY", "CHANGE_ME")  # put same value in Render Env
+
+def require_api_key():
+    key = request.headers.get("X-API-Key")
+    return key == API_KEY
+
+@app.route("/api/ping", methods=["GET"])
+def api_ping():
+    if not require_api_key():
+        return jsonify({"error": "unauthorized"}), 401
+    return jsonify({"ok": True, "service": "ED_Downtime"}), 200
+# ================================================================
+
 
 # Session lifetime (2 hours default)
 app.config["PERMANENT_SESSION_LIFETIME"] = 7200
