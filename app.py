@@ -28,7 +28,7 @@ from werkzeug.security import generate_password_hash, check_password_hash
 from werkzeug.utils import secure_filename
 from jinja2 import DictLoader
 import os, io, csv, shutil, threading, time
-import json 
+
 
 # ===================== Supabase (Cloud DB) =====================
 try:
@@ -202,22 +202,21 @@ def api_visit():
     if not visit_id:
         return jsonify({"error": "visit_id query param is required"}), 400
 
-    if USE_SUPABASE:
-        v = sb_get_visit_with_patient(visit_id)
-        if not v:
-            return jsonify({"error": "visit not found"}), 404
-        p = v.get("patients") or {}
-        out = {
-            **{k: v.get(k) for k in v.keys() if k != "patients"},
-            "patient_name": p.get("name"),
-            "id_number": p.get("id_number"),
-            "phone": p.get("phone"),
-            "insurance": p.get("insurance"),
-            "insurance_no": p.get("insurance_no"),
-        }
-        return jsonify(out), 200
+    
+if USE_SUPABASE:
+    v = sb_get_visit_with_patient(visit_id)
+    if not v:
+        return jsonify({"error": "visit not found"}), 404
+    p = v.get("patients") or {}
+    out = {**{k: v.get(k) for k in v.keys() if k!="patients"},
+           "patient_name": p.get("name"),
+           "id_number": p.get("id_number"),
+           "phone": p.get("phone"),
+           "insurance": p.get("insurance"),
+           "insurance_no": p.get("insurance_no")}
+    return jsonify(out), 200
 
-    db = get_db()
+db = get_db()
     v = db.execute("""
         SELECT v.*, p.name as patient_name, p.id_number, p.phone, p.insurance, p.insurance_no
         FROM visits v
@@ -228,6 +227,10 @@ def api_visit():
         return jsonify({"error": "visit not found"}), 404
 
     return jsonify(dict(v)), 200
+
+
+
+
 @app.route("/api/board", methods=["GET"])
 def api_board():
     if not require_api_key():
@@ -1379,7 +1382,45 @@ def edit_patient(visit_id):
 @login_required
 @role_required("reception","nurse","admin")
 def upload_id(visit_id):
-    # Upload attachment for given visit
+
+if USE_SUPABASE:
+    if "file" not in request.files:
+        flash("No file part", "danger")
+        return redirect(url_for("patient_details", visit_id=visit_id))
+    file = request.files["file"]
+    if file.filename == "":
+        flash("No selected file", "danger")
+        return redirect(url_for("patient_details", visit_id=visit_id))
+    if not allowed_file(file.filename):
+        flash("File type not allowed", "danger")
+        return redirect(url_for("patient_details", visit_id=visit_id))
+    filename = secure_filename(file.filename)
+    ts = datetime.now().strftime("%Y%m%d%H%M%S")
+    stored_name = f"{visit_id}_{ts}_{filename}"
+    file_path = os.path.join(UPLOAD_FOLDER, stored_name)
+    file.save(file_path)
+
+    file_url = None
+    if SUPABASE_BUCKET:
+        try:
+            with open(file_path, "rb") as f:
+                supabase.storage.from_(SUPABASE_BUCKET).upload(stored_name, f, {"content-type": file.mimetype})
+            file_url = supabase.storage.from_(SUPABASE_BUCKET).get_public_url(stored_name)
+        except Exception as e:
+            print("Supabase storage upload failed:", e)
+
+    meta = {
+        "visit_id": visit_id,
+        "filename": stored_name,
+        "original_name": filename,
+        "file_url": file_url,
+        "uploaded_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        "uploaded_by": session.get("username")
+    }
+    sb_add_attachment(meta)
+    log_action("UPLOAD_ID", visit_id=visit_id)
+    flash("Attachment uploaded.", "success")
+    return redirect(url_for("patient_details", visit_id=visit_id))
     if "file" not in request.files:
         flash("No file selected.", "danger")
         return redirect(url_for("patient_details", visit_id=visit_id))
@@ -1394,89 +1435,28 @@ def upload_id(visit_id):
         return redirect(url_for("patient_details", visit_id=visit_id))
 
     safe_name = secure_filename(file.filename)
-    ts = datetime.now().strftime("%Y%m%d%H%M%S")
-    stored_name = f"{visit_id}_{ts}_{safe_name}"
-    file_path = os.path.join(UPLOAD_FOLDER, stored_name)
-    file.save(file_path)
+    filename = f"{visit_id}_{int(datetime.now().timestamp())}_{safe_name}"
+    file.save(os.path.join(UPLOAD_FOLDER, filename))
 
-    if USE_SUPABASE:
-        file_url = None
-        if SUPABASE_BUCKET:
-            try:
-                with open(file_path, "rb") as f:
-                    supabase.storage.from_(SUPABASE_BUCKET).upload(
-                        stored_name, f, {"content-type": file.mimetype}
-                    )
-                file_url = supabase.storage.from_(SUPABASE_BUCKET).get_public_url(stored_name)
-            except Exception as e:
-                print("Supabase upload error:", e)
-                file_url = None
-
-        meta = {
-            "visit_id": visit_id,
-            "filename": stored_name,
-            "original_name": safe_name,
-            "file_url": file_url,
-            "uploaded_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-            "uploaded_by": session.get("username"),
-        }
-        try:
-            sb_add_attachment(meta)
-        except Exception as e:
-            print("Supabase attachments insert error:", e)
-
-        log_action("UPLOAD_ATTACHMENT", visit_id=visit_id, details=stored_name)
-        flash("Attachment uploaded successfully.", "success")
-        return redirect(url_for("patient_details", visit_id=visit_id))
-
-    # SQLite fallback
     db = get_db()
-    db.execute(
-        """
+    db.execute("""
         INSERT INTO attachments (visit_id, filename, uploaded_at, uploaded_by)
         VALUES (?,?,?,?)
-        """,
-        (
-            visit_id,
-            stored_name,
-            datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-            session.get("username"),
-        ),
-    )
+    """,(visit_id, filename, datetime.now().strftime("%Y-%m-%d %H:%M:%S"), session.get("username")))
     db.commit()
-    log_action("UPLOAD_ATTACHMENT", visit_id=visit_id, details=stored_name)
+    log_action("UPLOAD_ATTACHMENT", visit_id=visit_id, details=filename)
     flash("Attachment uploaded successfully.", "success")
     return redirect(url_for("patient_details", visit_id=visit_id))
 @app.route("/attachment/<int:att_id>/delete", methods=["POST"])
 @login_required
 @role_required("reception","admin")
 def delete_attachment(att_id):
-    # Delete attachment by id
-    if USE_SUPABASE:
-        try:
-            r = supabase.table("attachments").select("*").eq("id", att_id).limit(1).execute()
-            att = r.data[0] if r.data else None
-            if not att:
-                flash("Attachment not found.", "danger")
-                return redirect(url_for("ed_board"))
-            visit_id = att.get("visit_id")
 
-            # remove from storage if bucket used
-            if SUPABASE_BUCKET and att.get("filename"):
-                try:
-                    supabase.storage.from_(SUPABASE_BUCKET).remove([att["filename"]])
-                except Exception:
-                    pass
-
-            sb_delete_attachment(att_id)
-            log_action("DELETE_ATTACHMENT", visit_id=visit_id, details=str(att_id))
-            flash("Attachment deleted.", "success")
-            return redirect(url_for("patient_details", visit_id=visit_id))
-        except Exception as e:
-            flash(f"Delete failed: {e}", "danger")
-            return redirect(url_for("ed_board"))
-
-    # SQLite fallback
+if USE_SUPABASE:
+    sb_delete_attachment(att_id)
+    log_action("DELETE_ATTACHMENT", visit_id=visit_id)
+    flash("Attachment deleted.", "success")
+    return redirect(url_for("patient_details", visit_id=visit_id))
     db = get_db()
     cur = db.cursor()
     a = cur.execute("SELECT * FROM attachments WHERE id=?", (att_id,)).fetchone()
@@ -1485,7 +1465,7 @@ def delete_attachment(att_id):
         return redirect(url_for("ed_board"))
     try:
         os.remove(os.path.join(UPLOAD_FOLDER, a["filename"]))
-    except Exception:
+    except:
         pass
     db.execute("DELETE FROM attachments WHERE id=?", (att_id,))
     db.commit()
@@ -1582,47 +1562,41 @@ def triage(visit_id):
 # ============================================================
 
 def build_auto_summary(visit_id):
-    """Build a full ED course text summary for a visit."""
-    visit = None
-    orders = []
-    notes = []
 
-    if USE_SUPABASE:
-        v = sb_get_visit_with_patient(visit_id)
-        if not v:
-            return ""
-        p = v.get("patients") or {}
-        visit = {
-            **{k: v.get(k) for k in v.keys() if k != "patients"},
-            "name": p.get("name"),
-            "id_number": p.get("id_number"),
-            "phone": p.get("phone"),
-            "insurance": p.get("insurance"),
-            "insurance_no": p.get("insurance_no"),
-            "dob": p.get("dob"),
-            "sex": p.get("sex"),
-            "nationality": p.get("nationality"),
-        }
-        orders = sb_list_orders(visit_id)
-        notes = sb_list_notes(visit_id)
-    else:
-        db = get_db()
-        cur = db.cursor()
-        row = cur.execute("""
-            SELECT v.*, p.name, p.id_number, p.phone, p.insurance, p.insurance_no, p.dob, p.sex, p.nationality
-            FROM visits v JOIN patients p ON p.id=v.patient_id WHERE v.visit_id=?
-        """, (visit_id,)).fetchone()
-        if not row:
-            return ""
-        visit = dict(row)
-        orders = [dict(o) for o in cur.execute(
-            "SELECT * FROM clinical_orders WHERE visit_id=? ORDER BY id ASC",
-            (visit_id,)
-        ).fetchall()]
-        notes = [dict(n) for n in cur.execute(
-            "SELECT * FROM nursing_notes WHERE visit_id=? ORDER BY id ASC",
-            (visit_id,)
-        ).fetchall()]
+if USE_SUPABASE:
+    v = sb_get_visit_with_patient(visit_id)
+    if not v:
+        return ""
+    p = v.get("patients") or {}
+    visit = {
+        **{k: v.get(k) for k in v.keys() if k != "patients"},
+        "name": p.get("name"),
+        "id_number": p.get("id_number"),
+        "phone": p.get("phone"),
+        "insurance": p.get("insurance"),
+        "insurance_no": p.get("insurance_no"),
+        "dob": p.get("dob"),
+        "sex": p.get("sex"),
+        "nationality": p.get("nationality"),
+    }
+    orders = sb_list_orders(visit_id)
+    notes = sb_list_notes(visit_id)
+    # continue to shared formatter below
+    db = get_db(); cur = db.cursor()
+    visit = cur.execute("""
+        SELECT v.*, p.name, p.id_number, p.phone, p.insurance, p.insurance_no, p.dob, p.sex, p.nationality
+        FROM visits v JOIN patients p ON p.id=v.patient_id WHERE v.visit_id=?
+    """,(visit_id,)).fetchone()
+    if not visit:
+        return ""
+
+    orders = cur.execute("""
+        SELECT * FROM clinical_orders WHERE visit_id=? ORDER BY id ASC
+    """,(visit_id,)).fetchall()
+
+    notes = cur.execute("""
+        SELECT * FROM nursing_notes WHERE visit_id=? ORDER BY id ASC
+    """,(visit_id,)).fetchall()
 
     lines = []
     lines.append(f"Visit ID: {visit_id}")
@@ -1673,6 +1647,46 @@ def build_auto_summary(visit_id):
 # ============================================================
 # Clinical Orders + Notes + Discharge
 # ============================================================
+
+# ========================= Clinical Orders (Supabase + SQLite) =========================
+
+def sb_get_order(visit_id: str, oid: int):
+    data = (supabase.table("clinical_orders")
+            .select("*")
+            .eq("visit_id", visit_id)
+            .eq("id", oid)
+            .limit(1)
+            .execute().data)
+    return (data[0] if data else None)
+
+def sb_add_order(visit_id: str, payload: dict):
+    return (supabase.table("clinical_orders")
+            .insert(payload)
+            .execute().data)
+
+def sb_update_order(visit_id: str, oid: int, payload: dict):
+    return (supabase.table("clinical_orders")
+            .update(payload)
+            .eq("visit_id", visit_id)
+            .eq("id", oid)
+            .execute().data)
+
+def sb_delete_order(visit_id: str, oid: int):
+    return (supabase.table("clinical_orders")
+            .delete()
+            .eq("visit_id", visit_id)
+            .eq("id", oid)
+            .execute().data)
+
+# override list to show newest first (same as SQLite UI)
+def sb_list_orders(visit_id: str):
+    return (supabase.table("clinical_orders")
+            .select("*")
+            .eq("visit_id", visit_id)
+            .order("id", desc=True)
+            .execute().data) or []
+
+
 @app.route("/clinical_orders/<visit_id>")
 @login_required
 def clinical_orders_page(visit_id):
@@ -1683,207 +1697,209 @@ def clinical_orders_page(visit_id):
             return redirect(url_for("ed_board"))
         orders = sb_list_orders(visit_id)
         notes = sb_list_notes(visit_id)
-        discharge = sb_get_discharge(visit_id)
+        summary = sb_get_discharge(visit_id)
         attachments = sb_list_attachments(visit_id)
-        return render_template(
-            "clinical_orders.html",
-            visit=visit,
-            orders=orders,
-            notes=notes,
-            discharge=discharge,
-            summary=discharge,
-            attachments=attachments,
-        )
+        return render_template("clinical_orders.html", visit=visit, orders=orders,
+                               notes=notes, summary=summary, attachments=attachments)
 
+    # -------- SQLite fallback --------
     db = get_db()
     cur = db.cursor()
     visit = cur.execute("""
-        SELECT v.*, p.name, p.id_number, p.phone, p.insurance, p.insurance_no, p.dob, p.sex, p.nationality
-        FROM visits v JOIN patients p ON p.id=v.patient_id WHERE v.visit_id=?
+        SELECT v.visit_id, v.queue_no, v.status, v.triage_cat, v.triaged_at,
+               p.name, p.id_number, p.phone, p.insurance, p.insurance_no, p.dob, p.sex, p.nationality
+        FROM visits v
+        JOIN patients p ON p.id = v.patient_id
+        WHERE v.visit_id=?
     """, (visit_id,)).fetchone()
     if not visit:
         flash("Visit not found.", "danger")
         return redirect(url_for("ed_board"))
 
-    orders = cur.execute(
-        "SELECT * FROM clinical_orders WHERE visit_id=? ORDER BY id DESC",
-        (visit_id,),
-    ).fetchall()
+    orders = cur.execute("""
+        SELECT * FROM clinical_orders WHERE visit_id=? ORDER BY id DESC
+    """, (visit_id,)).fetchall()
+    notes = cur.execute("""
+        SELECT * FROM nursing_notes WHERE visit_id=? ORDER BY id DESC
+    """, (visit_id,)).fetchall()
+    summary = cur.execute("""
+        SELECT * FROM discharge_summaries WHERE visit_id=?
+    """, (visit_id,)).fetchone()
+    attachments = cur.execute("""
+        SELECT * FROM attachments WHERE visit_id=? ORDER BY id DESC
+    """, (visit_id,)).fetchall()
 
-    notes = cur.execute(
-        "SELECT * FROM nursing_notes WHERE visit_id=? ORDER BY id DESC",
-        (visit_id,),
-    ).fetchall()
+    return render_template("clinical_orders.html", visit=visit, orders=orders,
+                           notes=notes, summary=summary, attachments=attachments)
 
-    summary = cur.execute(
-        "SELECT * FROM discharge_summaries WHERE visit_id=?",
-        (visit_id,),
-    ).fetchone()
 
-    attachments = cur.execute(
-        "SELECT * FROM attachments WHERE visit_id=? ORDER BY id DESC",
-        (visit_id,),
-    ).fetchall()
-
-    return render_template(
-        "clinical_orders.html",
-        visit=visit,
-        orders=orders,
-        notes=notes,
-        discharge=summary,
-        summary=summary,
-        attachments=attachments,
-    )
 @app.route("/clinical_orders/<visit_id>/add", methods=["POST"])
 @login_required
-@role_required("doctor","nurse","admin")
+@role_required("doctor", "nurse", "admin")
 def add_clinical_order(visit_id):
-    diagnosis = clean_text(request.form.get("diagnosis","").strip())
-    radiology = clean_text(request.form.get("radiology_orders","").strip())
-    labs = clean_text(request.form.get("lab_orders","").strip())
-    meds = clean_text(request.form.get("medications","").strip())
+    diagnosis = clean_text(request.form.get("diagnosis", "").strip())
+    radiology = clean_text(request.form.get("radiology_orders", "").strip())
+    labs = clean_text(request.form.get("lab_orders", "").strip())
+    meds = clean_text(request.form.get("medications", "").strip())
 
     now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     user = session.get("username")
 
     if USE_SUPABASE:
-        supabase.table("clinical_orders").insert({
+        sb_add_order(visit_id, {
             "visit_id": visit_id,
             "diagnosis": diagnosis,
             "radiology_orders": radiology,
             "lab_orders": labs,
             "medications": meds,
+            "duplicated_from": None,
             "created_at": now,
-            "created_by": user
-        }).execute()
+            "created_by": user,
+            "updated_at": None,
+            "updated_by": None
+        })
 
         auto_text = build_auto_summary(visit_id)
-        try:
-            sb_upsert_discharge({
-                "visit_id": visit_id,
-                "auto_summary_text": auto_text,
-                "updated_at": now,
-                "updated_by": user
-            })
-        except Exception:
-            pass
+        sb_upsert_discharge({
+            "visit_id": visit_id,
+            "auto_summary_text": auto_text,
+            "updated_at": now,
+            "updated_by": user,
+            "created_at": now,
+            "created_by": user
+        })
 
         log_action("ADD_ORDER", visit_id=visit_id)
         flash("Clinical Order saved.", "success")
         return redirect(url_for("clinical_orders_page", visit_id=visit_id))
 
+    # -------- SQLite fallback --------
     db = get_db()
     db.execute("""
         INSERT INTO clinical_orders
-        (visit_id, diagnosis, radiology_orders, lab_orders, medications, created_at, created_by)
-        VALUES (?,?,?,?,?,?,?)
-    """, (visit_id, diagnosis, radiology, labs, meds, now, user))
+        (visit_id, diagnosis, radiology_orders, lab_orders, medications, duplicated_from, created_at, created_by)
+        VALUES (?,?,?,?,?,?,?,?)
+    """, (visit_id, diagnosis, radiology, labs, meds, None, now, user))
     db.commit()
 
     auto_text = build_auto_summary(visit_id)
     db.execute("""
         INSERT INTO discharge_summaries (visit_id, auto_summary_text, summary_text, created_at, created_by)
         VALUES (?,?,?,?,?)
-        ON CONFLICT(visit_id) DO UPDATE SET auto_summary_text=excluded.auto_summary_text, updated_at=?, updated_by=?
+        ON CONFLICT(visit_id) DO UPDATE
+        SET auto_summary_text=excluded.auto_summary_text, updated_at=?, updated_by=?
     """, (visit_id, auto_text, None, now, user, now, user))
     db.commit()
 
     log_action("ADD_ORDER", visit_id=visit_id)
     flash("Clinical Order saved.", "success")
     return redirect(url_for("clinical_orders_page", visit_id=visit_id))
+
+
 @app.route("/clinical_orders/<visit_id>/update/<int:oid>", methods=["POST"])
 @login_required
-@role_required("doctor","nurse","admin")
+@role_required("doctor", "nurse", "admin")
 def update_clinical_order(visit_id, oid):
-    diagnosis = clean_text(request.form.get("diagnosis","").strip())
-    radiology = clean_text(request.form.get("radiology_orders","").strip())
-    labs = clean_text(request.form.get("lab_orders","").strip())
-    meds = clean_text(request.form.get("medications","").strip())
+    diagnosis = clean_text(request.form.get("diagnosis", "").strip())
+    radiology = clean_text(request.form.get("radiology_orders", "").strip())
+    labs = clean_text(request.form.get("lab_orders", "").strip())
+    meds = clean_text(request.form.get("medications", "").strip())
 
     now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     user = session.get("username")
 
     if USE_SUPABASE:
-        supabase.table("clinical_orders").update({
+        sb_update_order(visit_id, oid, {
             "diagnosis": diagnosis,
             "radiology_orders": radiology,
             "lab_orders": labs,
             "medications": meds,
             "updated_at": now,
             "updated_by": user
-        }).eq("id", oid).eq("visit_id", visit_id).execute()
+        })
 
         auto_text = build_auto_summary(visit_id)
-        try:
-            sb_upsert_discharge({
-                "visit_id": visit_id,
-                "auto_summary_text": auto_text,
-                "updated_at": now,
-                "updated_by": user
-            })
-        except Exception:
-            pass
+        sb_upsert_discharge({
+            "visit_id": visit_id,
+            "auto_summary_text": auto_text,
+            "updated_at": now,
+            "updated_by": user,
+            "created_at": now,
+            "created_by": user
+        })
 
         log_action("UPDATE_ORDER", visit_id=visit_id, details=str(oid))
         flash("Clinical Order updated.", "success")
         return redirect(url_for("clinical_orders_page", visit_id=visit_id))
 
+    # -------- SQLite fallback --------
     db = get_db()
     db.execute("""
-        UPDATE clinical_orders SET
-            diagnosis=?, radiology_orders=?, lab_orders=?, medications=?,
+        UPDATE clinical_orders
+        SET diagnosis=?, radiology_orders=?, lab_orders=?, medications=?,
             updated_at=?, updated_by=?
         WHERE id=? AND visit_id=?
     """, (diagnosis, radiology, labs, meds, now, user, oid, visit_id))
     db.commit()
 
     auto_text = build_auto_summary(visit_id)
-    db.execute(
-        "UPDATE discharge_summaries SET auto_summary_text=?, updated_at=?, updated_by=? WHERE visit_id=?",
-        (auto_text, now, user, visit_id),
-    )
+    db.execute("""
+        INSERT INTO discharge_summaries (visit_id, auto_summary_text, summary_text, created_at, created_by)
+        VALUES (?,?,?,?,?)
+        ON CONFLICT(visit_id) DO UPDATE
+        SET auto_summary_text=excluded.auto_summary_text, updated_at=?, updated_by=?
+    """, (visit_id, auto_text, None, now, user, now, user))
     db.commit()
 
     log_action("UPDATE_ORDER", visit_id=visit_id, details=str(oid))
     flash("Clinical Order updated.", "success")
     return redirect(url_for("clinical_orders_page", visit_id=visit_id))
+
+
 @app.route("/clinical_orders/<visit_id>/duplicate/<int:oid>")
 @login_required
-@role_required("doctor","nurse","admin")
+@role_required("doctor", "nurse", "admin")
 def duplicate_clinical_order(visit_id, oid):
+
     now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     user = session.get("username")
 
     if USE_SUPABASE:
-        old = supabase.table("clinical_orders").select("*").eq("id", oid).eq("visit_id", visit_id).limit(1).execute()
-        if not old.data:
+        old = sb_get_order(visit_id, oid)
+        if not old:
             flash("Order not found.", "danger")
             return redirect(url_for("clinical_orders_page", visit_id=visit_id))
-        o = old.data[0]
 
-        supabase.table("clinical_orders").insert({
+        sb_add_order(visit_id, {
             "visit_id": visit_id,
-            "diagnosis": o.get("diagnosis"),
-            "radiology_orders": o.get("radiology_orders"),
-            "lab_orders": o.get("lab_orders"),
-            "medications": o.get("medications"),
+            "diagnosis": old.get("diagnosis"),
+            "radiology_orders": old.get("radiology_orders"),
+            "lab_orders": old.get("lab_orders"),
+            "medications": old.get("medications"),
             "duplicated_from": oid,
             "created_at": now,
             "created_by": user
-        }).execute()
+        })
 
         auto_text = build_auto_summary(visit_id)
-        try:
-            sb_upsert_discharge({"visit_id": visit_id, "auto_summary_text": auto_text, "updated_at": now, "updated_by": user})
-        except Exception:
-            pass
+        sb_upsert_discharge({
+            "visit_id": visit_id,
+            "auto_summary_text": auto_text,
+            "updated_at": now,
+            "updated_by": user,
+            "created_at": now,
+            "created_by": user
+        })
 
         log_action("DUPLICATE_ORDER", visit_id=visit_id, details=str(oid))
         flash("Order duplicated.", "success")
         return redirect(url_for("clinical_orders_page", visit_id=visit_id))
 
+    # -------- SQLite fallback --------
     db = get_db()
-    old = db.execute("SELECT * FROM clinical_orders WHERE id=? AND visit_id=?", (oid, visit_id)).fetchone()
+    old = db.execute("""
+        SELECT * FROM clinical_orders WHERE id=? AND visit_id=?
+    """, (oid, visit_id)).fetchone()
     if not old:
         flash("Order not found.", "danger")
         return redirect(url_for("clinical_orders_page", visit_id=visit_id))
@@ -1892,104 +1908,128 @@ def duplicate_clinical_order(visit_id, oid):
         INSERT INTO clinical_orders
         (visit_id, diagnosis, radiology_orders, lab_orders, medications, duplicated_from, created_at, created_by)
         VALUES (?,?,?,?,?,?,?,?)
-    """, (visit_id, old["diagnosis"], old["radiology_orders"], old["lab_orders"], old["medications"],
-            oid, now, user))
+    """, (visit_id, old["diagnosis"], old["radiology_orders"], old["lab_orders"],
+          old["medications"], oid, now, user))
     db.commit()
 
     auto_text = build_auto_summary(visit_id)
-    db.execute(
-        "UPDATE discharge_summaries SET auto_summary_text=?, updated_at=?, updated_by=? WHERE visit_id=?",
-        (auto_text, now, user, visit_id),
-    )
+    db.execute("""
+        INSERT INTO discharge_summaries (visit_id, auto_summary_text, summary_text, created_at, created_by)
+        VALUES (?,?,?,?,?)
+        ON CONFLICT(visit_id) DO UPDATE
+        SET auto_summary_text=excluded.auto_summary_text, updated_at=?, updated_by=?
+    """, (visit_id, auto_text, None, now, user, now, user))
     db.commit()
 
     log_action("DUPLICATE_ORDER", visit_id=visit_id, details=str(oid))
     flash("Order duplicated.", "success")
     return redirect(url_for("clinical_orders_page", visit_id=visit_id))
-@app.route("/clinical_orders/<visit_id>/delete/<int:oid>", methods=["POST"])
+
+
+@app.route("/clinical_orders/<visit_id>/delete/<int:oid>")
 @login_required
-@role_required("doctor","nurse","admin")
+@role_required("doctor", "nurse", "admin")
 def delete_clinical_order(visit_id, oid):
+
     now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     user = session.get("username")
 
     if USE_SUPABASE:
-        supabase.table("clinical_orders").delete().eq("id", oid).eq("visit_id", visit_id).execute()
+        sb_delete_order(visit_id, oid)
+
         auto_text = build_auto_summary(visit_id)
-        try:
-            sb_upsert_discharge({"visit_id": visit_id, "auto_summary_text": auto_text, "updated_at": now, "updated_by": user})
-        except Exception:
-            pass
+        sb_upsert_discharge({
+            "visit_id": visit_id,
+            "auto_summary_text": auto_text,
+            "updated_at": now,
+            "updated_by": user,
+            "created_at": now,
+            "created_by": user
+        })
+
         log_action("DELETE_ORDER", visit_id=visit_id, details=str(oid))
-        flash("Clinical Order deleted.", "success")
+        flash("Order deleted.", "success")
         return redirect(url_for("clinical_orders_page", visit_id=visit_id))
 
+    # -------- SQLite fallback --------
     db = get_db()
-    order = db.execute("SELECT id FROM clinical_orders WHERE id=? AND visit_id=?", (oid, visit_id)).fetchone()
-    if not order:
-        flash("Order not found.", "danger")
-        return redirect(url_for("clinical_orders_page", visit_id=visit_id))
-
-    db.execute("DELETE FROM clinical_orders WHERE id=? AND visit_id=?", (oid, visit_id))
+    db.execute("""
+        DELETE FROM clinical_orders WHERE id=? AND visit_id=?
+    """, (oid, visit_id))
     db.commit()
 
     auto_text = build_auto_summary(visit_id)
-    db.execute(
-        "UPDATE discharge_summaries SET auto_summary_text=?, updated_at=?, updated_by=? WHERE visit_id=?",
-        (auto_text, now, user, visit_id),
-    )
+    db.execute("""
+        INSERT INTO discharge_summaries (visit_id, auto_summary_text, summary_text, created_at, created_by)
+        VALUES (?,?,?,?,?)
+        ON CONFLICT(visit_id) DO UPDATE
+        SET auto_summary_text=excluded.auto_summary_text, updated_at=?, updated_by=?
+    """, (visit_id, auto_text, None, now, user, now, user))
     db.commit()
 
     log_action("DELETE_ORDER", visit_id=visit_id, details=str(oid))
-    flash("Clinical Order deleted.", "success")
+    flash("Order deleted.", "success")
     return redirect(url_for("clinical_orders_page", visit_id=visit_id))
+
+
 @app.route("/clinical_orders/<visit_id>/pdf/<int:oid>")
 @login_required
 def clinical_order_pdf(visit_id, oid):
-    db = get_db()
-    cur = db.cursor()
-    visit = cur.execute("""
-        SELECT v.visit_id, p.name, p.id_number, p.insurance
-        FROM visits v JOIN patients p ON p.id=v.patient_id
-        WHERE v.visit_id=?
-    """,(visit_id,)).fetchone()
-    order = cur.execute("""
-        SELECT * FROM clinical_orders WHERE id=? AND visit_id=?
-    """,(oid, visit_id)).fetchone()
-    if not order or not visit:
-        return "Not found", 404
+    # fetch visit + order in correct backend
+    if USE_SUPABASE:
+        visit = sb_get_visit_with_patient(visit_id)
+        order = sb_get_order(visit_id, oid)
+        if not visit or not order:
+            return "Not found", 404
+        pat_name = visit.get("name")
+        pat_id = visit.get("id_number")
+        pat_ins = visit.get("insurance")
+        visit_code = visit.get("visit_id")
+    else:
+        db = get_db()
+        visit = db.execute("""
+            SELECT v.visit_id, p.name, p.id_number, p.insurance
+            FROM visits v JOIN patients p ON p.id=v.patient_id
+            WHERE v.visit_id=?
+        """, (visit_id,)).fetchone()
+        order = db.execute("""
+            SELECT * FROM clinical_orders WHERE id=? AND visit_id=?
+        """, (oid, visit_id)).fetchone()
+        if not visit or not order:
+            return "Not found", 404
+        pat_name = visit["name"]
+        pat_id = visit["id_number"]
+        pat_ins = visit["insurance"]
+        visit_code = visit["visit_id"]
 
     buffer = io.BytesIO()
     c = canvas.Canvas(buffer, pagesize=A4)
     width, height = A4
-    y = height - 2*cm
 
-    c.setFont("Helvetica-Bold", 16)
-    c.drawString(2*cm, y, "Clinical Order")
-    y -= 1*cm
-    c.setFont("Helvetica", 11)
-    c.drawString(2*cm, y, f"Visit: {visit_id}   Order#: {oid}")
-    y -= 0.7*cm
-    c.drawString(2*cm, y, f"Patient: {visit['name']}   ID: {visit['id_number']}")
-    y -= 0.8*cm
+    c.setFont("Helvetica-Bold", 14)
+    c.drawString(2*cm, height-2*cm, f"{APP_NAME} - Clinical Order")
+    c.setFont("Helvetica", 10)
+    c.drawString(2*cm, height-2.8*cm, f"Visit ID: {visit_code}")
+    c.drawString(2*cm, height-3.4*cm, f"Patient: {pat_name or '-'}")
+    c.drawString(2*cm, height-4.0*cm, f"ID: {pat_id or '-'}   Insurance: {pat_ins or '-'}")
+
+    y = height-5.2*cm
 
     def section(title, text):
         nonlocal y
-        c.setFont("Helvetica-Bold", 12)
+        c.setFont("Helvetica-Bold", 11)
         c.drawString(2*cm, y, title)
         y -= 0.6*cm
         c.setFont("Helvetica", 10)
-        for line in (text or "-").splitlines():
-            c.drawString(2.2*cm, y, line[:110])
-            y -= 0.45*cm
-            if y < 2*cm:
-                c.showPage(); y = height - 2*cm
+        for line in (text or "-").splitlines() or ["-"]:
+            c.drawString(2*cm, y, line[:110])
+            y -= 0.5*cm
         y -= 0.3*cm
 
-    section("Diagnosis / Chief Complaint:", order["diagnosis"])
-    section("Radiology orders:", order["radiology_orders"])
-    section("Lab orders:", order["lab_orders"])
-    section("Medications:", order["medications"])
+    section("Diagnosis / Chief Complaint:", order.get("diagnosis") if isinstance(order, dict) else order["diagnosis"])
+    section("Radiology Orders:", order.get("radiology_orders") if isinstance(order, dict) else order["radiology_orders"])
+    section("Lab Orders:", order.get("lab_orders") if isinstance(order, dict) else order["lab_orders"])
+    section("Medications:", order.get("medications") if isinstance(order, dict) else order["medications"])
 
     c.setFont("Helvetica-Oblique", 8)
     c.drawString(2*cm, 1.2*cm, APP_FOOTER_TEXT)
@@ -2000,6 +2040,7 @@ def clinical_order_pdf(visit_id, oid):
     return Response(buffer.getvalue(), mimetype="application/pdf",
                     headers={"Content-Disposition": "inline; filename=clinical_order.pdf"})
 
+# ======================= End Clinical Orders =======================
 @app.route("/nursing_notes/<visit_id>/add", methods=["POST"])
 @login_required
 @role_required("nurse","doctor","admin")
@@ -2009,44 +2050,40 @@ def add_nursing_note(visit_id):
         flash("Enter note text.", "danger")
         return redirect(url_for("clinical_orders_page", visit_id=visit_id))
 
+    
+if USE_SUPABASE:
+    note_text = clean_text(request.form.get("note_text","").strip())
     now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     user = session.get("username")
+    supabase.table("nursing_notes").insert({
+        "visit_id": visit_id,
+        "note_text": note_text,
+        "created_at": now,
+        "created_by": user
+    }).execute()
+    auto_text = build_auto_summary(visit_id)
+    sb_upsert_discharge({"visit_id": visit_id, "auto_summary_text": auto_text, "updated_at": now, "updated_by": user})
+    log_action("ADD_NOTE", visit_id=visit_id)
+    flash("Note saved.", "success")
+    return redirect(url_for("clinical_orders_page", visit_id=visit_id))
 
-    if USE_SUPABASE:
-        supabase.table("nursing_notes").insert({
-            "visit_id": visit_id,
-            "note_text": text,
-            "created_at": now,
-            "created_by": user
-        }).execute()
+db = get_db()
 
-        auto_text = build_auto_summary(visit_id)
-        try:
-            sb_upsert_discharge({"visit_id": visit_id, "auto_summary_text": auto_text, "updated_at": now, "updated_by": user})
-        except Exception:
-            pass
-
-        log_action("ADD_NOTE", visit_id=visit_id)
-        flash("Nursing note saved.", "success")
-        return redirect(url_for("clinical_orders_page", visit_id=visit_id))
-
-    db = get_db()
     db.execute("""
         INSERT INTO nursing_notes (visit_id, note_text, created_at, created_by)
         VALUES (?,?,?,?)
-    """, (visit_id, text, now, user))
+    """,(visit_id, text, datetime.now().strftime("%Y-%m-%d %H:%M:%S"), session.get("username")))
     db.commit()
 
     auto_text = build_auto_summary(visit_id)
-    db.execute(
-        "UPDATE discharge_summaries SET auto_summary_text=?, updated_at=?, updated_by=? WHERE visit_id=?",
-        (auto_text, now, user, visit_id),
-    )
+    db.execute("UPDATE discharge_summaries SET auto_summary_text=?, updated_at=?, updated_by=? WHERE visit_id=?",
+               (auto_text, datetime.now().strftime("%Y-%m-%d %H:%M:%S"), session.get("username"), visit_id))
     db.commit()
 
     log_action("ADD_NOTE", visit_id=visit_id)
     flash("Nursing note saved.", "success")
     return redirect(url_for("clinical_orders_page", visit_id=visit_id))
+
 @app.route("/nursing_notes/<visit_id>/pdf")
 @login_required
 def nursing_notes_pdf(visit_id):
@@ -2089,35 +2126,39 @@ def nursing_notes_pdf(visit_id):
 @login_required
 @role_required("doctor","reception","admin")
 def discharge_save(visit_id):
+
+if USE_SUPABASE:
+    diagnosis_cc = clean_text(request.form.get("diagnosis_cc","").strip())
+    referral_clinic = clean_text(request.form.get("referral_clinic","").strip())
+    home_medication = clean_text(request.form.get("home_medication","").strip())
+    summary_text = clean_text(request.form.get("summary_text","").strip())
+    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    user = session.get("username")
+    auto_text = build_auto_summary(visit_id)
+    sb_upsert_discharge({
+        "visit_id": visit_id,
+        "diagnosis_cc": diagnosis_cc,
+        "referral_clinic": referral_clinic,
+        "home_medication": home_medication,
+        "summary_text": summary_text,
+        "auto_summary_text": auto_text,
+        "created_at": now,
+        "created_by": user,
+        "updated_at": now,
+        "updated_by": user
+    })
+    log_action("SAVE_DISCHARGE", visit_id=visit_id)
+    flash("Discharge summary saved.", "success")
+    return redirect(url_for("clinical_orders_page", visit_id=visit_id))
     diagnosis_cc = clean_text(request.form.get("diagnosis_cc","").strip())
     referral_clinic = clean_text(request.form.get("referral_clinic","").strip())
     home_medication = clean_text(request.form.get("home_medication","").strip())
     text = clean_text(request.form.get("summary_text","").strip())
 
-    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    user = session.get("username")
+    db=get_db(); cur=db.cursor()
+    exists = cur.execute("SELECT * FROM discharge_summaries WHERE visit_id=?", (visit_id,)).fetchone()
+    now=datetime.now().strftime("%Y-%m-%d %H:%M:%S"); user=session.get("username")
     auto_text = build_auto_summary(visit_id)
-
-    if USE_SUPABASE:
-        sb_upsert_discharge({
-            "visit_id": visit_id,
-            "diagnosis_cc": diagnosis_cc,
-            "referral_clinic": referral_clinic,
-            "home_medication": home_medication,
-            "summary_text": text,
-            "auto_summary_text": auto_text,
-            "created_at": now,
-            "created_by": user,
-            "updated_at": now,
-            "updated_by": user,
-        })
-        log_action("SAVE_DISCHARGE", visit_id=visit_id)
-        flash("Discharge summary saved.", "success")
-        return redirect(url_for("clinical_orders_page", visit_id=visit_id))
-
-    db = get_db()
-    cur = db.cursor()
-    exists = cur.execute("SELECT id FROM discharge_summaries WHERE visit_id=?", (visit_id,)).fetchone()
 
     if exists:
         db.execute("""
@@ -2125,15 +2166,13 @@ def discharge_save(visit_id):
                 diagnosis_cc=?, referral_clinic=?, home_medication=?, summary_text=?,
                 auto_summary_text=?, updated_at=?, updated_by=?
             WHERE visit_id=?
-        """, (diagnosis_cc, referral_clinic, home_medication, text, auto_text, now, user, visit_id))
+        """,(diagnosis_cc, referral_clinic, home_medication, text, auto_text, now, user, visit_id))
     else:
         db.execute("""
             INSERT INTO discharge_summaries
-            (visit_id, diagnosis_cc, referral_clinic, home_medication, summary_text,
-             auto_summary_text, created_at, created_by)
+            (visit_id, diagnosis_cc, referral_clinic, home_medication, summary_text, auto_summary_text, created_at, created_by)
             VALUES (?,?,?,?,?,?,?,?)
-        """, (visit_id, diagnosis_cc, referral_clinic, home_medication, text, auto_text, now, user))
-
+        """,(visit_id, diagnosis_cc, referral_clinic, home_medication, text, auto_text, now, user))
     db.commit()
     log_action("SAVE_DISCHARGE", visit_id=visit_id)
     flash("Discharge summary saved.", "success")
