@@ -28,7 +28,7 @@ from werkzeug.security import generate_password_hash, check_password_hash
 from werkzeug.utils import secure_filename
 from jinja2 import DictLoader
 import os, io, csv, shutil, threading, time
-
+import json 
 
 # ===================== Supabase (Cloud DB) =====================
 try:
