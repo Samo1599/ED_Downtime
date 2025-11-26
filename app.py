@@ -846,9 +846,12 @@ def ed_board():
     sql += """
         ORDER BY 
             CASE 
-                WHEN v.triage_cat='Red' THEN 1
-                WHEN v.triage_cat='Orange' THEN 2
-                ELSE 3
+                WHEN v.triage_cat='ES1' THEN 1
+                WHEN v.triage_cat='ES2' THEN 2
+                WHEN v.triage_cat='ES3' THEN 3
+                WHEN v.triage_cat='ES4' THEN 4
+                WHEN v.triage_cat='ES5' THEN 5
+                ELSE 6
             END,
             v.id DESC
         LIMIT ? OFFSET ?
@@ -1073,7 +1076,7 @@ def triage(visit_id):
         comment = request.form.get("comment","").strip()
 
         if not cat:
-            flash("Triage Category (CAT) is required.", "danger")
+            flash("Triage Category (ES) is required.", "danger")
             return redirect(url_for("triage", visit_id=visit_id))
 
         db.execute("""
@@ -2198,6 +2201,178 @@ def home_med_pdf(visit_id):
         headers={"Content-Disposition": "inline; filename=home_medication.pdf"}
     )
 
+
+@app.route("/patient_summary/<visit_id>/pdf")
+@login_required
+def patient_summary_pdf(visit_id):
+    db = get_db()
+    cur = db.cursor()
+
+    visit = cur.execute("""
+        SELECT v.visit_id, v.comment, v.triage_cat, v.triage_status,
+               v.created_at, v.status,
+               p.name, p.id_number, p.insurance, p.insurance_no
+        FROM visits v
+        JOIN patients p ON p.id = v.patient_id
+        WHERE v.visit_id=?
+    """, (visit_id,)).fetchone()
+
+    if not visit:
+        return "Not found", 404
+
+    summary = cur.execute("""
+        SELECT diagnosis_cc, home_medication
+        FROM discharge_summaries
+        WHERE visit_id=?
+    """, (visit_id,)).fetchone()
+
+    labs = cur.execute("""
+        SELECT test_name, status, result_text
+        FROM lab_requests
+        WHERE visit_id=?
+        ORDER BY id ASC
+    """, (visit_id,)).fetchall()
+
+    rads = cur.execute("""
+        SELECT test_name, status, report_text
+        FROM radiology_requests
+        WHERE visit_id=?
+        ORDER BY id ASC
+    """, (visit_id,)).fetchall()
+
+    buffer = io.BytesIO()
+    c = canvas.Canvas(buffer, pagesize=A4)
+    width, height = A4
+    y = height - 2*cm
+
+    c.setFont("Helvetica-Bold", 16)
+    c.drawString(2*cm, y, "Patient Short Summary")
+    y -= 1.0*cm
+
+    c.setFont("Helvetica", 11)
+    c.drawString(2*cm, y, f"Visit ID: {visit['visit_id']}")
+    y -= 0.7*cm
+    c.drawString(2*cm, y, f"Patient: {visit['name']}")
+    y -= 0.6*cm
+    id_ins = f"ID: {visit['id_number'] or '-'}"
+    ins = visit["insurance"] or "-"
+    ins_no = visit["insurance_no"] or "-"
+    c.drawString(2*cm, y, f"{id_ins}    INS: {ins} / {ins_no}")
+    y -= 0.6*cm
+    c.drawString(2*cm, y, f"Date: {visit['created_at']}")
+    y -= 0.8*cm
+
+    c.setFont("Helvetica-Bold", 12)
+    c.drawString(2*cm, y, "Triage:")
+    y -= 0.6*cm
+    c.setFont("Helvetica", 10)
+    triage_cat = visit["triage_cat"] or "-"
+    triage_status = visit["triage_status"] or "-"
+    c.drawString(2*cm, y, f"Status: {triage_status}   ES: {triage_cat}")
+    y -= 0.5*cm
+    if visit["comment"]:
+        c.drawString(2*cm, y, f"Chief Complaint: {visit['comment'][:90]}")
+        y -= 0.6*cm
+
+    c.setFont("Helvetica-Bold", 12)
+    c.drawString(2*cm, y, "Diagnosis / Impression:")
+    y -= 0.6*cm
+    c.setFont("Helvetica", 10)
+    diag_text = (summary["diagnosis_cc"] if summary and summary["diagnosis_cc"] else "-")
+    for line in diag_text.splitlines():
+        c.drawString(2*cm, y, line[:110])
+        y -= 0.45*cm
+        if y < 2*cm:
+            c.showPage()
+            y = height - 2*cm
+            c.setFont("Helvetica", 10)
+    y -= 0.3*cm
+
+    c.setFont("Helvetica-Bold", 12)
+    c.drawString(2*cm, y, "Lab Results:")
+    y -= 0.6*cm
+    c.setFont("Helvetica", 10)
+    if not labs:
+        c.drawString(2*cm, y, "No lab tests recorded.")
+        y -= 0.5*cm
+    else:
+        for l in labs:
+            line = f"- {l['test_name']}: "
+            if l["result_text"]:
+                line += l["result_text"].replace("\n", " ")[:70]
+            else:
+                line += f"{l['status'] or 'PENDING'}"
+            c.drawString(2*cm, y, line[:110])
+            y -= 0.45*cm
+            if y < 2*cm:
+                c.showPage()
+                y = height - 2*cm
+                c.setFont("Helvetica", 10)
+    y -= 0.3*cm
+
+    c.setFont("Helvetica-Bold", 12)
+    c.drawString(2*cm, y, "Radiology Reports:")
+    y -= 0.6*cm
+    c.setFont("Helvetica", 10)
+    if not rads:
+        c.drawString(2*cm, y, "No radiology studies recorded.")
+        y -= 0.5*cm
+    else:
+        for r in rads:
+            title = f"- {r['test_name']}:"
+            c.drawString(2*cm, y, title[:110])
+            y -= 0.45*cm
+            if r["report_text"]:
+                for line in (r["report_text"] or "").splitlines():
+                    if not line.strip():
+                        continue
+                    c.drawString(2.2*cm, y, line[:100])
+                    y -= 0.42*cm
+                    if y < 2*cm:
+                        c.showPage()
+                        y = height - 2*cm
+                        c.setFont("Helvetica", 10)
+            else:
+                c.drawString(2.2*cm, y, (r["status"] or "PENDING")[:100])
+                y -= 0.42*cm
+            if y < 2*cm:
+                c.showPage()
+                y = height - 2*cm
+                c.setFont("Helvetica", 10)
+    y -= 0.3*cm
+
+    c.setFont("Helvetica-Bold", 12)
+    c.drawString(2*cm, y, "Home Medication / Instructions:")
+    y -= 0.6*cm
+    c.setFont("Helvetica", 10)
+    home_med = (summary["home_medication"] if summary and summary["home_medication"] else "")
+    if not home_med.strip():
+        c.drawString(2*cm, y, "None recorded.")
+        y -= 0.5*cm
+    else:
+        for line in home_med.splitlines():
+            c.drawString(2*cm, y, line[:110])
+            y -= 0.45*cm
+            if y < 2*cm:
+                c.showPage()
+                y = height - 2*cm
+                c.setFont("Helvetica", 10)
+    y -= 0.5*cm
+
+    c.setFont("Helvetica-Oblique", 8)
+    c.drawString(2*cm, y, "This is a patient copy. For full clinical details, refer to the hospital medical record.")
+    c.drawString(2*cm, 1.2*cm, APP_FOOTER_TEXT)
+
+    c.showPage()
+    c.save()
+    buffer.seek(0)
+
+    return Response(
+        buffer.getvalue(),
+        mimetype="application/pdf",
+        headers={"Content-Disposition": "inline; filename=patient_summary.pdf"}
+    )
+
 # ============================================================
 # Sticker HTML + ZPL
 # ============================================================
@@ -2268,10 +2443,11 @@ TEMPLATES = {
     .nav-link { font-weight:600; }
     .badge-triage-no { background:#999; }
     .badge-triage-yes { background:#198754; }
-    .cat-red { background:#dc3545; }
-    .cat-yellow { background:#ffc107; color:#000; }
-    .cat-green { background:#198754; }
-    .cat-orange { background:#fd7e14; }
+    .cat-es1 { background:#dc3545; }
+    .cat-es2 { background:#fd7e14; }
+    .cat-es3 { background:#ffc107; color:#000; }
+    .cat-es4 { background:#198754; }
+    .cat-es5 { background:#0d6efd; }
     .cat-none { background:#6c757d; }
   </style>
 </head>
@@ -2551,7 +2727,7 @@ TEMPLATES = {
   <thead>
     <tr>
       <th>Visit</th><th>Queue</th><th>Name</th><th>ID</th><th>INS</th><th>INS No</th>
-      <th>Phone</th><th>Comment</th><th>Triage</th><th>CAT</th><th>Status</th><th>Actions</th>
+      <th>Phone</th><th>Comment</th><th>Triage</th><th>ES</th><th>Status</th><th>Actions</th>
     </tr>
   </thead>
   <tbody>
@@ -2567,11 +2743,12 @@ TEMPLATES = {
       <td>{{ r.comment or '-' }}</td>
       <td>{{ r.triage_status }}</td>
       <td>
-        {% set cat = (r.triage_cat or '').lower() %}
-        {% if cat == 'red' %}<span class="badge cat-red">Red</span>
-        {% elif cat == 'yellow' %}<span class="badge cat-yellow">Yellow</span>
-        {% elif cat == 'green' %}<span class="badge cat-green">Green</span>
-        {% elif cat == 'orange' %}<span class="badge cat-orange">Orange</span>
+        {% set cat = (r.triage_cat or '').upper() %}
+        {% if cat == 'ES1' %}<span class="badge cat-es1">ES1</span>
+        {% elif cat == 'ES2' %}<span class="badge cat-es2">ES2</span>
+        {% elif cat == 'ES3' %}<span class="badge cat-es3">ES3</span>
+        {% elif cat == 'ES4' %}<span class="badge cat-es4">ES4</span>
+        {% elif cat == 'ES5' %}<span class="badge cat-es5">ES5</span>
         {% else %}<span class="badge cat-none">-</span>{% endif %}
       </td>
       <td>{{ r.status }}</td>
@@ -2625,13 +2802,14 @@ TEMPLATES = {
     </div>
 
     <div class="col-md-2">
-      <label class="form-label fw-bold small">CAT</label>
+      <label class="form-label fw-bold small">ES</label>
       <select name="cat" class="form-select form-select-sm" onchange="this.form.submit()">
-        <option value="ALL" {% if cat_filter=="ALL" %}selected{% endif %}>All CAT</option>
-        <option value="Red" {% if cat_filter=="Red" %}selected{% endif %}>Red</option>
-        <option value="Orange" {% if cat_filter=="Orange" %}selected{% endif %}>Orange</option>
-        <option value="Yellow" {% if cat_filter=="Yellow" %}selected{% endif %}>Yellow</option>
-        <option value="Green" {% if cat_filter=="Green" %}selected{% endif %}>Green</option>
+        <option value="ALL" {% if cat_filter=="ALL" %}selected{% endif %}>All ES</option>
+        <option value="ES1" {% if cat_filter=="ES1" %}selected{% endif %}>ES1</option>
+        <option value="ES2" {% if cat_filter=="ES2" %}selected{% endif %}>ES2</option>
+        <option value="ES3" {% if cat_filter=="ES3" %}selected{% endif %}>ES3</option>
+        <option value="ES4" {% if cat_filter=="ES4" %}selected{% endif %}>ES4</option>
+        <option value="ES5" {% if cat_filter=="ES5" %}selected{% endif %}>ES5</option>
       </select>
     </div>
 
@@ -2667,7 +2845,7 @@ TEMPLATES = {
   <thead>
     <tr>
       <th>Queue</th><th>Visit</th><th>Name</th><th>ID</th><th>INS</th>
-      <th>Comment</th><th>Triage</th><th>CAT</th><th>Status</th><th>Created</th><th>Actions</th>
+      <th>Comment</th><th>Triage</th><th>ES</th><th>Status</th><th>Created</th><th>Actions</th>
     </tr>
   </thead>
   <tbody>
@@ -2684,11 +2862,12 @@ TEMPLATES = {
         {% else %}<span class="badge badge-triage-no">NO</span>{% endif %}
       </td>
       <td>
-        {% set cat = (v.triage_cat or '').lower() %}
-        {% if cat == 'red' %}<span class="badge cat-red">Red</span>
-        {% elif cat == 'yellow' %}<span class="badge cat-yellow">Yellow</span>
-        {% elif cat == 'green' %}<span class="badge cat-green">Green</span>
-        {% elif cat == 'orange' %}<span class="badge cat-orange">Orange</span>
+        {% set cat = (v.triage_cat or '').upper() %}
+        {% if cat == 'ES1' %}<span class="badge cat-es1">ES1</span>
+        {% elif cat == 'ES2' %}<span class="badge cat-es2">ES2</span>
+        {% elif cat == 'ES3' %}<span class="badge cat-es3">ES3</span>
+        {% elif cat == 'ES4' %}<span class="badge cat-es4">ES4</span>
+        {% elif cat == 'ES5' %}<span class="badge cat-es5">ES5</span>
         {% else %}<span class="badge cat-none">-</span>{% endif %}
       </td>
       <td>{{ v.status }}</td>
@@ -2772,11 +2951,12 @@ TEMPLATES = {
   </div>
 
   <div class="mt-2"><strong>Triage CAT:</strong>
-    {% set cat = (visit.triage_cat or '').lower() %}
-    {% if cat == 'red' %}<span class="badge cat-red">Red</span>
-    {% elif cat == 'yellow' %}<span class="badge cat-yellow">Yellow</span>
-    {% elif cat == 'green' %}<span class="badge cat-green">Green</span>
-    {% elif cat == 'orange' %}<span class="badge cat-orange">Orange</span>
+    {% set cat = (visit.triage_cat or '').upper() %}
+    {% if cat == 'ES1' %}<span class="badge cat-es1">ES1</span>
+    {% elif cat == 'ES2' %}<span class="badge cat-es2">ES2</span>
+    {% elif cat == 'ES3' %}<span class="badge cat-es3">ES3</span>
+    {% elif cat == 'ES4' %}<span class="badge cat-es4">ES4</span>
+    {% elif cat == 'ES5' %}<span class="badge cat-es5">ES5</span>
     {% else %}<span class="badge cat-none">-</span>{% endif %}
   </div>
 </div>
@@ -2796,6 +2976,9 @@ TEMPLATES = {
 
   {% if session.get('role') in ['nurse','doctor','admin'] %}
     <a class="btn btn-outline-dark" target="_blank" href="{{ url_for('auto_summary_pdf', visit_id=visit.visit_id) }}">Auto Summary</a>
+  {% if session.get('role') in ['reception','nurse','doctor','admin'] %}
+    <a class="btn btn-outline-primary" target="_blank" href="{{ url_for('patient_summary_pdf', visit_id=visit.visit_id) }}">Patient Summary</a>
+  {% endif %}
   {% endif %}
 
   {% if session.get('role') in ['reception','nurse','doctor','admin'] %}
@@ -2951,13 +3134,14 @@ TEMPLATES = {
 
   <hr class="my-3">
 
-  <label class="form-label fw-bold mt-2">Triage Category (CAT)</label>
+  <label class="form-label fw-bold mt-2">Triage Category (ES)</label>
   <select class="form-select" name="triage_cat" required>
     <option value="">-- Select --</option>
-    <option value="Red" {% if visit.triage_cat=='Red' %}selected{% endif %}>Red</option>
-    <option value="Yellow" {% if visit.triage_cat=='Yellow' %}selected{% endif %}>Yellow</option>
-    <option value="Green" {% if visit.triage_cat=='Green' %}selected{% endif %}>Green</option>
-    <option value="Orange" {% if visit.triage_cat=='Orange' %}selected{% endif %}>Orange</option>
+    <option value="ES1" {% if visit.triage_cat=='ES1' %}selected{% endif %}>ES1</option>
+    <option value="ES2" {% if visit.triage_cat=='ES2' %}selected{% endif %}>ES2</option>
+    <option value="ES3" {% if visit.triage_cat=='ES3' %}selected{% endif %}>ES3</option>
+    <option value="ES4" {% if visit.triage_cat=='ES4' %}selected{% endif %}>ES4</option>
+    <option value="ES5" {% if visit.triage_cat=='ES5' %}selected{% endif %}>ES5</option>
   </select>
 
   <button class="btn btn-success mt-3">Save Triage</button>
