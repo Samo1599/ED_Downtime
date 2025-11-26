@@ -18,8 +18,8 @@ V5 adds:
 - Sticker HTML + ZPL 5x3cm (fixed)
 """
 from flask import (
-    Flask, request, g, redirect, url_for, render_template, session, Response, send_from_directory, flash,
-    jsonify
+    Flask, request, g, redirect, url_for,
+    render_template, session, Response, send_from_directory, flash
 )
 import sqlite3
 from datetime import datetime, timedelta
@@ -28,25 +28,6 @@ from werkzeug.security import generate_password_hash, check_password_hash
 from werkzeug.utils import secure_filename
 from jinja2 import DictLoader
 import os, io, csv, shutil, threading, time
-
-
-# ===================== Supabase (Cloud DB) =====================
-try:
-    from supabase import create_client, Client
-except Exception:
-    create_client = None
-    Client = None
-
-SUPABASE_URL = os.environ.get("SUPABASE_URL","").strip()
-SUPABASE_KEY = os.environ.get("SUPABASE_KEY","").strip()  # use service_role on server
-USE_SUPABASE = bool(SUPABASE_URL and SUPABASE_KEY and create_client)
-
-supabase = None
-if USE_SUPABASE:
-    supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
-
-SUPABASE_BUCKET = os.environ.get("SUPABASE_BUCKET","").strip()  # optional for attachments
-# ==============================================================
 
 # PDF
 from reportlab.lib.pagesizes import A4
@@ -59,307 +40,6 @@ from reportlab.lib.units import cm
 
 app = Flask(__name__)
 app.config["SECRET_KEY"] = "CHANGE_ME_TO_SECURE_KEY"
-
-
-# ========= Simple API Key protection for Power Automate / Power Apps =========
-API_KEY = os.environ.get("ED_API_KEY", "CHANGE_ME")  # put same value in Render Environment
-
-def require_api_key():
-    key = request.headers.get("X-API-Key")
-    return key == API_KEY
-
-@app.route("/api/ping", methods=["GET"])
-def api_ping():
-    if not require_api_key():
-        return jsonify({"error": "unauthorized"}), 401
-    return jsonify({"ok": True, "service": "ED_Downtime"}), 200
-
-
-# ========= External API Endpoints (for Power Automate / Power Apps) =========
-# All endpoints require header:  X-API-Key: <ED_API_KEY>
-
-@app.route("/api/register", methods=["POST"])
-def api_register():
-    """Register patient + start visit.
-    Expected JSON:
-      name (required), id_number, phone, insurance, insurance_no, dob, sex, nationality, comment
-    """
-    if not require_api_key():
-        return jsonify({"error": "unauthorized"}), 401
-
-    data = request.get_json(silent=True) or {}
-    name = (data.get("name") or "").strip()
-    if not name:
-        return jsonify({"error": "name is required"}), 400
-
-    id_number = (data.get("id_number") or data.get("id") or "").strip()
-    phone = (data.get("phone") or "").strip()
-    insurance = (data.get("insurance") or "").strip()
-    insurance_no = (data.get("insurance_no") or data.get("insurance_number") or "").strip()
-    dob = (data.get("dob") or "").strip()
-    sex = (data.get("sex") or "").strip()
-    nationality = (data.get("nationality") or "").strip()
-    comment = (data.get("comment") or "").strip()
-
-    db = get_db()
-    now_ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-
-    # Create patient
-    cur = db.cursor()
-    cur.execute("""
-        INSERT INTO patients
-            (name, id_number, phone, insurance, insurance_no, dob, sex, nationality, created_at, created_by)
-        VALUES (?,?,?,?,?,?,?,?,?,?)
-    """, (name, id_number, phone, insurance, insurance_no, dob, sex, nationality, now_ts, "API"))
-    patient_id = cur.lastrowid
-
-    # Create visit
-    visit_id = generate_visit_id()
-    queue_no = generate_queue_no()
-    cur.execute("""
-        INSERT INTO visits
-            (visit_id, patient_id, queue_no, triage_status, status, comment, created_at, created_by)
-        VALUES (?,?,?,?,?,?,?,?)
-    """, (visit_id, patient_id, queue_no, "NO", "OPEN", comment, now_ts, "API"))
-
-    db.commit()
-
-    # Log
-    cur.execute("""
-        INSERT INTO activity_log (action, visit_id, username, details, created_at)
-        VALUES (?,?,?,?,?)
-    """, ("API_REGISTER", visit_id, "API", f"name={name}, id_number={id_number}", now_ts))
-    db.commit()
-
-    return jsonify({
-        "ok": True,
-        "visit_id": visit_id,
-        "queue_no": queue_no,
-        "patient_id": patient_id
-    }), 201
-
-
-@app.route("/api/triage", methods=["POST"])
-def api_triage():
-    """Update triage/vitals for a visit.
-    Expected JSON:
-      visit_id (required),
-      triage_cat (required),
-      allergy_status, pulse_rate, resp_rate, bp_systolic, bp_diastolic,
-      temperature, consciousness_level, spo2, pain_score, comment
-    """
-    if not require_api_key():
-        return jsonify({"error": "unauthorized"}), 401
-
-    data = request.get_json(silent=True) or {}
-    visit_id = (data.get("visit_id") or "").strip()
-    if not visit_id:
-        return jsonify({"error": "visit_id is required"}), 400
-
-    cat = (data.get("triage_cat") or data.get("cat") or "").strip()
-    if not cat:
-        return jsonify({"error": "triage_cat is required"}), 400
-
-    allowed_fields = [
-        "comment",
-        "allergy_status", "pulse_rate", "resp_rate",
-        "bp_systolic", "bp_diastolic",
-        "temperature", "consciousness_level",
-        "spo2", "pain_score"
-    ]
-
-    updates = {"triage_status": "YES", "triage_cat": cat}
-    for f in allowed_fields:
-        if f in data:
-            updates[f] = (data.get(f) or "").strip()
-
-    set_clause = ", ".join([f"{k}=?" for k in updates.keys()])
-    values = list(updates.values()) + [visit_id]
-
-    db = get_db()
-    cur = db.cursor()
-    cur.execute(f"UPDATE visits SET {set_clause} WHERE visit_id=?", values)
-    if cur.rowcount == 0:
-        return jsonify({"error": "visit not found"}), 404
-
-    now_ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    cur.execute("""
-        INSERT INTO activity_log (action, visit_id, username, details, created_at)
-        VALUES (?,?,?,?,?)
-    """, ("API_TRIAGE", visit_id, "API", json.dumps({k: updates[k] for k in updates}), now_ts))
-    db.commit()
-
-    return jsonify({"ok": True, "visit_id": visit_id}), 200
-
-
-@app.route("/api/visit", methods=["GET"])
-def api_visit():
-    """Get visit + patient data. Use ?visit_id=YYYYMMDD00001"""
-    if not require_api_key():
-        return jsonify({"error": "unauthorized"}), 401
-
-    visit_id = (request.args.get("visit_id") or "").strip()
-    if not visit_id:
-        return jsonify({"error": "visit_id query param is required"}), 400
-
-    
-if USE_SUPABASE:
-    v = sb_get_visit_with_patient(visit_id)
-    if not v:
-        return jsonify({"error": "visit not found"}), 404
-    p = v.get("patients") or {}
-    out = {**{k: v.get(k) for k in v.keys() if k!="patients"},
-           "patient_name": p.get("name"),
-           "id_number": p.get("id_number"),
-           "phone": p.get("phone"),
-           "insurance": p.get("insurance"),
-           "insurance_no": p.get("insurance_no")}
-    return jsonify(out), 200
-
-db = get_db()
-    v = db.execute("""
-        SELECT v.*, p.name as patient_name, p.id_number, p.phone, p.insurance, p.insurance_no
-        FROM visits v
-        JOIN patients p ON p.id=v.patient_id
-        WHERE v.visit_id=?
-    """, (visit_id,)).fetchone()
-    if not v:
-        return jsonify({"error": "visit not found"}), 404
-
-    return jsonify(dict(v)), 200
-
-
-
-
-@app.route("/api/board", methods=["GET"])
-def api_board():
-    if not require_api_key():
-        return jsonify({"error": "unauthorized"}), 401
-    status = (request.args.get("status") or "ALL").strip().upper()
-    cat = (request.args.get("cat") or "ALL").strip().upper()
-    limit = int(request.args.get("limit") or 200)
-    offset = int(request.args.get("offset") or 0)
-
-    if USE_SUPABASE:
-        items = sb_list_board(status=status, cat=cat, limit=limit, offset=offset)
-        out=[]
-        for v in items:
-            p=v.get("patients") or {}
-            out.append({
-                "visit_id": v.get("visit_id"),
-                "queue_no": v.get("queue_no"),
-                "status": v.get("status"),
-                "cat": v.get("cat"),
-                "created_at": v.get("created_at"),
-                "name": p.get("name"),
-                "id_number": p.get("id_number"),
-                "phone": p.get("phone"),
-                "insurance": p.get("insurance"),
-                "insurance_no": p.get("insurance_no"),
-            })
-        return jsonify({"ok": True, "visits": out}), 200
-
-    db=get_db()
-    rows=db.execute("""
-        SELECT v.*, p.name, p.id_number, p.phone, p.insurance, p.insurance_no
-        FROM visits v JOIN patients p ON p.id=v.patient_id
-        ORDER BY v.created_at DESC LIMIT ? OFFSET ?
-    """,(limit,offset)).fetchall()
-    return jsonify({"ok": True, "visits": [dict(r) for r in rows]}),200
-@app.route("/api/logs/add", methods=["POST"])
-def api_logs_add():
-    """Add an activity log entry from external system.
-    Expected JSON: action (required), visit_id (optional), username, details
-    """
-    if not require_api_key():
-        return jsonify({"error": "unauthorized"}), 401
-
-    data = request.get_json(silent=True) or {}
-    action = (data.get("action") or "").strip()
-    if not action:
-        return jsonify({"error": "action is required"}), 400
-
-    visit_id = (data.get("visit_id") or "").strip() or None
-    username = (data.get("username") or "API").strip()
-    details = data.get("details")
-    if details is not None and not isinstance(details, str):
-        details = json.dumps(details)
-
-    now_ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    db = get_db()
-    db.execute("""
-        INSERT INTO activity_log (action, visit_id, username, details, created_at)
-        VALUES (?,?,?,?,?)
-    """, (action, visit_id, username, details, now_ts))
-    db.commit()
-
-    return jsonify({"ok": True}), 201
-
-
-@app.route("/api/notify", methods=["POST"])
-def api_notify():
-    """Simple notify stub (stores to activity_log)."""
-    if not require_api_key():
-        return jsonify({"error": "unauthorized"}), 401
-
-    data = request.get_json(silent=True) or {}
-    message = (data.get("message") or "").strip()
-    visit_id = (data.get("visit_id") or "").strip() or None
-    level = (data.get("level") or "info").strip()
-
-    if not message:
-        return jsonify({"error": "message is required"}), 400
-
-    now_ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    db = get_db()
-    db.execute("""
-        INSERT INTO activity_log (action, visit_id, username, details, created_at)
-        VALUES (?,?,?,?,?)
-    """, ("API_NOTIFY", visit_id, "API", json.dumps({"level": level, "message": message}), now_ts))
-    db.commit()
-
-    return jsonify({"ok": True}), 200
-
-
-@app.route("/api/alerts", methods=["GET", "POST"])
-def api_alerts():
-    """GET: return high-acuity open visits.
-       POST: add manual alert to log."""
-    if not require_api_key():
-        return jsonify({"error": "unauthorized"}), 401
-
-    db = get_db()
-
-    if request.method == "POST":
-        data = request.get_json(silent=True) or {}
-        visit_id = (data.get("visit_id") or "").strip() or None
-        alert = (data.get("alert") or data.get("message") or "").strip()
-        level = (data.get("level") or "info").strip()
-        if not alert:
-            return jsonify({"error": "alert/message is required"}), 400
-        now_ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        db.execute("""
-            INSERT INTO activity_log (action, visit_id, username, details, created_at)
-            VALUES (?,?,?,?,?)
-        """, ("API_ALERT", visit_id, "API", json.dumps({"level": level, "alert": alert}), now_ts))
-        db.commit()
-        return jsonify({"ok": True}), 201
-
-    # GET
-    rows = db.execute("""
-        SELECT v.visit_id, v.queue_no, v.triage_cat, v.triage_status,
-               v.comment, v.created_at, p.name as patient_name
-        FROM visits v
-        JOIN patients p ON p.id=v.patient_id
-        WHERE v.status='OPEN'
-          AND v.triage_status='YES'
-          AND v.triage_cat IN ('Red','Orange','Yellow')
-        ORDER BY v.created_at DESC
-        LIMIT 50
-    """).fetchall()
-
-    return jsonify([dict(r) for r in rows]), 200
-
 app.config["SESSION_COOKIE_HTTPONLY"] = True
 app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
 app.config["SESSION_COOKIE_SECURE"] = False
@@ -563,6 +243,40 @@ def init_db():
         )
     """)
 
+    # Lab Requests
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS lab_requests (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            visit_id TEXT NOT NULL,
+            test_name TEXT NOT NULL,
+            status TEXT NOT NULL DEFAULT 'REQUESTED',
+            result_text TEXT,
+            requested_at TEXT NOT NULL,
+            requested_by TEXT NOT NULL,
+            received_at TEXT,
+            received_by TEXT,
+            reported_at TEXT,
+            reported_by TEXT
+        )
+    """)
+
+    # Radiology Requests
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS radiology_requests (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            visit_id TEXT NOT NULL,
+            test_name TEXT NOT NULL,
+            status TEXT NOT NULL DEFAULT 'REQUESTED',
+            report_text TEXT,
+            requested_at TEXT NOT NULL,
+            requested_by TEXT NOT NULL,
+            done_at TEXT,
+            done_by TEXT,
+            reported_at TEXT,
+            reported_by TEXT
+        )
+    """)
+
     # Attachments
     cur.execute("""
         CREATE TABLE IF NOT EXISTS attachments (
@@ -602,74 +316,6 @@ def init_db():
         ensure_column("discharge_summaries", "auto_summary_text", "TEXT")
     except Exception:
         pass
-
-
-
-# ============================================================
-# Supabase helpers (fallback to SQLite if not enabled)
-# ============================================================
-def sb_insert_patient(data: dict):
-    """Insert patient in Supabase and return patient row."""
-    resp = supabase.table("patients").insert(data).execute()
-    return resp.data[0] if resp.data else None
-
-def sb_create_visit(data: dict):
-    resp = supabase.table("visits").insert(data).execute()
-    return resp.data[0] if resp.data else None
-
-def sb_get_visit_with_patient(visit_id: str):
-    resp = (supabase.table("visits")
-            .select("*, patients(*)")
-            .eq("visit_id", visit_id)
-            .limit(1)
-            .execute())
-    return resp.data[0] if resp.data else None
-
-def sb_list_board(status="ALL", cat="ALL", limit=200, offset=0):
-    q = supabase.table("visits").select("*, patients(name,id_number,phone,insurance,insurance_no,dob,sex,nationality)")
-    if status and status != "ALL":
-        q = q.eq("status", status)
-    if cat and cat != "ALL":
-        q = q.eq("cat", cat)
-    q = q.order("created_at", desc=True).range(offset, offset+limit-1)
-    return q.execute().data or []
-
-def sb_list_orders(visit_id: str):
-    return (supabase.table("clinical_orders")
-            .select("*")
-            .eq("visit_id", visit_id)
-            .order("id", desc=False)
-            .execute().data) or []
-
-def sb_list_notes(visit_id: str):
-    return (supabase.table("nursing_notes")
-            .select("*")
-            .eq("visit_id", visit_id)
-            .order("id", desc=False)
-            .execute().data) or []
-
-def sb_upsert_discharge(payload: dict):
-    return (supabase.table("discharge_summaries")
-            .upsert(payload, on_conflict="visit_id")
-            .execute().data) or []
-
-def sb_get_discharge(visit_id: str):
-    r = supabase.table("discharge_summaries").select("*").eq("visit_id", visit_id).limit(1).execute()
-    return r.data[0] if r.data else None
-
-def sb_add_attachment(meta: dict):
-    r = supabase.table("attachments").insert(meta).execute()
-    return r.data[0] if r.data else None
-
-def sb_list_attachments(visit_id: str):
-    return (supabase.table("attachments")
-            .select("*")
-            .eq("visit_id", visit_id)
-            .order("uploaded_at", desc=True)
-            .execute().data) or []
-
-def sb_delete_attachment(att_id: int):
-    supabase.table("attachments").delete().eq("id", att_id).execute()
 
 # ============================================================
 # Generators
@@ -780,19 +426,10 @@ def do_backup():
         return None
 
 def backup_scheduler_loop():
-    """Run automatic DB backup every day at exactly 05:00 AM server local time."""
     while True:
-        now = datetime.now()
-        next_run = now.replace(hour=5, minute=0, second=0, microsecond=0)
-        if now >= next_run:
-            next_run = next_run + timedelta(days=1)
-        sleep_seconds = (next_run - now).total_seconds()
-        try:
-            time.sleep(sleep_seconds)
-        except Exception:
-            time.sleep(60)
-            continue
+        time.sleep(3600)  # hourly
         do_backup()
+
 def start_backup_scheduler_once():
     # Avoid duplicate threads on debug reload
     if app.config.get("DEBUG") and os.environ.get("WERKZEUG_RUN_MAIN") != "true":
@@ -1038,58 +675,6 @@ def admin_backup_now():
     else:
         flash("Backup failed.", "danger")
     return redirect(url_for("ed_board"))
-
-@app.route("/admin/restore", methods=["GET","POST"])
-@login_required
-@role_required("admin")
-def admin_restore():
-    # List available backups
-    backups = []
-    try:
-        for fn in os.listdir(BACKUP_FOLDER):
-            if fn.lower().endswith(".db") and fn.startswith("triage_ed_"):
-                full = os.path.join(BACKUP_FOLDER, fn)
-                try:
-                    mtime = os.path.getmtime(full)
-                except Exception:
-                    mtime = 0
-                backups.append({"name": fn, "mtime": mtime})
-        backups.sort(key=lambda x: x["mtime"], reverse=True)
-    except Exception:
-        backups = []
-
-    if request.method == "POST":
-        selected = request.form.get("backup_file","").strip()
-        if not selected:
-            flash("Please select a backup file.", "danger")
-            return redirect(url_for("admin_restore"))
-
-        # Security: allow only files inside BACKUP_FOLDER
-        safe = os.path.basename(selected)
-        full_path = os.path.join(BACKUP_FOLDER, safe)
-
-        if not (safe.lower().endswith(".db") and os.path.exists(full_path)):
-            flash("Backup file not found.", "danger")
-            return redirect(url_for("admin_restore"))
-
-        try:
-            # Close current DB connection if open
-            try:
-                db = g.pop("db", None)
-                if db:
-                    db.close()
-            except Exception:
-                pass
-
-            shutil.copy2(full_path, DATABASE)
-            log_action("RESTORE_BACKUP", details=safe)
-            flash(f"Backup restored successfully: {safe}. Please restart the app to ensure all connections reload.", "success")
-        except Exception as e:
-            flash(f"Restore failed: {e}", "danger")
-
-        return redirect(url_for("admin_restore"))
-
-    return render_template("admin_restore.html", backups=backups)
 
 # ============================================================
 # Register / Search
@@ -1382,45 +967,6 @@ def edit_patient(visit_id):
 @login_required
 @role_required("reception","nurse","admin")
 def upload_id(visit_id):
-
-if USE_SUPABASE:
-    if "file" not in request.files:
-        flash("No file part", "danger")
-        return redirect(url_for("patient_details", visit_id=visit_id))
-    file = request.files["file"]
-    if file.filename == "":
-        flash("No selected file", "danger")
-        return redirect(url_for("patient_details", visit_id=visit_id))
-    if not allowed_file(file.filename):
-        flash("File type not allowed", "danger")
-        return redirect(url_for("patient_details", visit_id=visit_id))
-    filename = secure_filename(file.filename)
-    ts = datetime.now().strftime("%Y%m%d%H%M%S")
-    stored_name = f"{visit_id}_{ts}_{filename}"
-    file_path = os.path.join(UPLOAD_FOLDER, stored_name)
-    file.save(file_path)
-
-    file_url = None
-    if SUPABASE_BUCKET:
-        try:
-            with open(file_path, "rb") as f:
-                supabase.storage.from_(SUPABASE_BUCKET).upload(stored_name, f, {"content-type": file.mimetype})
-            file_url = supabase.storage.from_(SUPABASE_BUCKET).get_public_url(stored_name)
-        except Exception as e:
-            print("Supabase storage upload failed:", e)
-
-    meta = {
-        "visit_id": visit_id,
-        "filename": stored_name,
-        "original_name": filename,
-        "file_url": file_url,
-        "uploaded_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-        "uploaded_by": session.get("username")
-    }
-    sb_add_attachment(meta)
-    log_action("UPLOAD_ID", visit_id=visit_id)
-    flash("Attachment uploaded.", "success")
-    return redirect(url_for("patient_details", visit_id=visit_id))
     if "file" not in request.files:
         flash("No file selected.", "danger")
         return redirect(url_for("patient_details", visit_id=visit_id))
@@ -1447,16 +993,11 @@ if USE_SUPABASE:
     log_action("UPLOAD_ATTACHMENT", visit_id=visit_id, details=filename)
     flash("Attachment uploaded successfully.", "success")
     return redirect(url_for("patient_details", visit_id=visit_id))
+
 @app.route("/attachment/<int:att_id>/delete", methods=["POST"])
 @login_required
 @role_required("reception","admin")
 def delete_attachment(att_id):
-
-if USE_SUPABASE:
-    sb_delete_attachment(att_id)
-    log_action("DELETE_ATTACHMENT", visit_id=visit_id)
-    flash("Attachment deleted.", "success")
-    return redirect(url_for("patient_details", visit_id=visit_id))
     db = get_db()
     cur = db.cursor()
     a = cur.execute("SELECT * FROM attachments WHERE id=?", (att_id,)).fetchone()
@@ -1472,6 +1013,7 @@ if USE_SUPABASE:
     log_action("DELETE_ATTACHMENT", visit_id=a["visit_id"], details=a["filename"])
     flash("Attachment deleted.", "success")
     return redirect(url_for("patient_details", visit_id=a["visit_id"]))
+
 @app.route("/uploads/<path:filename>")
 @login_required
 def uploaded_file(filename):
@@ -1562,56 +1104,89 @@ def triage(visit_id):
 # ============================================================
 
 def build_auto_summary(visit_id):
+    db = get_db()
+    cur = db.cursor()
 
-if USE_SUPABASE:
-    v = sb_get_visit_with_patient(visit_id)
-    if not v:
-        return ""
-    p = v.get("patients") or {}
-    visit = {
-        **{k: v.get(k) for k in v.keys() if k != "patients"},
-        "name": p.get("name"),
-        "id_number": p.get("id_number"),
-        "phone": p.get("phone"),
-        "insurance": p.get("insurance"),
-        "insurance_no": p.get("insurance_no"),
-        "dob": p.get("dob"),
-        "sex": p.get("sex"),
-        "nationality": p.get("nationality"),
-    }
-    orders = sb_list_orders(visit_id)
-    notes = sb_list_notes(visit_id)
-    # continue to shared formatter below
-    db = get_db(); cur = db.cursor()
     visit = cur.execute("""
-        SELECT v.*, p.name, p.id_number, p.phone, p.insurance, p.insurance_no, p.dob, p.sex, p.nationality
-        FROM visits v JOIN patients p ON p.id=v.patient_id WHERE v.visit_id=?
-    """,(visit_id,)).fetchone()
+        SELECT v.*, p.name, p.id_number, p.phone, p.insurance, p.insurance_no,
+               p.dob, p.sex, p.nationality
+        FROM visits v
+        JOIN patients p ON p.id=v.patient_id
+        WHERE v.visit_id=?
+    """, (visit_id,)).fetchone()
+
     if not visit:
         return ""
 
+    # Clinical orders
     orders = cur.execute("""
-        SELECT * FROM clinical_orders WHERE visit_id=? ORDER BY id ASC
-    """,(visit_id,)).fetchall()
+        SELECT * FROM clinical_orders
+        WHERE visit_id=?
+        ORDER BY id ASC
+    """, (visit_id,)).fetchall()
 
+    # Nursing notes
     notes = cur.execute("""
-        SELECT * FROM nursing_notes WHERE visit_id=? ORDER BY id ASC
-    """,(visit_id,)).fetchall()
+        SELECT * FROM nursing_notes
+        WHERE visit_id=?
+        ORDER BY id ASC
+    """, (visit_id,)).fetchall()
+
+    # Lab requests/results
+    try:
+        lab_reqs = cur.execute("""
+            SELECT * FROM lab_requests
+            WHERE visit_id=?
+            ORDER BY id ASC
+        """, (visit_id,)).fetchall()
+    except Exception:
+        lab_reqs = []
+
+    # Radiology requests/reports
+    try:
+        rad_reqs = cur.execute("""
+            SELECT * FROM radiology_requests
+            WHERE visit_id=?
+            ORDER BY id ASC
+        """, (visit_id,)).fetchall()
+    except Exception:
+        rad_reqs = []
 
     lines = []
+
+    # Basic info
     lines.append(f"Visit ID: {visit_id}")
-    lines.append(f"Patient: {visit['name']} | ID: {visit['id_number'] or '-'} | INS: {visit['insurance'] or '-'}")
+    lines.append(
+        f"Patient: {visit['name']} | ID: {visit['id_number'] or '-'} | "
+        f"INS: {visit['insurance'] or '-'}"
+    )
     if visit["comment"]:
         lines.append(f"Chief Complaint / Comment: {visit['comment']}")
     lines.append("")
+
+    # Triage + Vitals
     lines.append("Triage & Vital Signs:")
-    lines.append(f" - Triage Status: {visit['triage_status']} | CAT: {visit['triage_cat'] or '-'}")
+    lines.append(
+        f" - Triage Status: {visit['triage_status']} | "
+        f"CAT: {visit['triage_cat'] or '-'}"
+    )
     lines.append(f" - Allergy: {visit['allergy_status'] or '-'}")
-    lines.append(f" - PR: {visit['pulse_rate'] or '-'} bpm, RR: {visit['resp_rate'] or '-'} /min, Temp: {visit['temperature'] or '-'} C")
-    lines.append(f" - BP: {visit['bp_systolic'] or '-'} / {visit['bp_diastolic'] or '-'} , SpO2: {visit['spo2'] or '-'}%")
-    lines.append(f" - Consciousness: {visit['consciousness_level'] or '-'} , Pain: {visit['pain_score'] or '-'} /10")
+    lines.append(
+        f" - PR: {visit['pulse_rate'] or '-'} bpm, "
+        f"RR: {visit['resp_rate'] or '-'} /min, "
+        f"Temp: {visit['temperature'] or '-'} C"
+    )
+    lines.append(
+        f" - BP: {visit['bp_systolic'] or '-'} / {visit['bp_diastolic'] or '-'} , "
+        f"SpO2: {visit['spo2'] or '-'}%"
+    )
+    lines.append(
+        f" - Consciousness: {visit['consciousness_level'] or '-'} , "
+        f"Pain: {visit['pain_score'] or '-'} /10"
+    )
     lines.append("")
 
+    # Clinical orders
     if orders:
         lines.append("Clinical Orders (chronological):")
         for o in orders:
@@ -1629,6 +1204,53 @@ if USE_SUPABASE:
         lines.append("Clinical Orders: None")
         lines.append("")
 
+    # Labs
+    if lab_reqs:
+        lines.append("Lab Tests & Results:")
+        for l in lab_reqs:
+            line = f" Lab #{l['id']} | {l['test_name']} | Status: {l['status']}"
+            if l["result_text"]:
+                line += f" | Result: {l['result_text']}"
+            lines.append(line)
+
+            details = []
+            if l["requested_at"]:
+                details.append(f"Req: {l['requested_at']} by {l['requested_by'] or '-'}")
+            if l["received_at"]:
+                details.append(f"Sample: {l['received_at']} by {l['received_by'] or '-'}")
+            if l["reported_at"]:
+                details.append(f"Reported: {l['reported_at']} by {l['reported_by'] or '-'}")
+            if details:
+                lines.append("  " + " | ".join(details))
+        lines.append("")
+    else:
+        lines.append("Lab Tests & Results: None")
+        lines.append("")
+
+    # Radiology
+    if rad_reqs:
+        lines.append("Radiology Studies & Reports:")
+        for r in rad_reqs:
+            lines.append(
+                f" Study #{r['id']} | {r['test_name']} | Status: {r['status']}"
+            )
+            details = []
+            if r["requested_at"]:
+                details.append(f"Req: {r['requested_at']} by {r['requested_by'] or '-'}")
+            if r["done_at"]:
+                details.append(f"Done: {r['done_at']} by {r['done_by'] or '-'}")
+            if r["reported_at"]:
+                details.append(f"Reported: {r['reported_at']} by {r['reported_by'] or '-'}")
+            if details:
+                lines.append("  " + " | ".join(details))
+            if r["report_text"]:
+                lines.append(f"  Report: {r['report_text']}")
+            lines.append("")
+    else:
+        lines.append("Radiology Studies & Reports: None")
+        lines.append("")
+
+    # Nursing notes
     if notes:
         lines.append("Nursing Notes:")
         for n in notes:
@@ -1638,30 +1260,22 @@ if USE_SUPABASE:
         lines.append("Nursing Notes: None")
         lines.append("")
 
+    # Final status
     lines.append(f"Final Visit Status: {visit['status']}")
     if visit["closed_at"]:
-        lines.append(f"Closed At: {visit['closed_at']} by {visit['closed_by'] or '-'}")
+        lines.append(
+            f"Closed At: {visit['closed_at']} by {visit['closed_by'] or '-'}"
+        )
 
     return "\n".join(lines).strip()
 
 # ============================================================
 # Clinical Orders + Notes + Discharge
 # ============================================================
+
 @app.route("/clinical_orders/<visit_id>")
 @login_required
 def clinical_orders_page(visit_id):
-
-if USE_SUPABASE:
-    visit = sb_get_visit_with_patient(visit_id)
-    if not visit:
-        flash("Visit not found.", "danger")
-        return redirect(url_for("ed_board"))
-    orders = sb_list_orders(visit_id)
-    notes = sb_list_notes(visit_id)
-    discharge = sb_get_discharge(visit_id)
-    attachments = sb_list_attachments(visit_id)
-    return render_template("clinical_orders.html", visit=visit, orders=orders, notes=notes,
-                           discharge=discharge, attachments=attachments)
     db = get_db()
     cur = db.cursor()
     visit = cur.execute("""
@@ -1683,69 +1297,85 @@ if USE_SUPABASE:
         SELECT * FROM discharge_summaries WHERE visit_id=?
     """,(visit_id,)).fetchone()
 
-    return render_template("clinical_orders.html", visit=visit, orders=orders, notes=notes, summary=summary)
+    lab_reqs = cur.execute("""
+        SELECT * FROM lab_requests
+        WHERE visit_id=?
+        ORDER BY id DESC
+    """,(visit_id,)).fetchall()
+
+    rad_reqs = cur.execute("""
+        SELECT * FROM radiology_requests
+        WHERE visit_id=?
+        ORDER BY id DESC
+    """,(visit_id,)).fetchall()
+
+    return render_template("clinical_orders.html",
+                           visit=visit,
+                           orders=orders,
+                           notes=notes,
+                           summary=summary,
+                           lab_reqs=lab_reqs,
+                           rad_reqs=rad_reqs)
+
 @app.route("/clinical_orders/<visit_id>/add", methods=["POST"])
 @login_required
 @role_required("doctor","nurse","admin")
 def add_clinical_order(visit_id):
+    """
+    Add new clinical order and auto-create lab/radiology requests.
+    """
     diagnosis = clean_text(request.form.get("diagnosis","").strip())
     radiology = clean_text(request.form.get("radiology_orders","").strip())
-    labs = clean_text(request.form.get("lab_orders","").strip())
-    meds = clean_text(request.form.get("medications","").strip())
+    labs      = clean_text(request.form.get("lab_orders","").strip())
+    meds      = clean_text(request.form.get("medications","").strip())
 
-    
-if USE_SUPABASE:
-    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    user = session.get("username")
-    supabase.table("clinical_orders").insert({
-        "visit_id": visit_id,
-        "diagnosis": diagnosis,
-        "radiology_orders": radiology,
-        "lab_orders": labs,
-        "medications": meds,
-        "duplicated_from": None,
-        "created_at": now,
-        "created_by": user
-    }).execute()
+    db   = get_db()
+    now  = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    user = session.get("username","UNKNOWN")
 
-    auto_text = build_auto_summary(visit_id)
-    sb_upsert_discharge({
-        "visit_id": visit_id,
-        "auto_summary_text": auto_text,
-        "summary_text": None,
-        "created_at": now,
-        "created_by": user,
-        "updated_at": now,
-        "updated_by": user
-    })
-
-    log_action("ADD_ORDER", visit_id=visit_id)
-    flash("Clinical Order saved.", "success")
-    return redirect(url_for("clinical_orders_page", visit_id=visit_id))
-
-db = get_db()
-
+    # 1) save clinical order
     db.execute("""
         INSERT INTO clinical_orders
-        (visit_id, diagnosis, radiology_orders, lab_orders, medications, duplicated_from, created_at, created_by)
+        (visit_id, diagnosis, radiology_orders, lab_orders, medications,
+         duplicated_from, created_at, created_by)
         VALUES (?,?,?,?,?,?,?,?)
-    """,(visit_id, diagnosis, radiology, labs, meds, None,
-         datetime.now().strftime("%Y-%m-%d %H:%M:%S"), session.get("username")))
+    """,(visit_id, diagnosis, radiology, labs, meds,
+         None, now, user))
     db.commit()
 
-    # update auto summary text if discharge exists
+    # 2) create lab requests
+    if labs:
+        tests = [t.strip() for t in labs.split(",") if t.strip()]
+        for test in tests:
+            db.execute("""
+                INSERT INTO lab_requests
+                (visit_id, test_name, status, requested_at, requested_by)
+                VALUES (?,?,?,?,?)
+            """,(visit_id, test, "REQUESTED", now, user))
+        db.commit()
+
+    # 3) create radiology requests
+    if radiology:
+        tests = [t.strip() for t in radiology.split(",") if t.strip()]
+        for test in tests:
+            db.execute("""
+                INSERT INTO radiology_requests
+                (visit_id, test_name, status, requested_at, requested_by)
+                VALUES (?,?,?,?,?)
+            """,(visit_id, test, "REQUESTED", now, user))
+        db.commit()
+
+    # 4) update auto summary
     auto_text = build_auto_summary(visit_id)
     db.execute("""
         INSERT INTO discharge_summaries (visit_id, auto_summary_text, summary_text, created_at, created_by)
         VALUES (?,?,?,?,?)
         ON CONFLICT(visit_id) DO UPDATE SET auto_summary_text=excluded.auto_summary_text, updated_at=?, updated_by=?
-    """,(visit_id, auto_text, None,
-         datetime.now().strftime("%Y-%m-%d %H:%M:%S"), session.get("username"),
-         datetime.now().strftime("%Y-%m-%d %H:%M:%S"), session.get("username")))
+    """,(visit_id, auto_text, None, now, user, now, user))
     db.commit()
 
     log_action("ADD_ORDER", visit_id=visit_id)
-    flash("Clinical Order saved.", "success")
+    flash("Clinical Order saved, lab/radiology requests created.", "success")
     return redirect(url_for("clinical_orders_page", visit_id=visit_id))
 
 @app.route("/clinical_orders/<visit_id>/update/<int:oid>", methods=["POST"])
@@ -1757,33 +1387,7 @@ def update_clinical_order(visit_id, oid):
     labs = clean_text(request.form.get("lab_orders","").strip())
     meds = clean_text(request.form.get("medications","").strip())
 
-    
-if USE_SUPABASE:
-    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    user = session.get("username")
-    supabase.table("clinical_orders").update({
-        "diagnosis": diagnosis,
-        "radiology_orders": radiology,
-        "lab_orders": labs,
-        "medications": meds,
-        "updated_at": now,
-        "updated_by": user
-    }).eq("id", oid).eq("visit_id", visit_id).execute()
-
-    auto_text = build_auto_summary(visit_id)
-    sb_upsert_discharge({
-        "visit_id": visit_id,
-        "auto_summary_text": auto_text,
-        "updated_at": now,
-        "updated_by": user
-    })
-
-    log_action("UPDATE_ORDER", visit_id=visit_id, details=str(oid))
-    flash("Clinical Order updated.", "success")
-    return redirect(url_for("clinical_orders_page", visit_id=visit_id))
-
-db = get_db()
-
+    db = get_db()
     db.execute("""
         UPDATE clinical_orders SET diagnosis=?, radiology_orders=?, lab_orders=?, medications=?,
                                    updated_at=?, updated_by=?
@@ -1806,49 +1410,16 @@ db = get_db()
 @login_required
 @role_required("doctor","nurse","admin")
 def duplicate_clinical_order(visit_id, oid):
-
-if USE_SUPABASE:
-    old = supabase.table("clinical_orders").select("*").eq("id", oid).eq("visit_id", visit_id).limit(1).execute()
-    if not old.data:
-        flash("Order not found.", "danger")
-        return redirect(url_for("clinical_orders_page", visit_id=visit_id))
-    o = old.data[0]
-    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    user = session.get("username")
-    supabase.table("clinical_orders").insert({
-        "visit_id": visit_id,
-        "diagnosis": o.get("diagnosis"),
-        "radiology_orders": o.get("radiology_orders"),
-        "lab_orders": o.get("lab_orders"),
-        "medications": o.get("medications"),
-        "duplicated_from": oid,
-        "created_at": now,
-        "created_by": user
-    }).execute()
-    auto_text = build_auto_summary(visit_id)
-    sb_upsert_discharge({"visit_id": visit_id, "auto_summary_text": auto_text, "updated_at": now, "updated_by": user})
-    log_action("DUPLICATE_ORDER", visit_id=visit_id, details=str(oid))
-    flash("Order duplicated.", "success")
-    return redirect(url_for("clinical_orders_page", visit_id=visit_id))
     db = get_db()
     old = db.execute("SELECT * FROM clinical_orders WHERE id=? AND visit_id=?", (oid, visit_id)).fetchone()
     if not old:
         flash("Order not found.", "danger")
         return redirect(url_for("clinical_orders_page", visit_id=visit_id))
+
 @app.route("/clinical_orders/<visit_id>/delete/<int:oid>", methods=["POST"])
 @login_required
 @role_required("doctor","nurse","admin")
 def delete_clinical_order(visit_id, oid):
-
-if USE_SUPABASE:
-    supabase.table("clinical_orders").delete().eq("id", oid).eq("visit_id", visit_id).execute()
-    auto_text = build_auto_summary(visit_id)
-    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    user = session.get("username")
-    sb_upsert_discharge({"visit_id": visit_id, "auto_summary_text": auto_text, "updated_at": now, "updated_by": user})
-    log_action("DELETE_ORDER", visit_id=visit_id, details=str(oid))
-    flash("Clinical Order deleted.", "success")
-    return redirect(url_for("clinical_orders_page", visit_id=visit_id))
     db = get_db()
     order = db.execute("SELECT id FROM clinical_orders WHERE id=? AND visit_id=?", (oid, visit_id)).fetchone()
     if not order:
@@ -1888,6 +1459,7 @@ if USE_SUPABASE:
     log_action("DUPLICATE_ORDER", visit_id=visit_id, details=str(oid))
     flash("Order duplicated.", "success")
     return redirect(url_for("clinical_orders_page", visit_id=visit_id))
+
 @app.route("/clinical_orders/<visit_id>/pdf/<int:oid>")
 @login_required
 def clinical_order_pdf(visit_id, oid):
@@ -1954,25 +1526,7 @@ def add_nursing_note(visit_id):
         flash("Enter note text.", "danger")
         return redirect(url_for("clinical_orders_page", visit_id=visit_id))
 
-    
-if USE_SUPABASE:
-    note_text = clean_text(request.form.get("note_text","").strip())
-    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    user = session.get("username")
-    supabase.table("nursing_notes").insert({
-        "visit_id": visit_id,
-        "note_text": note_text,
-        "created_at": now,
-        "created_by": user
-    }).execute()
-    auto_text = build_auto_summary(visit_id)
-    sb_upsert_discharge({"visit_id": visit_id, "auto_summary_text": auto_text, "updated_at": now, "updated_by": user})
-    log_action("ADD_NOTE", visit_id=visit_id)
-    flash("Note saved.", "success")
-    return redirect(url_for("clinical_orders_page", visit_id=visit_id))
-
-db = get_db()
-
+    db = get_db()
     db.execute("""
         INSERT INTO nursing_notes (visit_id, note_text, created_at, created_by)
         VALUES (?,?,?,?)
@@ -2030,30 +1584,6 @@ def nursing_notes_pdf(visit_id):
 @login_required
 @role_required("doctor","reception","admin")
 def discharge_save(visit_id):
-
-if USE_SUPABASE:
-    diagnosis_cc = clean_text(request.form.get("diagnosis_cc","").strip())
-    referral_clinic = clean_text(request.form.get("referral_clinic","").strip())
-    home_medication = clean_text(request.form.get("home_medication","").strip())
-    summary_text = clean_text(request.form.get("summary_text","").strip())
-    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    user = session.get("username")
-    auto_text = build_auto_summary(visit_id)
-    sb_upsert_discharge({
-        "visit_id": visit_id,
-        "diagnosis_cc": diagnosis_cc,
-        "referral_clinic": referral_clinic,
-        "home_medication": home_medication,
-        "summary_text": summary_text,
-        "auto_summary_text": auto_text,
-        "created_at": now,
-        "created_by": user,
-        "updated_at": now,
-        "updated_by": user
-    })
-    log_action("SAVE_DISCHARGE", visit_id=visit_id)
-    flash("Discharge summary saved.", "success")
-    return redirect(url_for("clinical_orders_page", visit_id=visit_id))
     diagnosis_cc = clean_text(request.form.get("diagnosis_cc","").strip())
     referral_clinic = clean_text(request.form.get("referral_clinic","").strip())
     home_medication = clean_text(request.form.get("home_medication","").strip())
@@ -2081,6 +1611,7 @@ if USE_SUPABASE:
     log_action("SAVE_DISCHARGE", visit_id=visit_id)
     flash("Discharge summary saved.", "success")
     return redirect(url_for("clinical_orders_page", visit_id=visit_id))
+
 @app.route("/discharge/<visit_id>/pdf")
 @login_required
 def discharge_summary_pdf(visit_id):
@@ -2127,6 +1658,228 @@ def discharge_summary_pdf(visit_id):
     c.showPage(); c.save(); buffer.seek(0)
     return Response(buffer.getvalue(), mimetype="application/pdf",
                     headers={"Content-Disposition":"inline; filename=discharge_summary.pdf"})
+
+# ============================================================
+# Lab Board (Requests / Results)
+# ============================================================
+
+@app.route("/lab_board")
+@login_required
+@role_required("lab", "admin", "doctor", "nurse")
+def lab_board():
+    """
+    Lab board for viewing and updating lab requests.
+    """
+    status_filter = request.args.get("status", "PENDING")
+
+    cur = get_db().cursor()
+    sql = """
+        SELECT lr.*,
+               v.visit_id,
+               p.name,
+               p.id_number
+        FROM lab_requests lr
+        JOIN visits v ON v.visit_id = lr.visit_id
+        JOIN patients p ON p.id = v.patient_id
+        WHERE 1=1
+    """
+    params = []
+
+    if status_filter == "PENDING":
+        sql += " AND lr.status IN ('REQUESTED','RECEIVED')"
+    elif status_filter == "REPORTED":
+        sql += " AND lr.status='REPORTED'"
+    elif status_filter == "ALL":
+        pass
+    else:
+        status_filter = "PENDING"
+        sql += " AND lr.status IN ('REQUESTED','RECEIVED')"
+
+    sql += " ORDER BY lr.id DESC LIMIT 200"
+    rows = cur.execute(sql, params).fetchall()
+
+    return render_template("lab_board.html",
+                           rows=rows,
+                           status_filter=status_filter)
+
+
+@app.route("/lab_request/<int:rid>/receive", methods=["POST"])
+@login_required
+@role_required("lab", "admin")
+def lab_receive_sample(rid):
+    """
+    Mark sample as received for a lab request.
+    """
+    db = get_db()
+    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    user = session.get("username", "UNKNOWN")
+
+    cur = db.cursor()
+    row = cur.execute("SELECT * FROM lab_requests WHERE id=?", (rid,)).fetchone()
+    if not row:
+        flash("Lab request not found.", "danger")
+        return redirect(url_for("lab_board"))
+
+    if row["status"] != "REQUESTED":
+        flash("Cannot receive sample in current status.", "warning")
+        return redirect(url_for("lab_board"))
+
+    db.execute("""
+        UPDATE lab_requests
+        SET status='RECEIVED', received_at=?, received_by=?
+        WHERE id=?
+    """,(now, user, rid))
+    db.commit()
+
+    log_action("LAB_RECEIVE", visit_id=row["visit_id"], details=f"RID={rid}")
+    flash("Sample received recorded.", "success")
+    return redirect(url_for("lab_board"))
+
+
+@app.route("/lab_request/<int:rid>/report", methods=["POST"])
+@login_required
+@role_required("lab", "admin")
+def lab_report_result(rid):
+    """
+    Enter lab result and mark as REPORTED.
+    """
+    result = clean_text(request.form.get("result_text", "").strip())
+    if not result:
+        flash("Please enter result before saving.", "danger")
+        return redirect(url_for("lab_board"))
+
+    db = get_db()
+    cur = db.cursor()
+    row = cur.execute("SELECT * FROM lab_requests WHERE id=?", (rid,)).fetchone()
+    if not row:
+        flash("Lab request not found.", "danger")
+        return redirect(url_for("lab_board"))
+
+    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    user = session.get("username", "UNKNOWN")
+
+    db.execute("""
+        UPDATE lab_requests
+        SET status='REPORTED', result_text=?, reported_at=?, reported_by=?
+        WHERE id=?
+    """,(result, now, user, rid))
+    db.commit()
+
+    log_action("LAB_REPORT", visit_id=row["visit_id"], details=f"RID={rid}")
+    flash("Lab result saved.", "success")
+    return redirect(url_for("lab_board"))
+
+
+# ============================================================
+# Radiology Board (Requests / Reports)
+# ============================================================
+
+@app.route("/radiology_board")
+@login_required
+@role_required("radiology", "admin", "doctor", "nurse")
+def radiology_board():
+    """
+    Radiology board for viewing and updating radiology requests.
+    """
+    status_filter = request.args.get("status", "PENDING")
+
+    cur = get_db().cursor()
+    sql = """
+        SELECT rr.*,
+               v.visit_id,
+               p.name,
+               p.id_number
+        FROM radiology_requests rr
+        JOIN visits v ON v.visit_id = rr.visit_id
+        JOIN patients p ON p.id = v.patient_id
+        WHERE 1=1
+    """
+    params = []
+
+    if status_filter == "PENDING":
+        sql += " AND rr.status IN ('REQUESTED','DONE')"
+    elif status_filter == "REPORTED":
+        sql += " AND rr.status='REPORTED'"
+    elif status_filter == "ALL":
+        pass
+    else:
+        status_filter = "PENDING"
+        sql += " AND rr.status IN ('REQUESTED','DONE')"
+
+    sql += " ORDER BY rr.id DESC LIMIT 200"
+    rows = cur.execute(sql, params).fetchall()
+
+    return render_template("radiology_board.html",
+                           rows=rows,
+                           status_filter=status_filter)
+
+
+@app.route("/radiology_request/<int:rid>/done", methods=["POST"])
+@login_required
+@role_required("radiology", "admin")
+def radiology_mark_done(rid):
+    """
+    Mark that radiology study has been done.
+    """
+    db = get_db()
+    cur = db.cursor()
+    row = cur.execute("SELECT * FROM radiology_requests WHERE id=?", (rid,)).fetchone()
+    if not row:
+        flash("Radiology request not found.", "danger")
+        return redirect(url_for("radiology_board"))
+
+    if row["status"] != "REQUESTED":
+        flash("Cannot mark as done in current status.", "warning")
+        return redirect(url_for("radiology_board"))
+
+    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    user = session.get("username", "UNKNOWN")
+
+    db.execute("""
+        UPDATE radiology_requests
+        SET status='DONE', done_at=?, done_by=?
+        WHERE id=?
+    """,(now, user, rid))
+    db.commit()
+
+    log_action("RAD_DONE", visit_id=row["visit_id"], details=f"RID={rid}")
+    flash("Marked as done.", "success")
+    return redirect(url_for("radiology_board"))
+
+
+@app.route("/radiology_request/<int:rid>/report", methods=["POST"])
+@login_required
+@role_required("radiology", "admin")
+def radiology_report_result(rid):
+    """
+    Enter radiology report and mark as REPORTED.
+    """
+    report = clean_text(request.form.get("report_text", "").strip())
+    if not report:
+        flash("Please enter report text before saving.", "danger")
+        return redirect(url_for("radiology_board"))
+
+    db = get_db()
+    cur = db.cursor()
+    row = cur.execute("SELECT * FROM radiology_requests WHERE id=?", (rid,)).fetchone()
+    if not row:
+        flash("Radiology request not found.", "danger")
+        return redirect(url_for("radiology_board"))
+
+    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    user = session.get("username", "UNKNOWN")
+
+    db.execute("""
+        UPDATE radiology_requests
+        SET status='REPORTED', report_text=?, reported_at=?, reported_by=?
+        WHERE id=?
+    """,(report, now, user, rid))
+    db.commit()
+
+    log_action("RAD_REPORT", visit_id=row["visit_id"], details=f"RID={rid}")
+    flash("Radiology report saved.", "success")
+    return redirect(url_for("radiology_board"))
+
 
 # ============================================================
 # Auto Summary PDF (Nursing / Staff Copy)
@@ -2198,6 +1951,180 @@ def auto_summary_pdf(visit_id):
         mimetype="application/pdf",
         headers={"Content-Disposition": "inline; filename=auto_summary.pdf"}
     )
+
+@app.route("/lab_results/<visit_id>/pdf")
+@login_required
+def lab_results_pdf(visit_id):
+    db = get_db()
+    cur = db.cursor()
+
+    visit = cur.execute("""
+        SELECT v.visit_id, p.name, p.id_number, p.insurance, v.created_at
+        FROM visits v
+        JOIN patients p ON p.id=v.patient_id
+        WHERE v.visit_id=?
+    """, (visit_id,)).fetchone()
+
+    if not visit:
+        return "Not found", 404
+
+    labs = cur.execute("""
+        SELECT * FROM lab_requests
+        WHERE visit_id=?
+        ORDER BY id ASC
+    """, (visit_id,)).fetchall()
+
+    buffer = io.BytesIO()
+    c = canvas.Canvas(buffer, pagesize=A4)
+    width, height = A4
+    y = height - 2*cm
+
+    c.setFont("Helvetica-Bold", 16)
+    c.drawString(2*cm, y, "Lab Results")
+    y -= 1.0*cm
+
+    c.setFont("Helvetica", 11)
+    c.drawString(2*cm, y, f"Visit: {visit['visit_id']}")
+    y -= 0.7*cm
+    c.drawString(2*cm, y, f"Patient: {visit['name']}   ID: {visit['id_number'] or '-'}")
+    y -= 0.6*cm
+    c.drawString(2*cm, y, f"INS: {visit['insurance'] or '-'}   Date: {visit['created_at']}")
+    y -= 1.0*cm
+
+    if not labs:
+        c.setFont("Helvetica", 10)
+        c.drawString(2*cm, y, "No lab requests/results for this visit.")
+    else:
+        for l in labs:
+            c.setFont("Helvetica-Bold", 10)
+            c.drawString(2*cm, y, f"Lab #{l['id']} - {l['test_name']}")
+            y -= 0.4*cm
+
+            c.setFont("Helvetica", 9)
+            status_line = f"Status: {l['status']}"
+            if l["result_text"]:
+                status_line += f" | Result: {l['result_text']}"
+            c.drawString(2*cm, y, status_line[:130])
+            y -= 0.35*cm
+
+            details = []
+            if l["requested_at"]:
+                details.append(f"Req: {l['requested_at']} by {l['requested_by'] or '-'}")
+            if l["received_at"]:
+                details.append(f"Sample: {l['received_at']} by {l['received_by'] or '-'}")
+            if l["reported_at"]:
+                details.append(f"Reported: {l['reported_at']} by {l['reported_by'] or '-'}")
+            if details:
+                c.drawString(2*cm, y, " | ".join(details)[:130])
+                y -= 0.35*cm
+
+            y -= 0.2*cm
+            if y < 2*cm:
+                c.showPage()
+                y = height - 2*cm
+
+    c.setFont("Helvetica-Oblique", 8)
+    c.drawString(2*cm, 1.2*cm, APP_FOOTER_TEXT)
+    c.showPage()
+    c.save()
+    buffer.seek(0)
+
+    return Response(
+        buffer.getvalue(),
+        mimetype="application/pdf",
+        headers={"Content-Disposition": "inline; filename=lab_results.pdf"}
+    )
+
+
+@app.route("/radiology_results/<visit_id>/pdf")
+@login_required
+def radiology_results_pdf(visit_id):
+    db = get_db()
+    cur = db.cursor()
+
+    visit = cur.execute("""
+        SELECT v.visit_id, p.name, p.id_number, p.insurance, v.created_at
+        FROM visits v
+        JOIN patients p ON p.id=v.patient_id
+        WHERE v.visit_id=?
+    """, (visit_id,)).fetchone()
+
+    if not visit:
+        return "Not found", 404
+
+    rads = cur.execute("""
+        SELECT * FROM radiology_requests
+        WHERE visit_id=?
+        ORDER BY id ASC
+    """, (visit_id,)).fetchall()
+
+    buffer = io.BytesIO()
+    c = canvas.Canvas(buffer, pagesize=A4)
+    width, height = A4
+    y = height - 2*cm
+
+    c.setFont("Helvetica-Bold", 16)
+    c.drawString(2*cm, y, "Radiology Reports")
+    y -= 1.0*cm
+
+    c.setFont("Helvetica", 11)
+    c.drawString(2*cm, y, f"Visit: {visit['visit_id']}")
+    y -= 0.7*cm
+    c.drawString(2*cm, y, f"Patient: {visit['name']}   ID: {visit['id_number'] or '-'}")
+    y -= 0.6*cm
+    c.drawString(2*cm, y, f"INS: {visit['insurance'] or '-'}   Date: {visit['created_at']}")
+    y -= 1.0*cm
+
+    if not rads:
+        c.setFont("Helvetica", 10)
+        c.drawString(2*cm, y, "No radiology requests/reports for this visit.")
+    else:
+        for r in rads:
+            c.setFont("Helvetica-Bold", 10)
+            c.drawString(2*cm, y, f"Study #{r['id']} - {r['test_name']}")
+            y -= 0.4*cm
+
+            c.setFont("Helvetica", 9)
+            status_line = f"Status: {r['status']}"
+            c.drawString(2*cm, y, status_line[:130])
+            y -= 0.35*cm
+
+            details = []
+            if r["requested_at"]:
+                details.append(f"Req: {r['requested_at']} by {r['requested_by'] or '-'}")
+            if r["done_at"]:
+                details.append(f"Done: {r['done_at']} by {r['done_by'] or '-'}")
+            if r["reported_at"]:
+                details.append(f"Reported: {r['reported_at']} by {r['reported_by'] or '-'}")
+            if details:
+                c.drawString(2*cm, y, " | ".join(details)[:130])
+                y -= 0.35*cm
+
+            if r["report_text"]:
+                for line in (r["report_text"] or "-").splitlines():
+                    c.drawString(2*cm, y, ("Report: " + line)[:130])
+                    y -= 0.35*cm
+                    if y < 2*cm:
+                        c.showPage()
+                        y = height - 2*cm
+
+            y -= 0.2*cm
+            if y < 2*cm:
+                c.showPage()
+                y = height - 2*cm
+
+    c.setFont("Helvetica-Oblique", 8)
+    c.drawString(2*cm, 1.2*cm, APP_FOOTER_TEXT)
+    c.showPage()
+    c.save()
+    buffer.seek(0)
+
+    return Response(
+        buffer.getvalue(),
+        mimetype="application/pdf",
+        headers={"Content-Disposition": "inline; filename=radiology_results.pdf"}
+    )
+
 
 @app.route("/home_med/<visit_id>/pdf")
 @login_required
@@ -2335,7 +2262,7 @@ TEMPLATES = {
   <meta charset="utf-8">
   <title>ED Downtime</title>
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
-  <meta http-equiv="refresh" content="3600">
+  <meta http-equiv="refresh" content="2700">
   <style>
     body { background:#f7f7f7; }
     .nav-link { font-weight:600; }
@@ -2356,6 +2283,12 @@ TEMPLATES = {
     <button type="button" class="btn btn-sm btn-outline-secondary" onclick="location.reload()">Refresh</button>
     <a class="nav-link" href="{{ url_for('ed_board') }}">ED Board</a>
     <a class="nav-link" href="{{ url_for('search_patients') }}">Search</a>
+    {% if session.get('role') in ['lab','admin','doctor','nurse'] %}
+      <a class="nav-link" href="{{ url_for('lab_board') }}">Lab Board</a>
+    {% endif %}
+    {% if session.get('role') in ['radiology','admin','doctor','nurse'] %}
+      <a class="nav-link" href="{{ url_for('radiology_board') }}">Radiology Board</a>
+    {% endif %}
     {% if session.get('role') in ['reception','admin'] %}
       <a class="nav-link" href="{{ url_for('register_patient') }}">Register</a>
     {% endif %}
@@ -2365,7 +2298,6 @@ TEMPLATES = {
       <a class="nav-link" href="{{ url_for('admin_logs') }}">Logs</a>
       <a class="nav-link" href="{{ url_for('admin_backup') }}">Backup DB</a>
       <a class="nav-link text-primary" href="{{ url_for('admin_backup_now') }}">Backup Now</a>
-      <a class="nav-link text-warning" href="{{ url_for('admin_restore') }}">Restore Backup</a>
     {% endif %}
     <span class="text-muted">User: {{ session.get('username') }} ({{ session.get('role') }})</span>
     <a class="text-danger nav-link" href="{{ url_for('logout') }}">Logout</a>
@@ -2429,6 +2361,8 @@ TEMPLATES = {
         <option value="reception">reception</option>
         <option value="nurse">nurse</option>
         <option value="doctor">doctor</option>
+        <option value="lab">lab</option>
+        <option value="radiology">radiology</option>
         <option value="admin">admin</option>
       </select>
     </div>
@@ -2485,41 +2419,6 @@ TEMPLATES = {
 {% endblock %}
 """,
 
-"admin_restore.html": """
-{% extends "base.html" %}
-{% block content %}
-<h4 class="mb-3">Restore Backup</h4>
-
-<div class="alert alert-warning">
-  Restoring will overwrite the current database. Make sure you selected the correct backup file.
-</div>
-
-{% with messages = get_flashed_messages(with_categories=true) %}
-  {% for category, msg in messages %}
-    <div class="alert alert-{{ category }}">{{ msg }}</div>
-  {% endfor %}
-{% endwith %}
-
-<form method="POST" class="card p-3 bg-white">
-  <label class="form-label fw-bold">Select Backup File</label>
-  <select class="form-select mb-3" name="backup_file" required>
-    <option value="">-- choose backup --</option>
-    {% for b in backups %}
-      <option value="{{ b.name }}">{{ b.name }}</option>
-    {% endfor %}
-  </select>
-
-  <button class="btn btn-danger" onclick="return confirm('Restore selected backup? This will overwrite current data.')">
-    Restore Selected Backup
-  </button>
-</form>
-
-{% if not backups %}
-  <p class="text-muted mt-3">No backup files found in backups/ folder.</p>
-{% endif %}
-
-{% endblock %}
-""",
 "admin_logs.html": """
 {% extends "base.html" %}
 {% block content %}
@@ -3066,6 +2965,229 @@ TEMPLATES = {
 {% endblock %}
 """,
 
+"lab_board.html": """
+{% extends "base.html" %}
+{% block content %}
+<h4 class="mb-3">Lab Board</h4>
+
+{% with messages = get_flashed_messages(with_categories=true) %}
+  {% for category, msg in messages %}
+    <div class="alert alert-{{ category }}">{{ msg }}</div>
+  {% endfor %}
+{% endwith %}
+
+<form method="GET" class="card p-2 mb-3 bg-white">
+  <div class="d-flex flex-wrap gap-2 align-items-center">
+    <div>
+      <label class="form-label fw-bold small mb-1">Status</label>
+      <select name="status" class="form-select form-select-sm" onchange="this.form.submit()">
+        <option value="PENDING" {% if status_filter=='PENDING' %}selected{% endif %}>Pending / Received</option>
+        <option value="REPORTED" {% if status_filter=='REPORTED' %}selected{% endif %}>Reported</option>
+        <option value="ALL" {% if status_filter=='ALL' %}selected{% endif %}>All</option>
+      </select>
+    </div>
+    <div class="ms-auto small text-muted">
+      Showing last 200 requests only.
+    </div>
+  </div>
+</form>
+
+<table class="table table-sm table-striped bg-white align-middle">
+  <thead class="table-light">
+    <tr>
+      <th style="width:60px;">#</th>
+      <th>Visit</th>
+      <th>Patient</th>
+      <th>ID</th>
+      <th>Test</th>
+      <th>Status</th>
+      <th>Result</th>
+      <th style="width:220px;">Actions</th>
+    </tr>
+  </thead>
+  <tbody>
+  {% if not rows %}
+    <tr>
+      <td colspan="8" class="text-center text-muted small py-3">
+        No lab requests found for current filter.
+      </td>
+    </tr>
+  {% else %}
+    {% for r in rows %}
+      <tr>
+        <td>{{ r.id }}</td>
+        <td class="fw-bold">{{ r.visit_id }}</td>
+        <td>{{ r.name }}</td>
+        <td>{{ r.id_number or '-' }}</td>
+        <td>{{ r.test_name }}</td>
+        <td>
+          {% if r.status == 'REQUESTED' %}
+            <span class="badge bg-secondary">Waiting sample</span>
+          {% elif r.status == 'RECEIVED' %}
+            <span class="badge bg-warning text-dark">Sample received</span>
+          {% elif r.status == 'REPORTED' %}
+            <span class="badge bg-success">Reported</span>
+          {% else %}
+            <span class="badge bg-light text-muted">{{ r.status }}</span>
+          {% endif %}
+        </td>
+        <td style="max-width:260px; white-space:pre-wrap; font-size:0.85rem;">
+          {{ r.result_text or '-' }}
+        </td>
+        <td>
+          <div class="d-flex flex-column gap-1">
+            {% if session.get('role') in ['lab','admin'] %}
+              {% if r.status == 'REQUESTED' %}
+                <form method="POST"
+                      action="{{ url_for('lab_receive_sample', rid=r.id) }}">
+                  <button class="btn btn-sm btn-outline-primary w-100">
+                    ✅ Receive Sample
+                  </button>
+                </form>
+              {% endif %}
+
+              {% if r.status in ['REQUESTED','RECEIVED'] %}
+                <form method="POST"
+                      action="{{ url_for('lab_report_result', rid=r.id) }}">
+                  <div class="input-group input-group-sm mb-1">
+                    <input type="text"
+                           name="result_text"
+                           class="form-control"
+                           placeholder="Enter result...">
+                  </div>
+                  <button class="btn btn-sm btn-success w-100">
+                    💾 Save Result
+                  </button>
+                </form>
+              {% elif r.status == 'REPORTED' %}
+                <span class="small text-muted">
+                  {{ r.reported_at or '' }} | {{ r.reported_by or '' }}
+                </span>
+              {% endif %}
+            {% else %}
+              <span class="small text-muted">Read-only</span>
+            {% endif %}
+          </div>
+        </td>
+      </tr>
+    {% endfor %}
+  {% endif %}
+  </tbody>
+</table>
+{% endblock %}
+""",
+
+"radiology_board.html": """
+{% extends "base.html" %}
+{% block content %}
+<h4 class="mb-3">Radiology Board</h4>
+
+{% with messages = get_flashed_messages(with_categories=true) %}
+  {% for category, msg in messages %}
+    <div class="alert alert-{{ category }}">{{ msg }}</div>
+  {% endfor %}
+{% endwith %}
+
+<form method="GET" class="card p-2 mb-3 bg-white">
+  <div class="d-flex flex-wrap gap-2 align-items-center">
+    <div>
+      <label class="form-label fw-bold small mb-1">Status</label>
+      <select name="status" class="form-select form-select-sm" onchange="this.form.submit()">
+        <option value="PENDING" {% if status_filter=='PENDING' %}selected{% endif %}>Pending / Done</option>
+        <option value="REPORTED" {% if status_filter=='REPORTED' %}selected{% endif %}>Reported</option>
+        <option value="ALL" {% if status_filter=='ALL' %}selected{% endif %}>All</option>
+      </select>
+    </div>
+    <div class="ms-auto small text-muted">
+      Showing last 200 requests only.
+    </div>
+  </div>
+</form>
+
+<table class="table table-sm table-striped bg-white align-middle">
+  <thead class="table-light">
+    <tr>
+      <th style="width:60px;">#</th>
+      <th>Visit</th>
+      <th>Patient</th>
+      <th>ID</th>
+      <th>Study</th>
+      <th>Status</th>
+      <th>Report</th>
+      <th style="width:260px;">Actions</th>
+    </tr>
+  </thead>
+  <tbody>
+  {% if not rows %}
+    <tr>
+      <td colspan="8" class="text-center text-muted small py-3">
+        No radiology requests found for current filter.
+      </td>
+    </tr>
+  {% else %}
+    {% for r in rows %}
+      <tr>
+        <td>{{ r.id }}</td>
+        <td class="fw-bold">{{ r.visit_id }}</td>
+        <td>{{ r.name }}</td>
+        <td>{{ r.id_number or '-' }}</td>
+        <td>{{ r.test_name }}</td>
+        <td>
+          {% if r.status == 'REQUESTED' %}
+            <span class="badge bg-secondary">Waiting</span>
+          {% elif r.status == 'DONE' %}
+            <span class="badge bg-warning text-dark">Done</span>
+          {% elif r.status == 'REPORTED' %}
+            <span class="badge bg-success">Reported</span>
+          {% else %}
+            <span class="badge bg-light text-muted">{{ r.status }}</span>
+          {% endif %}
+        </td>
+        <td style="max-width:260px; white-space:pre-wrap; font-size:0.85rem;">
+          {{ r.report_text or '-' }}
+        </td>
+        <td>
+          <div class="d-flex flex-column gap-1">
+            {% if session.get('role') in ['radiology','admin'] %}
+              {% if r.status == 'REQUESTED' %}
+                <form method="POST"
+                      action="{{ url_for('radiology_mark_done', rid=r.id) }}">
+                  <button class="btn btn-sm btn-outline-primary w-100">
+                    ✅ Mark as Done
+                  </button>
+                </form>
+              {% endif %}
+
+              {% if r.status in ['REQUESTED','DONE'] %}
+                <form method="POST"
+                      action="{{ url_for('radiology_report_result', rid=r.id) }}">
+                  <div class="input-group input-group-sm mb-1">
+                    <textarea name="report_text"
+                              class="form-control"
+                              rows="2"
+                              placeholder="Enter radiology report..."></textarea>
+                  </div>
+                  <button class="btn btn-sm btn-success w-100">
+                    💾 Save Report
+                  </button>
+                </form>
+              {% elif r.status == 'REPORTED' %}
+                <span class="small text-muted">
+                  {{ r.reported_at or '' }} | {{ r.reported_by or '' }}
+                </span>
+              {% endif %}
+            {% else %}
+              <span class="small text-muted">Read-only</span>
+            {% endif %}
+          </div>
+        </td>
+      </tr>
+    {% endfor %}
+  {% endif %}
+  </tbody>
+</table>
+{% endblock %}
+""",
 "clinical_orders.html": """
 {% extends "base.html" %}
 {% block content %}
@@ -3079,6 +3201,26 @@ TEMPLATES = {
     <div class="alert alert-{{ category }}">{{ msg }}</div>
   {% endfor %}
 {% endwith %}
+
+<div class="mb-3 d-flex flex-wrap gap-2">
+  <a class="btn btn-sm btn-outline-secondary"
+     target="_blank"
+     href="{{ url_for('lab_results_pdf', visit_id=visit.visit_id) }}">
+    Print Lab Results PDF
+  </a>
+
+  <a class="btn btn-sm btn-outline-secondary"
+     target="_blank"
+     href="{{ url_for('radiology_results_pdf', visit_id=visit.visit_id) }}">
+    Print Radiology Reports PDF
+  </a>
+
+  <a class="btn btn-sm btn-outline-dark"
+     target="_blank"
+     href="{{ url_for('auto_summary_pdf', visit_id=visit.visit_id) }}">
+    Auto ED Course Summary PDF
+  </a>
+</div>
 
 <div class="row g-3">
   <div class="col-lg-7">
@@ -3101,7 +3243,6 @@ TEMPLATES = {
 
       {% if session.get('role') not in ['reception'] %}
       <form method="POST" action="{{ url_for('add_clinical_order', visit_id=visit.visit_id) }}">
-
         <label class="form-label fw-bold">Diagnosis / Chief Complaint</label>
         <textarea class="form-control mb-3" name="diagnosis" rows="2" placeholder="Write diagnosis or chief complaint..."></textarea>
 
@@ -3259,6 +3400,96 @@ TEMPLATES = {
     </div>
     {% endif %}
   </div>
+</div>
+
+<div class="card p-3 bg-white mt-3">
+  <h6 class="fw-bold mb-2">Lab Requests / Results</h6>
+  {% if not lab_reqs %}
+    <div class="text-muted small">No lab requests for this visit.</div>
+  {% else %}
+    <table class="table table-sm mb-0">
+      <thead>
+        <tr>
+          <th style="width:60px;">#</th>
+          <th>Test</th>
+          <th>Status</th>
+          <th>Result</th>
+          <th class="small">Requested</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for l in lab_reqs %}
+          <tr>
+            <td>{{ l.id }}</td>
+            <td>{{ l.test_name }}</td>
+            <td>
+              {% if l.status == 'REQUESTED' %}
+                <span class="badge bg-secondary">Waiting Sample</span>
+              {% elif l.status == 'RECEIVED' %}
+                <span class="badge bg-warning text-dark">Sample Received</span>
+              {% elif l.status == 'REPORTED' %}
+                <span class="badge bg-success">Result Ready</span>
+              {% else %}
+                <span class="badge bg-light text-muted">{{ l.status }}</span>
+              {% endif %}
+            </td>
+            <td style="max-width:260px;white-space:pre-wrap;font-size:0.85rem;">
+              {{ l.result_text or '-' }}
+            </td>
+            <td class="small text-muted">
+              {{ l.requested_at or '-' }}<br>
+              by {{ l.requested_by or '-' }}
+            </td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  {% endif %}
+</div>
+
+<div class="card p-3 bg-white mt-3">
+  <h6 class="fw-bold mb-2">Radiology Requests / Reports</h6>
+  {% if not rad_reqs %}
+    <div class="text-muted small">No radiology requests for this visit.</div>
+  {% else %}
+    <table class="table table-sm mb-0">
+      <thead>
+        <tr>
+          <th style="width:60px;">#</th>
+          <th>Study</th>
+          <th>Status</th>
+          <th>Report</th>
+          <th class="small">Requested</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for r in rad_reqs %}
+          <tr>
+            <td>{{ r.id }}</td>
+            <td>{{ r.test_name }}</td>
+            <td>
+              {% if r.status == 'REQUESTED' %}
+                <span class="badge bg-secondary">Waiting</span>
+              {% elif r.status == 'DONE' %}
+                <span class="badge bg-warning text-dark">Done</span>
+              {% elif r.status == 'REPORTED' %}
+                <span class="badge bg-success">Report Ready</span>
+              {% else %}
+                <span class="badge bg-light text-muted">{{ r.status }}</span>
+              {% endif %}
+            </td>
+            <td style="max-width:260px;white-space:pre-wrap;font-size:0.85rem;">
+              {{ r.report_text or '-' }}
+            </td>
+            <td class="small text-muted">
+              {{ r.requested_at or '-' }}<br>
+              by {{ r.requested_by or '-' }}
+            </td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  {% endif %}
 </div>
 
 <div class="card p-3 bg-white mt-3">
@@ -3431,95 +3662,6 @@ function applyBundle(name){
 </script>
 
 {% endblock %}
-
-<script>
-const BUNDLES = {
-  "chest_pain": {
-    "radiology": "X-Ray Chest",
-    "labs": "CBC, Electrolytes, Troponin, CK-MB, PT/PTT/INR, RBS, D-Dimer",
-    "meds": "Morphine IV, Ondansetron IV, Aspirin PO 300mg, Nitroglycerin SL, Normal Saline 0.9%",
-    "diagnosis": ""
-  },
-  "stroke": {
-    "radiology": "CT Brain (Non-Contrast), CT Angio Head/Neck (if indicated)",
-    "labs": "CBC, Electrolytes, PT/PTT/INR, RBS, Troponin",
-    "meds": "Normal Saline 0.9%, Labetalol IV (if hypertensive), Thrombolysis protocol (if eligible)",
-    "diagnosis": ""
-  },
-  "trauma": {
-    "radiology": "FAST US, X-Ray Chest, X-Ray Pelvis, CT Trauma (Head/C-Spine/Chest/Abdomen/Pelvis) as indicated",
-    "labs": "CBC, Electrolytes, Lactate, Type & Screen, Crossmatch, Coags",
-    "meds": "Normal Saline / Ringer Lactate, Tranexamic Acid (if indicated), Analgesia per protocol",
-    "diagnosis": ""
-  },
-  "abdominal_pain": {
-    "radiology": "US Abdomen, CT Abdomen/Pelvis (if indicated)",
-    "labs": "CBC, CRP, LFT, Lipase, Electrolytes, Urinalysis, Beta-hCG (females)",
-    "meds": "Hyoscine/Buscopan, Paracetamol IV/PO, Ondansetron IV, Normal Saline 0.9%",
-    "diagnosis": ""
-  },
-  "sob": {
-    "radiology": "X-Ray Chest, CT Pulmonary Angio (if indicated)",
-    "labs": "CBC, Electrolytes, ABG/VBG, Troponin, BNP, D-Dimer, COVID/Flu Swab",
-    "meds": "O2 therapy, Nebulizer (Salbutamol/Ipratropium), Steroid IV, Normal Saline 0.9%",
-    "diagnosis": ""
-  },
-  "sepsis": {
-    "radiology": "X-Ray Chest, US/CT source control as indicated",
-    "labs": "CBC, CRP, Lactate, Electrolytes, Blood Culture x2, Urine Culture",
-    "meds": "Broad-spectrum antibiotics (per policy), Normal Saline 30ml/kg, Paracetamol",
-    "diagnosis": ""
-  },
-  "fever_adult": {
-    "radiology": "X-Ray Chest (if respiratory), US/CT if source suspected",
-    "labs": "CBC, CRP, Electrolytes, Urinalysis, Blood Culture (if indicated)",
-    "meds": "Paracetamol, Normal Saline, Empiric antibiotics if indicated",
-    "diagnosis": ""
-  },
-  "fever_peds": {
-    "radiology": "X-Ray Chest (if cough), US if source suspected",
-    "labs": "CBC, CRP, Urinalysis, RBS",
-    "meds": "Paracetamol syrup/suppository, Oral rehydration / IV fluids if needed",
-    "diagnosis": ""
-  },
-  "gi_bleed": {
-    "radiology": "NG tube / Endoscopy referral, CT Abdomen (if indicated)",
-    "labs": "CBC, PT/PTT/INR, Type & Screen, Crossmatch, Electrolytes",
-    "meds": "Pantoprazole IV, Normal Saline, Tranexamic Acid (if severe, per policy)",
-    "diagnosis": ""
-  },
-  "anaphylaxis": {
-    "radiology": "CXR (if respiratory), ECG monitoring",
-    "labs": "CBC, Electrolytes (optional)",
-    "meds": "Epinephrine IM, Hydrocortisone IV, Chlorpheniramine IV/IM, Nebulizer, Normal Saline",
-    "diagnosis": ""
-  }
-};
-
-function applyBundle(key){
-  const b = BUNDLES[key];
-  if(!b) return;
-  const dx = document.querySelector('textarea[name="diagnosis"]');
-  const rad = document.querySelector('textarea[name="radiology_orders"]');
-  const lab = document.querySelector('textarea[name="lab_orders"]');
-  const med = document.querySelector('textarea[name="medications"]');
-  if(dx) dx.value = b.diagnosis || "";
-  if(rad) rad.value = b.radiology || "";
-  if(lab) lab.value = b.labs || "";
-  if(med) med.value = b.meds || "";
-}
-function clearBundle(){
-  const dx = document.querySelector('textarea[name="diagnosis"]');
-  const rad = document.querySelector('textarea[name="radiology_orders"]');
-  const lab = document.querySelector('textarea[name="lab_orders"]');
-  const med = document.querySelector('textarea[name="medications"]');
-  if(dx) dx.value = "";
-  if(rad) rad.value = "";
-  if(lab) lab.value = "";
-  if(med) med.value = "";
-}
-
-</script>
 """,
 
 "sticker.html": """
