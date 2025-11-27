@@ -1179,7 +1179,7 @@ def cancel_visit(visit_id):
     )
     db.commit()
 
-    log_action("CANCEL_VISIT", visit_id=visit_id, reason=reason)
+    log_action("CANCEL_VISIT", visit_id=visit_id, details=reason)
     flash("Visit has been cancelled successfully by Reception.", "info")
     return redirect(url_for("ed_board"))
 
