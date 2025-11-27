@@ -675,6 +675,45 @@ def admin_backup_now():
     else:
         flash("Backup failed.", "danger")
     return redirect(url_for("ed_board"))
+@app.route("/admin/restore", methods=["GET","POST"])
+@login_required
+@role_required("admin")
+def admin_restore():
+    """
+    Restore DB from uploaded backup file.
+    """
+    if request.method == "POST":
+        file = request.files.get("file")
+        if not file or file.filename == "":
+            flash("Please choose a backup file.", "danger")
+            return redirect(url_for("admin_restore"))
+
+        filename = secure_filename(file.filename)
+        if not filename.lower().endswith(".db"):
+            flash("Invalid file type. Please upload a .db backup file.", "danger")
+            return redirect(url_for("admin_restore"))
+
+        temp_path = os.path.join(BACKUP_FOLDER, f"restore_{int(time.time())}_{filename}")
+        file.save(temp_path)
+
+        try:
+            # safety backup of current DB before overwrite
+            if os.path.exists(DATABASE):
+                shutil.copy2(DATABASE, DATABASE + ".before_restore.bak")
+
+            shutil.copy2(temp_path, DATABASE)
+
+            log_action("BACKUP_RESTORE", details=filename)
+            flash("Database restored successfully. Please restart the app/server.", "success")
+        except Exception as e:
+            flash(f"Restore failed: {e}", "danger")
+
+        return redirect(url_for("ed_board"))
+
+    return render_template("admin_restore.html")
+
+
+
 
 # ============================================================
 # Register / Search
@@ -2514,6 +2553,7 @@ TEMPLATES = {
       <a class="nav-link" href="{{ url_for('admin_logs') }}">Logs</a>
       <a class="nav-link" href="{{ url_for('admin_backup') }}">Backup DB</a>
       <a class="nav-link text-primary" href="{{ url_for('admin_backup_now') }}">Backup Now</a>
+      <a class="nav-link text-danger" href="{{ url_for('admin_restore') }}">Restore DB</a>
     {% endif %}
     <span class="text-muted">User: {{ session.get('username') }} ({{ session.get('role') }})</span>
     <a class="text-danger nav-link" href="{{ url_for('logout') }}">Logout</a>
@@ -2690,6 +2730,34 @@ TEMPLATES = {
   {% endfor %}
   </tbody>
 </table>
+{% endblock %}
+""",
+"admin_restore.html": """
+{% extends "base.html" %}
+{% block content %}
+<h4 class="mb-3">Restore Database from Backup</h4>
+
+{% with messages = get_flashed_messages(with_categories=true) %}
+  {% for category, msg in messages %}
+    <div class="alert alert-{{ category }}">{{ msg }}</div>
+  {% endfor %}
+{% endwith %}
+
+<div class="card p-3 bg-white">
+  <p class="text-danger small mb-2">
+    ⚠️ Warning: restoring a backup will overwrite the current database file.
+    A safety copy (*.before_restore.bak) will be created automatically.
+  </p>
+
+  <form method="POST" enctype="multipart/form-data">
+    <div class="mb-2">
+      <label class="form-label fw-bold">Select backup .db file</label>
+      <input type="file" name="file" class="form-control" required>
+    </div>
+    <button class="btn btn-danger mt-2">Restore Now</button>
+    <a class="btn btn-secondary mt-2" href="{{ url_for('ed_board') }}">Cancel</a>
+  </form>
+</div>
 {% endblock %}
 """,
 
@@ -3281,21 +3349,31 @@ TEMPLATES = {
                 </form>
               {% endif %}
 
-              {% if r.status in ['REQUESTED','RECEIVED'] %}
+              <button class="btn btn-sm btn-outline-secondary w-100 mt-1"
+                      type="button"
+                      data-bs-toggle="collapse"
+                      data-bs-target="#edit{{ r.id }}">
+                ✏️ Edit / Add Result
+              </button>
+
+              <div class="collapse mt-1" id="edit{{ r.id }}">
                 <form method="POST"
                       action="{{ url_for('lab_report_result', rid=r.id) }}">
                   <div class="input-group input-group-sm mb-1">
                     <input type="text"
                            name="result_text"
                            class="form-control"
-                           placeholder="Enter result...">
+                           placeholder="Enter result..."
+                           value="{{ r.result_text or '' }}">
                   </div>
                   <button class="btn btn-sm btn-success w-100">
                     💾 Save Result
                   </button>
                 </form>
-              {% elif r.status == 'REPORTED' %}
-                <span class="small text-muted">
+              </div>
+
+              {% if r.status == 'REPORTED' %}
+                <span class="small text-muted mt-1">
                   {{ r.reported_at or '' }} | {{ r.reported_by or '' }}
                 </span>
               {% endif %}
@@ -3406,21 +3484,30 @@ TEMPLATES = {
                 </form>
               {% endif %}
 
-              {% if r.status in ['REQUESTED','DONE'] %}
+              <button class="btn btn-sm btn-outline-secondary w-100 mt-1"
+                      type="button"
+                      data-bs-toggle="collapse"
+                      data-bs-target="#edit{{ r.id }}">
+                ✏️ Edit / Add Report
+              </button>
+
+              <div class="collapse mt-1" id="edit{{ r.id }}">
                 <form method="POST"
                       action="{{ url_for('radiology_report_result', rid=r.id) }}">
                   <div class="input-group input-group-sm mb-1">
                     <textarea name="report_text"
                               class="form-control"
-                              rows="2"
-                              placeholder="Enter radiology report..."></textarea>
+                              rows="3"
+                              placeholder="Enter radiology report...">{{ r.report_text or '' }}</textarea>
                   </div>
                   <button class="btn btn-sm btn-success w-100">
                     💾 Save Report
                   </button>
                 </form>
-              {% elif r.status == 'REPORTED' %}
-                <span class="small text-muted">
+              </div>
+
+              {% if r.status == 'REPORTED' %}
+                <span class="small text-muted mt-1">
                   {{ r.reported_at or '' }} | {{ r.reported_by or '' }}
                 </span>
               {% endif %}
