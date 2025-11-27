@@ -310,10 +310,15 @@ def init_db():
 
     # Auto-upgrade legacy DBs missing V5 columns
     try:
+        # Discharge V5 columns
         ensure_column("discharge_summaries", "diagnosis_cc", "TEXT")
         ensure_column("discharge_summaries", "referral_clinic", "TEXT")
         ensure_column("discharge_summaries", "home_medication", "TEXT")
         ensure_column("discharge_summaries", "auto_summary_text", "TEXT")
+        # Visit cancellation metadata (for reception cancel feature)
+        ensure_column("visits", "cancel_reason", "TEXT")
+        ensure_column("visits", "cancelled_by", "TEXT")
+        ensure_column("visits", "cancelled_at", "TEXT")
     except Exception:
         pass
 
@@ -958,6 +963,16 @@ def patient_details(visit_id):
         SELECT * FROM attachments WHERE visit_id=? ORDER BY id DESC
     """,(visit_id,)).fetchall()
 
+    # How many clinical orders exist for this visit (used to decide if reception can cancel)
+    try:
+        orders_row = cur.execute(
+            "SELECT COUNT(*) AS c FROM clinical_orders WHERE visit_id=?",
+            (visit_id,)
+        ).fetchone()
+        orders_count = orders_row["c"] if orders_row is not None else 0
+    except Exception:
+        orders_count = 0
+
     # Lab & radiology results for read-only display
     try:
         lab_reqs = cur.execute("""
@@ -981,7 +996,8 @@ def patient_details(visit_id):
                            visit=visit,
                            attachments=attachments,
                            lab_reqs=lab_reqs,
-                           rad_reqs=rad_reqs)
+                           rad_reqs=rad_reqs,
+                           orders_count=orders_count)
 
 @app.route("/patient/<visit_id>/edit", methods=["GET","POST"])
 @login_required
@@ -1101,6 +1117,72 @@ def close_visit(visit_id):
     log_action("CLOSE_VISIT", visit_id=visit_id, details=status)
     flash(f"Visit closed as {status}.", "success")
     return redirect(url_for("ed_board"))
+
+@app.route("/visit/<visit_id>/cancel", methods=["POST"])
+@login_required
+@role_required("reception","admin")
+def cancel_visit(visit_id):
+    """Allow reception to cancel a visit that has not yet been seen by the doctor.
+
+    Rules:
+    - Visit must still be OPEN.
+    - There must be no clinical orders for this visit.
+    - A text reason is mandatory.
+    """
+    reason = (request.form.get("cancel_reason") or "").strip()
+    if not reason:
+        flash("Please enter a reason for cancellation.", "danger")
+        return redirect(url_for("patient_details", visit_id=visit_id))
+
+    db = get_db()
+    cur = db.cursor()
+
+    visit = cur.execute(
+        "SELECT id, status FROM visits WHERE visit_id=?",
+        (visit_id,),
+    ).fetchone()
+    if not visit:
+        flash("Visit not found.", "danger")
+        return redirect(url_for("ed_board"))
+
+    if visit["status"] != "OPEN":
+        flash("This visit is already closed or cancelled.", "danger")
+        return redirect(url_for("patient_details", visit_id=visit_id))
+
+    # If there are clinical orders, we assume the doctor has already seen the patient
+    try:
+        orders_row = cur.execute(
+            "SELECT COUNT(*) AS c FROM clinical_orders WHERE visit_id=?",
+            (visit_id,),
+        ).fetchone()
+        orders_count = orders_row["c"] if orders_row is not None else 0
+    except Exception:
+        orders_count = 0
+
+    if orders_count > 0:
+        flash("This visit cannot be cancelled because it has already been seen by a doctor.", "danger")
+        return redirect(url_for("patient_details", visit_id=visit_id))
+
+    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    username = session.get("username", "")
+
+    cur.execute(
+        """UPDATE visits
+               SET status='CANCELLED',
+                   cancel_reason=?,
+                   cancelled_by=?,
+                   cancelled_at=?,
+                   closed_at=?,
+                   closed_by=?
+             WHERE visit_id=? AND status='OPEN'""",
+        (reason, username, now, now, username, visit_id),
+    )
+    db.commit()
+
+    log_action("CANCEL_VISIT", visit_id=visit_id, reason=reason)
+    flash("Visit has been cancelled successfully by Reception.", "info")
+    return redirect(url_for("ed_board"))
+
 
 # ============================================================
 # Triage
@@ -2915,13 +2997,14 @@ TEMPLATES = {
       <label class="form-label fw-bold small">Status</label>
       <select name="status" class="form-select form-select-sm" onchange="this.form.submit()">
         <option value="ALL" {% if status_filter=="ALL" %}selected{% endif %}>ALL</option>
-<option value="OPEN" {% if status_filter=="OPEN" %}selected{% endif %}>OPEN</option>
-<option value="IN_TREATMENT" {% if status_filter=="IN_TREATMENT" %}selected{% endif %}>IN_TREATMENT</option>
-<option value="ADMITTED" {% if status_filter=="ADMITTED" %}selected{% endif %}>ADMITTED</option>
-<option value="DISCHARGED" {% if status_filter=="DISCHARGED" %}selected{% endif %}>DISCHARGED</option>
-<option value="TRANSFERRED" {% if status_filter=="TRANSFERRED" %}selected{% endif %}>TRANSFERRED</option>
-<option value="LAMA" {% if status_filter=="LAMA" %}selected{% endif %}>LAMA</option>
-<option value="EXPIRED" {% if status_filter=="EXPIRED" %}selected{% endif %}>EXPIRED</option>
+        <option value="OPEN" {% if status_filter=="OPEN" %}selected{% endif %}>OPEN</option>
+        <option value="IN_TREATMENT" {% if status_filter=="IN_TREATMENT" %}selected{% endif %}>IN_TREATMENT</option>
+        <option value="ADMITTED" {% if status_filter=="ADMITTED" %}selected{% endif %}>ADMITTED</option>
+        <option value="DISCHARGED" {% if status_filter=="DISCHARGED" %}selected{% endif %}>DISCHARGED</option>
+        <option value="TRANSFERRED" {% if status_filter=="TRANSFERRED" %}selected{% endif %}>TRANSFERRED</option>
+        <option value="LAMA" {% if status_filter=="LAMA" %}selected{% endif %}>LAMA</option>
+        <option value="EXPIRED" {% if status_filter=="EXPIRED" %}selected{% endif %}>EXPIRED</option>
+        <option value="CANCELLED" {% if status_filter=="CANCELLED" %}selected{% endif %}>CANCELLED</option>
       </select>
     </div>
 
@@ -3009,11 +3092,13 @@ TEMPLATES = {
         </a>
     {% endif %}
 
+    {% if session.get('role') != 'reception' %}
     <a class="btn btn-sm btn-outline-primary"
        target="_blank"
        href="{{ url_for('patient_summary_pdf', visit_id=v.visit_id) }}">
        ED Visit Summary - Patient Copy
     </a>
+    {% endif %}
 
     <a class="btn btn-sm btn-outline-secondary"
        target="_blank"
@@ -3067,6 +3152,10 @@ TEMPLATES = {
   <div><strong>Allergy:</strong> {{ visit.allergy_status or '-' }}</div>
   <div><strong>Triage Status:</strong> {{ visit.triage_status }}</div>
   <div><strong>Status:</strong> {{ visit.status }}</div>
+  {% if visit.status == 'CANCELLED' %}
+    <div><strong>Cancel Reason:</strong> {{ visit.cancel_reason or '-' }}</div>
+    <div><strong>Cancelled By:</strong> {{ visit.cancelled_by or '-' }}</div>
+  {% endif %}
 
   <div class="mt-2"><strong>Vital Signs:</strong>
     <div class="small text-muted">
@@ -3153,14 +3242,30 @@ TEMPLATES = {
     <a class="btn btn-outline-dark" target="_blank" href="{{ url_for('auto_summary_pdf', visit_id=visit.visit_id) }}">Auto Summary</a>
   {% endif %}
 
-  {% if session.get('role') in ['reception','nurse','doctor','admin'] %}
+  {% if session.get('role') in ['nurse','doctor','admin'] %}
     <a class="btn btn-outline-primary" target="_blank" href="{{ url_for('patient_summary_pdf', visit_id=visit.visit_id) }}">ED Visit Summary - Patient Copy</a>
+  {% endif %}
+  {% if session.get('role') in ['reception','nurse','doctor','admin'] %}
     <a class="btn btn-outline-secondary" target="_blank" href="{{ url_for('home_med_pdf', visit_id=visit.visit_id) }}">Home Medication</a>
   {% endif %}
 
   <a class="btn btn-outline-dark" target="_blank" href="{{ url_for('sticker_html', visit_id=visit.visit_id) }}">Sticker</a>
   <a class="btn btn-outline-secondary" target="_blank" href="{{ url_for('sticker_zpl', visit_id=visit.visit_id) }}">ZPL</a>
 </div>
+
+{% if session.get('role') in ['reception','admin'] and visit.status == 'OPEN' and orders_count == 0 %}
+<div class="card p-3 bg-white mb-3">
+  <h6 class="fw-bold mb-2 text-danger">Cancel Visit</h6>
+  <form method="POST" action="{{ url_for('cancel_visit', visit_id=visit.visit_id) }}" onsubmit="return confirm('Are you sure you want to cancel this visit?');">
+    <label class="form-label fw-bold small">Reason for cancellation</label>
+    <textarea name="cancel_reason" class="form-control mb-2" rows="2" required></textarea>
+    <button class="btn btn-danger btn-sm">Cancel Visit</button>
+  </form>
+  <div class="small text-muted mt-1">
+    Use only if patient registered but did not see the doctor.
+  </div>
+</div>
+{% endif %}
 
 {% if session.get('role') in ['doctor','admin'] %}
 <form method="POST" action="{{ url_for('close_visit', visit_id=visit.visit_id) }}" class="card p-3 bg-white mb-3">
