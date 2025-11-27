@@ -846,9 +846,12 @@ def ed_board():
     sql += """
         ORDER BY 
             CASE 
-                WHEN v.triage_cat='Red' THEN 1
-                WHEN v.triage_cat='Orange' THEN 2
-                ELSE 3
+                WHEN v.triage_cat='ES1' THEN 1
+                WHEN v.triage_cat='ES2' THEN 2
+                WHEN v.triage_cat='ES3' THEN 3
+                WHEN v.triage_cat='ES4' THEN 4
+                WHEN v.triage_cat='ES5' THEN 5
+                ELSE 6
             END,
             v.id DESC
         LIMIT ? OFFSET ?
@@ -916,21 +919,7 @@ def patient_details(visit_id):
         SELECT * FROM attachments WHERE visit_id=? ORDER BY id DESC
     """,(visit_id,)).fetchall()
 
-    lab_requests = cur.execute("""
-        SELECT * FROM lab_requests WHERE visit_id=? ORDER BY id DESC
-    """,(visit_id,)).fetchall()
-
-    radiology_requests = cur.execute("""
-        SELECT * FROM radiology_requests WHERE visit_id=? ORDER BY id DESC
-    """,(visit_id,)).fetchall()
-
-    return render_template(
-        "patient_details.html",
-        visit=visit,
-        attachments=attachments,
-        lab_requests=lab_requests,
-        radiology_requests=radiology_requests
-    )
+    return render_template("patient_details.html", visit=visit, attachments=attachments)
 
 @app.route("/patient/<visit_id>/edit", methods=["GET","POST"])
 @login_required
@@ -1087,7 +1076,7 @@ def triage(visit_id):
         comment = request.form.get("comment","").strip()
 
         if not cat:
-            flash("Triage Category (CAT) is required.", "danger")
+            flash("Triage Category (ES) is required.", "danger")
             return redirect(url_for("triage", visit_id=visit_id))
 
         db.execute("""
@@ -1118,36 +1107,89 @@ def triage(visit_id):
 # ============================================================
 
 def build_auto_summary(visit_id):
-    db = get_db(); cur = db.cursor()
+    db = get_db()
+    cur = db.cursor()
+
     visit = cur.execute("""
-        SELECT v.*, p.name, p.id_number, p.phone, p.insurance, p.insurance_no, p.dob, p.sex, p.nationality
-        FROM visits v JOIN patients p ON p.id=v.patient_id WHERE v.visit_id=?
-    """,(visit_id,)).fetchone()
+        SELECT v.*, p.name, p.id_number, p.phone, p.insurance, p.insurance_no,
+               p.dob, p.sex, p.nationality
+        FROM visits v
+        JOIN patients p ON p.id=v.patient_id
+        WHERE v.visit_id=?
+    """, (visit_id,)).fetchone()
+
     if not visit:
         return ""
 
+    # Clinical orders
     orders = cur.execute("""
-        SELECT * FROM clinical_orders WHERE visit_id=? ORDER BY id ASC
-    """,(visit_id,)).fetchall()
+        SELECT * FROM clinical_orders
+        WHERE visit_id=?
+        ORDER BY id ASC
+    """, (visit_id,)).fetchall()
 
+    # Nursing notes
     notes = cur.execute("""
-        SELECT * FROM nursing_notes WHERE visit_id=? ORDER BY id ASC
-    """,(visit_id,)).fetchall()
+        SELECT * FROM nursing_notes
+        WHERE visit_id=?
+        ORDER BY id ASC
+    """, (visit_id,)).fetchall()
+
+    # Lab requests/results
+    try:
+        lab_reqs = cur.execute("""
+            SELECT * FROM lab_requests
+            WHERE visit_id=?
+            ORDER BY id ASC
+        """, (visit_id,)).fetchall()
+    except Exception:
+        lab_reqs = []
+
+    # Radiology requests/reports
+    try:
+        rad_reqs = cur.execute("""
+            SELECT * FROM radiology_requests
+            WHERE visit_id=?
+            ORDER BY id ASC
+        """, (visit_id,)).fetchall()
+    except Exception:
+        rad_reqs = []
 
     lines = []
+
+    # Basic info
     lines.append(f"Visit ID: {visit_id}")
-    lines.append(f"Patient: {visit['name']} | ID: {visit['id_number'] or '-'} | INS: {visit['insurance'] or '-'}")
+    lines.append(
+        f"Patient: {visit['name']} | ID: {visit['id_number'] or '-'} | "
+        f"INS: {visit['insurance'] or '-'}"
+    )
     if visit["comment"]:
         lines.append(f"Chief Complaint / Comment: {visit['comment']}")
     lines.append("")
+
+    # Triage + Vitals
     lines.append("Triage & Vital Signs:")
-    lines.append(f" - Triage Status: {visit['triage_status']} | CAT: {visit['triage_cat'] or '-'}")
+    lines.append(
+        f" - Triage Status: {visit['triage_status']} | "
+        f"CAT: {visit['triage_cat'] or '-'}"
+    )
     lines.append(f" - Allergy: {visit['allergy_status'] or '-'}")
-    lines.append(f" - PR: {visit['pulse_rate'] or '-'} bpm, RR: {visit['resp_rate'] or '-'} /min, Temp: {visit['temperature'] or '-'} C")
-    lines.append(f" - BP: {visit['bp_systolic'] or '-'} / {visit['bp_diastolic'] or '-'} , SpO2: {visit['spo2'] or '-'}%")
-    lines.append(f" - Consciousness: {visit['consciousness_level'] or '-'} , Pain: {visit['pain_score'] or '-'} /10")
+    lines.append(
+        f" - PR: {visit['pulse_rate'] or '-'} bpm, "
+        f"RR: {visit['resp_rate'] or '-'} /min, "
+        f"Temp: {visit['temperature'] or '-'} C"
+    )
+    lines.append(
+        f" - BP: {visit['bp_systolic'] or '-'} / {visit['bp_diastolic'] or '-'} , "
+        f"SpO2: {visit['spo2'] or '-'}%"
+    )
+    lines.append(
+        f" - Consciousness: {visit['consciousness_level'] or '-'} , "
+        f"Pain: {visit['pain_score'] or '-'} /10"
+    )
     lines.append("")
 
+    # Clinical orders
     if orders:
         lines.append("Clinical Orders (chronological):")
         for o in orders:
@@ -1165,6 +1207,53 @@ def build_auto_summary(visit_id):
         lines.append("Clinical Orders: None")
         lines.append("")
 
+    # Labs
+    if lab_reqs:
+        lines.append("Lab Tests & Results:")
+        for l in lab_reqs:
+            line = f" Lab #{l['id']} | {l['test_name']} | Status: {l['status']}"
+            if l["result_text"]:
+                line += f" | Result: {l['result_text']}"
+            lines.append(line)
+
+            details = []
+            if l["requested_at"]:
+                details.append(f"Req: {l['requested_at']} by {l['requested_by'] or '-'}")
+            if l["received_at"]:
+                details.append(f"Sample: {l['received_at']} by {l['received_by'] or '-'}")
+            if l["reported_at"]:
+                details.append(f"Reported: {l['reported_at']} by {l['reported_by'] or '-'}")
+            if details:
+                lines.append("  " + " | ".join(details))
+        lines.append("")
+    else:
+        lines.append("Lab Tests & Results: None")
+        lines.append("")
+
+    # Radiology
+    if rad_reqs:
+        lines.append("Radiology Studies & Reports:")
+        for r in rad_reqs:
+            lines.append(
+                f" Study #{r['id']} | {r['test_name']} | Status: {r['status']}"
+            )
+            details = []
+            if r["requested_at"]:
+                details.append(f"Req: {r['requested_at']} by {r['requested_by'] or '-'}")
+            if r["done_at"]:
+                details.append(f"Done: {r['done_at']} by {r['done_by'] or '-'}")
+            if r["reported_at"]:
+                details.append(f"Reported: {r['reported_at']} by {r['reported_by'] or '-'}")
+            if details:
+                lines.append("  " + " | ".join(details))
+            if r["report_text"]:
+                lines.append(f"  Report: {r['report_text']}")
+            lines.append("")
+    else:
+        lines.append("Radiology Studies & Reports: None")
+        lines.append("")
+
+    # Nursing notes
     if notes:
         lines.append("Nursing Notes:")
         for n in notes:
@@ -1172,6 +1261,138 @@ def build_auto_summary(visit_id):
         lines.append("")
     else:
         lines.append("Nursing Notes: None")
+        lines.append("")
+
+    # Final status
+    lines.append(f"Final Visit Status: {visit['status']}")
+    if visit["closed_at"]:
+        lines.append(
+            f"Closed At: {visit['closed_at']} by {visit['closed_by'] or '-'}"
+        )
+
+    return "\n".join(lines).strip()
+
+
+def build_patient_short_summary(visit_id):
+    """Build a short, patient-friendly summary text without internal staff details."""
+    db = get_db()
+    cur = db.cursor()
+
+    visit = cur.execute("""
+        SELECT v.*, p.name, p.id_number, p.phone, p.insurance, p.insurance_no,
+               p.dob, p.sex, p.nationality
+        FROM visits v
+        JOIN patients p ON p.id=v.patient_id
+        WHERE v.visit_id=?
+    """, (visit_id,)).fetchone()
+
+    if not visit:
+        return ""
+
+    summary = cur.execute("""
+        SELECT diagnosis_cc, referral_clinic, home_medication
+        FROM discharge_summaries
+        WHERE visit_id=?
+    """, (visit_id,)).fetchone()
+
+    # Lab and radiology requests (if tables exist)
+    try:
+        lab_reqs = cur.execute("""
+            SELECT * FROM lab_requests
+            WHERE visit_id=?
+            ORDER BY id ASC
+        """, (visit_id,)).fetchall()
+    except Exception:
+        lab_reqs = []
+
+    try:
+        rad_reqs = cur.execute("""
+            SELECT * FROM radiology_requests
+            WHERE visit_id=?
+            ORDER BY id ASC
+        """, (visit_id,)).fetchall()
+    except Exception:
+        rad_reqs = []
+
+    lines = []
+
+    lines.append(f"Visit ID: {visit_id}")
+    lines.append(
+        f"Patient: {visit['name']} | ID: {visit['id_number'] or '-'} | "
+        f"INS: {visit['insurance'] or '-'}"
+    )
+    lines.append("")
+
+    # Basic triage/vitals
+    lines.append("Triage & Vital Signs (ED):")
+    es_cat = visit['triage_cat'] or '-'
+    lines.append(f" - Triage Category (ES): {es_cat}")
+    lines.append(
+        f" - PR: {visit['pulse_rate'] or '-'} bpm, "
+        f"RR: {visit['resp_rate'] or '-'} /min, "
+        f"Temp: {visit['temperature'] or '-'} C"
+    )
+    lines.append(
+        f" - BP: {visit['bp_systolic'] or '-'} / {visit['bp_diastolic'] or '-'} , "
+        f"SpO2: {visit['spo2'] or '-'}%"
+    )
+    lines.append(
+        f" - Consciousness: {visit['consciousness_level'] or '-'} , "
+        f"Pain: {visit['pain_score'] or '-'} /10"
+    )
+    lines.append("")
+
+    # Diagnosis / plan
+    if summary and (summary["diagnosis_cc"] or summary["referral_clinic"] or summary["home_medication"]):
+        lines.append("Diagnosis & Plan:")
+        if summary["diagnosis_cc"]:
+            lines.append(f" - Diagnosis / Main Complaint: {summary['diagnosis_cc']}")
+        if summary["referral_clinic"]:
+            lines.append(f" - Follow-up / Referral: {summary['referral_clinic']}")
+        lines.append("")
+    else:
+        lines.append("Diagnosis & Plan: (not documented)")
+        lines.append("")
+
+    # Home medication
+    if summary and summary["home_medication"]:
+        lines.append("Home Medication:")
+        for line in summary["home_medication"].splitlines():
+            if line.strip():
+                lines.append(f" - {line.strip()}")
+        lines.append("")
+    else:
+        lines.append("Home Medication: None documented")
+        lines.append("")
+
+    # Labs (patient view)
+    if lab_reqs:
+        lines.append("Lab Tests & Results:")
+        for l in lab_reqs:
+            line = f" - {l['test_name']}: "
+            if l["status"] == "REPORTED" and l["result_text"]:
+                line += l["result_text"]
+            else:
+                line += f"Status {l['status']}"
+            lines.append(line)
+        lines.append("")
+    else:
+        lines.append("Lab Tests & Results: None")
+        lines.append("")
+
+    # Radiology (patient view)
+    if rad_reqs:
+        lines.append("Radiology Studies & Reports:")
+        for r in rad_reqs:
+            line = f" - {r['test_name']}: "
+            if r["status"] == "REPORTED" and r["report_text"]:
+                line += r["report_text"]
+            else:
+                line += f"Status {r['status']}"
+            lines.append(line)
+        lines.append("")
+    else:
+        lines.append("Radiology Studies & Reports: None")
         lines.append("")
 
     lines.append(f"Final Visit Status: {visit['status']}")
@@ -1208,39 +1429,85 @@ def clinical_orders_page(visit_id):
         SELECT * FROM discharge_summaries WHERE visit_id=?
     """,(visit_id,)).fetchone()
 
-    return render_template("clinical_orders.html", visit=visit, orders=orders, notes=notes, summary=summary)
+    lab_reqs = cur.execute("""
+        SELECT * FROM lab_requests
+        WHERE visit_id=?
+        ORDER BY id DESC
+    """,(visit_id,)).fetchall()
+
+    rad_reqs = cur.execute("""
+        SELECT * FROM radiology_requests
+        WHERE visit_id=?
+        ORDER BY id DESC
+    """,(visit_id,)).fetchall()
+
+    return render_template("clinical_orders.html",
+                           visit=visit,
+                           orders=orders,
+                           notes=notes,
+                           summary=summary,
+                           lab_reqs=lab_reqs,
+                           rad_reqs=rad_reqs)
 
 @app.route("/clinical_orders/<visit_id>/add", methods=["POST"])
 @login_required
 @role_required("doctor","nurse","admin")
 def add_clinical_order(visit_id):
+    """
+    Add new clinical order and auto-create lab/radiology requests.
+    """
     diagnosis = clean_text(request.form.get("diagnosis","").strip())
     radiology = clean_text(request.form.get("radiology_orders","").strip())
-    labs = clean_text(request.form.get("lab_orders","").strip())
-    meds = clean_text(request.form.get("medications","").strip())
+    labs      = clean_text(request.form.get("lab_orders","").strip())
+    meds      = clean_text(request.form.get("medications","").strip())
 
-    db = get_db()
+    db   = get_db()
+    now  = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    user = session.get("username","UNKNOWN")
+
+    # 1) save clinical order
     db.execute("""
         INSERT INTO clinical_orders
-        (visit_id, diagnosis, radiology_orders, lab_orders, medications, duplicated_from, created_at, created_by)
+        (visit_id, diagnosis, radiology_orders, lab_orders, medications,
+         duplicated_from, created_at, created_by)
         VALUES (?,?,?,?,?,?,?,?)
-    """,(visit_id, diagnosis, radiology, labs, meds, None,
-         datetime.now().strftime("%Y-%m-%d %H:%M:%S"), session.get("username")))
+    """,(visit_id, diagnosis, radiology, labs, meds,
+         None, now, user))
     db.commit()
 
-    # update auto summary text if discharge exists
+    # 2) create lab requests
+    if labs:
+        tests = [t.strip() for t in labs.split(",") if t.strip()]
+        for test in tests:
+            db.execute("""
+                INSERT INTO lab_requests
+                (visit_id, test_name, status, requested_at, requested_by)
+                VALUES (?,?,?,?,?)
+            """,(visit_id, test, "REQUESTED", now, user))
+        db.commit()
+
+    # 3) create radiology requests
+    if radiology:
+        tests = [t.strip() for t in radiology.split(",") if t.strip()]
+        for test in tests:
+            db.execute("""
+                INSERT INTO radiology_requests
+                (visit_id, test_name, status, requested_at, requested_by)
+                VALUES (?,?,?,?,?)
+            """,(visit_id, test, "REQUESTED", now, user))
+        db.commit()
+
+    # 4) update auto summary
     auto_text = build_auto_summary(visit_id)
     db.execute("""
         INSERT INTO discharge_summaries (visit_id, auto_summary_text, summary_text, created_at, created_by)
         VALUES (?,?,?,?,?)
         ON CONFLICT(visit_id) DO UPDATE SET auto_summary_text=excluded.auto_summary_text, updated_at=?, updated_by=?
-    """,(visit_id, auto_text, None,
-         datetime.now().strftime("%Y-%m-%d %H:%M:%S"), session.get("username"),
-         datetime.now().strftime("%Y-%m-%d %H:%M:%S"), session.get("username")))
+    """,(visit_id, auto_text, None, now, user, now, user))
     db.commit()
 
     log_action("ADD_ORDER", visit_id=visit_id)
-    flash("Clinical Order saved.", "success")
+    flash("Clinical Order saved, lab/radiology requests created.", "success")
     return redirect(url_for("clinical_orders_page", visit_id=visit_id))
 
 @app.route("/clinical_orders/<visit_id>/update/<int:oid>", methods=["POST"])
@@ -1525,6 +1792,252 @@ def discharge_summary_pdf(visit_id):
                     headers={"Content-Disposition":"inline; filename=discharge_summary.pdf"})
 
 # ============================================================
+# Lab Board (Requests / Results)
+# ============================================================
+
+@app.route("/lab_board")
+@login_required
+@role_required("lab", "admin", "doctor", "nurse")
+def lab_board():
+    """
+    Lab board for viewing and updating lab requests.
+    Supports simple search by patient, ID, visit or test.
+    """
+    status_filter = request.args.get("status", "PENDING")
+    q = request.args.get("q", "").strip()
+
+    cur = get_db().cursor()
+    sql = """
+        SELECT lr.*,
+               v.visit_id,
+               p.name,
+               p.id_number
+        FROM lab_requests lr
+        JOIN visits v ON v.visit_id = lr.visit_id
+        JOIN patients p ON p.id = v.patient_id
+        WHERE 1=1
+    """
+    params = []
+
+    # Status filter
+    if status_filter == "PENDING":
+        sql += " AND lr.status IN ('REQUESTED','RECEIVED')"
+    elif status_filter == "REPORTED":
+        sql += " AND lr.status='REPORTED'"
+    elif status_filter == "ALL":
+        pass
+    else:
+        status_filter = "PENDING"
+        sql += " AND lr.status IN ('REQUESTED','RECEIVED')"
+
+    # Text search
+    if q:
+        like = f"%{q}%"
+        sql += " AND (p.name LIKE ? OR p.id_number LIKE ? OR v.visit_id LIKE ? OR lr.test_name LIKE ?)"
+        params.extend([like, like, like, like])
+
+    sql += " ORDER BY lr.id DESC LIMIT 500"
+    rows = cur.execute(sql, params).fetchall()
+
+    return render_template(
+        "lab_board.html",
+        rows=rows,
+        status_filter=status_filter,
+        q=q
+    )
+
+
+@app.route("/lab_request/<int:rid>/receive", methods=["POST"])
+@login_required
+@role_required("lab", "admin")
+def lab_receive_sample(rid):
+    """
+    Mark sample as received for a lab request.
+    """
+    db = get_db()
+    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    user = session.get("username", "UNKNOWN")
+
+    cur = db.cursor()
+    row = cur.execute("SELECT * FROM lab_requests WHERE id=?", (rid,)).fetchone()
+    if not row:
+        flash("Lab request not found.", "danger")
+        return redirect(url_for("lab_board"))
+
+    if row["status"] != "REQUESTED":
+        flash("Cannot receive sample in current status.", "warning")
+        return redirect(url_for("lab_board"))
+
+    db.execute("""
+        UPDATE lab_requests
+        SET status='RECEIVED', received_at=?, received_by=?
+        WHERE id=?
+    """,(now, user, rid))
+    db.commit()
+
+    log_action("LAB_RECEIVE", visit_id=row["visit_id"], details=f"RID={rid}")
+    flash("Sample received recorded.", "success")
+    return redirect(url_for("lab_board"))
+
+
+@app.route("/lab_request/<int:rid>/report", methods=["POST"])
+@login_required
+@role_required("lab", "admin")
+def lab_report_result(rid):
+    """
+    Enter lab result and mark as REPORTED.
+    """
+    result = clean_text(request.form.get("result_text", "").strip())
+    if not result:
+        flash("Please enter result before saving.", "danger")
+        return redirect(url_for("lab_board"))
+
+    db = get_db()
+    cur = db.cursor()
+    row = cur.execute("SELECT * FROM lab_requests WHERE id=?", (rid,)).fetchone()
+    if not row:
+        flash("Lab request not found.", "danger")
+        return redirect(url_for("lab_board"))
+
+    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    user = session.get("username", "UNKNOWN")
+
+    db.execute("""
+        UPDATE lab_requests
+        SET status='REPORTED', result_text=?, reported_at=?, reported_by=?
+        WHERE id=?
+    """,(result, now, user, rid))
+    db.commit()
+
+    log_action("LAB_REPORT", visit_id=row["visit_id"], details=f"RID={rid}")
+    flash("Lab result saved.", "success")
+    return redirect(url_for("lab_board"))
+
+
+# ============================================================
+# Radiology Board (Requests / Reports)
+# ============================================================
+
+@app.route("/radiology_board")
+@login_required
+@role_required("radiology", "admin", "doctor", "nurse")
+def radiology_board():
+    """
+    Radiology board for viewing and updating radiology requests.
+    Supports simple search by patient, ID, visit or study.
+    """
+    status_filter = request.args.get("status", "PENDING")
+    q = request.args.get("q", "").strip()
+
+    cur = get_db().cursor()
+    sql = """
+        SELECT rr.*,
+               v.visit_id,
+               p.name,
+               p.id_number
+        FROM radiology_requests rr
+        JOIN visits v ON v.visit_id = rr.visit_id
+        JOIN patients p ON p.id = v.patient_id
+        WHERE 1=1
+    """
+    params = []
+
+    # Status filter
+    if status_filter == "PENDING":
+        sql += " AND rr.status IN ('REQUESTED','DONE')"
+    elif status_filter == "REPORTED":
+        sql += " AND rr.status='REPORTED'"
+    elif status_filter == "ALL":
+        pass
+    else:
+        status_filter = "PENDING"
+        sql += " AND rr.status IN ('REQUESTED','DONE')"
+
+    # Text search
+    if q:
+        like = f"%{q}%"
+        sql += " AND (p.name LIKE ? OR p.id_number LIKE ? OR v.visit_id LIKE ? OR rr.test_name LIKE ?)"
+        params.extend([like, like, like, like])
+
+    sql += " ORDER BY rr.id DESC LIMIT 500"
+    rows = cur.execute(sql, params).fetchall()
+
+    return render_template(
+        "radiology_board.html",
+        rows=rows,
+        status_filter=status_filter,
+        q=q
+    )
+
+
+@app.route("/radiology_request/<int:rid>/done", methods=["POST"])
+@login_required
+@role_required("radiology", "admin")
+def radiology_mark_done(rid):
+    """
+    Mark that radiology study has been done.
+    """
+    db = get_db()
+    cur = db.cursor()
+    row = cur.execute("SELECT * FROM radiology_requests WHERE id=?", (rid,)).fetchone()
+    if not row:
+        flash("Radiology request not found.", "danger")
+        return redirect(url_for("radiology_board"))
+
+    if row["status"] != "REQUESTED":
+        flash("Cannot mark as done in current status.", "warning")
+        return redirect(url_for("radiology_board"))
+
+    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    user = session.get("username", "UNKNOWN")
+
+    db.execute("""
+        UPDATE radiology_requests
+        SET status='DONE', done_at=?, done_by=?
+        WHERE id=?
+    """,(now, user, rid))
+    db.commit()
+
+    log_action("RAD_DONE", visit_id=row["visit_id"], details=f"RID={rid}")
+    flash("Marked as done.", "success")
+    return redirect(url_for("radiology_board"))
+
+
+@app.route("/radiology_request/<int:rid>/report", methods=["POST"])
+@login_required
+@role_required("radiology", "admin")
+def radiology_report_result(rid):
+    """
+    Enter radiology report and mark as REPORTED.
+    """
+    report = clean_text(request.form.get("report_text", "").strip())
+    if not report:
+        flash("Please enter report text before saving.", "danger")
+        return redirect(url_for("radiology_board"))
+
+    db = get_db()
+    cur = db.cursor()
+    row = cur.execute("SELECT * FROM radiology_requests WHERE id=?", (rid,)).fetchone()
+    if not row:
+        flash("Radiology request not found.", "danger")
+        return redirect(url_for("radiology_board"))
+
+    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    user = session.get("username", "UNKNOWN")
+
+    db.execute("""
+        UPDATE radiology_requests
+        SET status='REPORTED', report_text=?, reported_at=?, reported_by=?
+        WHERE id=?
+    """,(report, now, user, rid))
+    db.commit()
+
+    log_action("RAD_REPORT", visit_id=row["visit_id"], details=f"RID={rid}")
+    flash("Radiology report saved.", "success")
+    return redirect(url_for("radiology_board"))
+
+
+# ============================================================
 # Auto Summary PDF (Nursing / Staff Copy)
 # ============================================================
 
@@ -1594,6 +2107,240 @@ def auto_summary_pdf(visit_id):
         mimetype="application/pdf",
         headers={"Content-Disposition": "inline; filename=auto_summary.pdf"}
     )
+
+
+@app.route("/patient_summary/<visit_id>/pdf")
+@login_required
+def patient_summary_pdf(visit_id):
+    """Patient-friendly short summary PDF without internal staff details."""
+    db = get_db()
+    cur = db.cursor()
+
+    visit = cur.execute("""
+        SELECT v.visit_id, p.name, p.id_number, p.insurance, v.created_at
+        FROM visits v
+        JOIN patients p ON p.id=v.patient_id
+        WHERE v.visit_id=?
+    """, (visit_id,)).fetchone()
+
+    if not visit:
+        return "Not found", 404
+
+    text = build_patient_short_summary(visit_id)
+
+    buffer = io.BytesIO()
+    c = canvas.Canvas(buffer, pagesize=A4)
+    width, height = A4
+    y = height - 2*cm
+
+    c.setFont("Helvetica-Bold", 16)
+    c.drawString(2*cm, y, "Patient Short Summary")
+    y -= 1.0*cm
+
+    c.setFont("Helvetica", 11)
+    c.drawString(2*cm, y, f"Visit ID: {visit['visit_id']}")
+    y -= 0.7*cm
+    c.drawString(2*cm, y, f"Patient: {visit['name']}")
+    y -= 0.6*cm
+    c.drawString(2*cm, y, f"ID: {visit['id_number'] or '-'}    INS: {visit['insurance'] or '-'}")
+    y -= 0.6*cm
+    c.drawString(2*cm, y, f"Date: {visit['created_at']}")
+    y -= 0.8*cm
+
+    c.setFont("Helvetica", 10)
+    for line in (text or "-").splitlines():
+        c.drawString(2*cm, y, line[:120])
+        y -= 0.40*cm
+        if y < 2*cm:
+            c.showPage()
+            y = height - 2*cm
+            c.setFont("Helvetica", 10)
+
+    c.setFont("Helvetica-Oblique", 8)
+    c.drawString(2*cm, 1.2*cm, APP_FOOTER_TEXT)
+
+    c.showPage()
+    c.save()
+    buffer.seek(0)
+
+    return Response(
+        buffer.getvalue(),
+        mimetype="application/pdf",
+        headers={"Content-Disposition": "inline; filename=patient_short_summary.pdf"}
+    )
+@app.route("/lab_results/<visit_id>/pdf")
+@login_required
+def lab_results_pdf(visit_id):
+    db = get_db()
+    cur = db.cursor()
+
+    visit = cur.execute("""
+        SELECT v.visit_id, p.name, p.id_number, p.insurance, v.created_at
+        FROM visits v
+        JOIN patients p ON p.id=v.patient_id
+        WHERE v.visit_id=?
+    """, (visit_id,)).fetchone()
+
+    if not visit:
+        return "Not found", 404
+
+    labs = cur.execute("""
+        SELECT * FROM lab_requests
+        WHERE visit_id=?
+        ORDER BY id ASC
+    """, (visit_id,)).fetchall()
+
+    buffer = io.BytesIO()
+    c = canvas.Canvas(buffer, pagesize=A4)
+    width, height = A4
+    y = height - 2*cm
+
+    c.setFont("Helvetica-Bold", 16)
+    c.drawString(2*cm, y, "Lab Results")
+    y -= 1.0*cm
+
+    c.setFont("Helvetica", 11)
+    c.drawString(2*cm, y, f"Visit: {visit['visit_id']}")
+    y -= 0.7*cm
+    c.drawString(2*cm, y, f"Patient: {visit['name']}   ID: {visit['id_number'] or '-'}")
+    y -= 0.6*cm
+    c.drawString(2*cm, y, f"INS: {visit['insurance'] or '-'}   Date: {visit['created_at']}")
+    y -= 1.0*cm
+
+    if not labs:
+        c.setFont("Helvetica", 10)
+        c.drawString(2*cm, y, "No lab requests/results for this visit.")
+    else:
+        for l in labs:
+            c.setFont("Helvetica-Bold", 10)
+            c.drawString(2*cm, y, f"Lab #{l['id']} - {l['test_name']}")
+            y -= 0.4*cm
+
+            c.setFont("Helvetica", 9)
+            status_line = f"Status: {l['status']}"
+            if l["result_text"]:
+                status_line += f" | Result: {l['result_text']}"
+            c.drawString(2*cm, y, status_line[:130])
+            y -= 0.35*cm
+
+            details = []
+            if l["requested_at"]:
+                details.append(f"Req: {l['requested_at']} by {l['requested_by'] or '-'}")
+            if l["received_at"]:
+                details.append(f"Sample: {l['received_at']} by {l['received_by'] or '-'}")
+            if l["reported_at"]:
+                details.append(f"Reported: {l['reported_at']} by {l['reported_by'] or '-'}")
+            if details:
+                c.drawString(2*cm, y, " | ".join(details)[:130])
+                y -= 0.35*cm
+
+            y -= 0.2*cm
+            if y < 2*cm:
+                c.showPage()
+                y = height - 2*cm
+
+    c.setFont("Helvetica-Oblique", 8)
+    c.drawString(2*cm, 1.2*cm, APP_FOOTER_TEXT)
+    c.showPage()
+    c.save()
+    buffer.seek(0)
+
+    return Response(
+        buffer.getvalue(),
+        mimetype="application/pdf",
+        headers={"Content-Disposition": "inline; filename=lab_results.pdf"}
+    )
+
+
+@app.route("/radiology_results/<visit_id>/pdf")
+@login_required
+def radiology_results_pdf(visit_id):
+    db = get_db()
+    cur = db.cursor()
+
+    visit = cur.execute("""
+        SELECT v.visit_id, p.name, p.id_number, p.insurance, v.created_at
+        FROM visits v
+        JOIN patients p ON p.id=v.patient_id
+        WHERE v.visit_id=?
+    """, (visit_id,)).fetchone()
+
+    if not visit:
+        return "Not found", 404
+
+    rads = cur.execute("""
+        SELECT * FROM radiology_requests
+        WHERE visit_id=?
+        ORDER BY id ASC
+    """, (visit_id,)).fetchall()
+
+    buffer = io.BytesIO()
+    c = canvas.Canvas(buffer, pagesize=A4)
+    width, height = A4
+    y = height - 2*cm
+
+    c.setFont("Helvetica-Bold", 16)
+    c.drawString(2*cm, y, "Radiology Reports")
+    y -= 1.0*cm
+
+    c.setFont("Helvetica", 11)
+    c.drawString(2*cm, y, f"Visit: {visit['visit_id']}")
+    y -= 0.7*cm
+    c.drawString(2*cm, y, f"Patient: {visit['name']}   ID: {visit['id_number'] or '-'}")
+    y -= 0.6*cm
+    c.drawString(2*cm, y, f"INS: {visit['insurance'] or '-'}   Date: {visit['created_at']}")
+    y -= 1.0*cm
+
+    if not rads:
+        c.setFont("Helvetica", 10)
+        c.drawString(2*cm, y, "No radiology requests/reports for this visit.")
+    else:
+        for r in rads:
+            c.setFont("Helvetica-Bold", 10)
+            c.drawString(2*cm, y, f"Study #{r['id']} - {r['test_name']}")
+            y -= 0.4*cm
+
+            c.setFont("Helvetica", 9)
+            status_line = f"Status: {r['status']}"
+            c.drawString(2*cm, y, status_line[:130])
+            y -= 0.35*cm
+
+            details = []
+            if r["requested_at"]:
+                details.append(f"Req: {r['requested_at']} by {r['requested_by'] or '-'}")
+            if r["done_at"]:
+                details.append(f"Done: {r['done_at']} by {r['done_by'] or '-'}")
+            if r["reported_at"]:
+                details.append(f"Reported: {r['reported_at']} by {r['reported_by'] or '-'}")
+            if details:
+                c.drawString(2*cm, y, " | ".join(details)[:130])
+                y -= 0.35*cm
+
+            if r["report_text"]:
+                for line in (r["report_text"] or "-").splitlines():
+                    c.drawString(2*cm, y, ("Report: " + line)[:130])
+                    y -= 0.35*cm
+                    if y < 2*cm:
+                        c.showPage()
+                        y = height - 2*cm
+
+            y -= 0.2*cm
+            if y < 2*cm:
+                c.showPage()
+                y = height - 2*cm
+
+    c.setFont("Helvetica-Oblique", 8)
+    c.drawString(2*cm, 1.2*cm, APP_FOOTER_TEXT)
+    c.showPage()
+    c.save()
+    buffer.seek(0)
+
+    return Response(
+        buffer.getvalue(),
+        mimetype="application/pdf",
+        headers={"Content-Disposition": "inline; filename=radiology_results.pdf"}
+    )
+
 
 @app.route("/home_med/<visit_id>/pdf")
 @login_required
@@ -1731,7 +2478,7 @@ TEMPLATES = {
   <meta charset="utf-8">
   <title>ED Downtime</title>
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
-  <meta http-equiv="refresh" content="3600">
+  <meta http-equiv="refresh" content="2700">
   <style>
     body { background:#f7f7f7; }
     .nav-link { font-weight:600; }
@@ -1752,6 +2499,12 @@ TEMPLATES = {
     <button type="button" class="btn btn-sm btn-outline-secondary" onclick="location.reload()">Refresh</button>
     <a class="nav-link" href="{{ url_for('ed_board') }}">ED Board</a>
     <a class="nav-link" href="{{ url_for('search_patients') }}">Search</a>
+    {% if session.get('role') in ['lab','admin','doctor','nurse'] %}
+      <a class="nav-link" href="{{ url_for('lab_board') }}">Lab Board</a>
+    {% endif %}
+    {% if session.get('role') in ['radiology','admin','doctor','nurse'] %}
+      <a class="nav-link" href="{{ url_for('radiology_board') }}">Radiology Board</a>
+    {% endif %}
     {% if session.get('role') in ['reception','admin'] %}
       <a class="nav-link" href="{{ url_for('register_patient') }}">Register</a>
     {% endif %}
@@ -1824,6 +2577,8 @@ TEMPLATES = {
         <option value="reception">reception</option>
         <option value="nurse">nurse</option>
         <option value="doctor">doctor</option>
+        <option value="lab">lab</option>
+        <option value="radiology">radiology</option>
         <option value="admin">admin</option>
       </select>
     </div>
@@ -2029,10 +2784,11 @@ TEMPLATES = {
       <td>{{ r.triage_status }}</td>
       <td>
         {% set cat = (r.triage_cat or '').lower() %}
-        {% if cat == 'red' %}<span class="badge cat-red">Red</span>
-        {% elif cat == 'yellow' %}<span class="badge cat-yellow">Yellow</span>
-        {% elif cat == 'green' %}<span class="badge cat-green">Green</span>
-        {% elif cat == 'orange' %}<span class="badge cat-orange">Orange</span>
+        {% if cat == 'es1' %}<span class="badge cat-red">ES1</span>
+        {% elif cat == 'es2' %}<span class="badge cat-orange">ES2</span>
+        {% elif cat == 'es3' %}<span class="badge cat-yellow">ES3</span>
+        {% elif cat == 'es4' %}<span class="badge cat-green">ES4</span>
+        {% elif cat == 'es5' %}<span class="badge cat-none">ES5</span>
         {% else %}<span class="badge cat-none">-</span>{% endif %}
       </td>
       <td>{{ r.status }}</td>
@@ -2086,13 +2842,14 @@ TEMPLATES = {
     </div>
 
     <div class="col-md-2">
-      <label class="form-label fw-bold small">CAT</label>
+      <label class="form-label fw-bold small">Triage ES</label>
       <select name="cat" class="form-select form-select-sm" onchange="this.form.submit()">
-        <option value="ALL" {% if cat_filter=="ALL" %}selected{% endif %}>All CAT</option>
-        <option value="Red" {% if cat_filter=="Red" %}selected{% endif %}>Red</option>
-        <option value="Orange" {% if cat_filter=="Orange" %}selected{% endif %}>Orange</option>
-        <option value="Yellow" {% if cat_filter=="Yellow" %}selected{% endif %}>Yellow</option>
-        <option value="Green" {% if cat_filter=="Green" %}selected{% endif %}>Green</option>
+        <option value="ALL" {% if cat_filter=="ALL" %}selected{% endif %}>All ES</option>
+        <option value="ES1" {% if cat_filter=="ES1" %}selected{% endif %}>ES1</option>
+        <option value="ES2" {% if cat_filter=="ES2" %}selected{% endif %}>ES2</option>
+        <option value="ES3" {% if cat_filter=="ES3" %}selected{% endif %}>ES3</option>
+        <option value="ES4" {% if cat_filter=="ES4" %}selected{% endif %}>ES4</option>
+        <option value="ES5" {% if cat_filter=="ES5" %}selected{% endif %}>ES5</option>
       </select>
     </div>
 
@@ -2128,7 +2885,7 @@ TEMPLATES = {
   <thead>
     <tr>
       <th>Queue</th><th>Visit</th><th>Name</th><th>ID</th><th>INS</th>
-      <th>Comment</th><th>Triage</th><th>CAT</th><th>Status</th><th>Created</th><th>Actions</th>
+      <th>Comment</th><th>Triage</th><th>ES</th><th>Status</th><th>Created</th><th>Actions</th>
     </tr>
   </thead>
   <tbody>
@@ -2146,10 +2903,11 @@ TEMPLATES = {
       </td>
       <td>
         {% set cat = (v.triage_cat or '').lower() %}
-        {% if cat == 'red' %}<span class="badge cat-red">Red</span>
-        {% elif cat == 'yellow' %}<span class="badge cat-yellow">Yellow</span>
-        {% elif cat == 'green' %}<span class="badge cat-green">Green</span>
-        {% elif cat == 'orange' %}<span class="badge cat-orange">Orange</span>
+        {% if cat == 'es1' %}<span class="badge cat-red">ES1</span>
+        {% elif cat == 'es2' %}<span class="badge cat-orange">ES2</span>
+        {% elif cat == 'es3' %}<span class="badge cat-yellow">ES3</span>
+        {% elif cat == 'es4' %}<span class="badge cat-green">ES4</span>
+        {% elif cat == 'es5' %}<span class="badge cat-none">ES5</span>
         {% else %}<span class="badge cat-none">-</span>{% endif %}
       </td>
       <td>{{ v.status }}</td>
@@ -2232,12 +2990,13 @@ TEMPLATES = {
     </div>
   </div>
 
-  <div class="mt-2"><strong>Triage CAT:</strong>
+  <div class="mt-2"><strong>Triage ES:</strong>
     {% set cat = (visit.triage_cat or '').lower() %}
-    {% if cat == 'red' %}<span class="badge cat-red">Red</span>
-    {% elif cat == 'yellow' %}<span class="badge cat-yellow">Yellow</span>
-    {% elif cat == 'green' %}<span class="badge cat-green">Green</span>
-    {% elif cat == 'orange' %}<span class="badge cat-orange">Orange</span>
+    {% if cat == 'es1' %}<span class="badge cat-red">ES1</span>
+    {% elif cat == 'es2' %}<span class="badge cat-orange">ES2</span>
+    {% elif cat == 'es3' %}<span class="badge cat-yellow">ES3</span>
+    {% elif cat == 'es4' %}<span class="badge cat-green">ES4</span>
+    {% elif cat == 'es5' %}<span class="badge cat-none">ES5</span>
     {% else %}<span class="badge cat-none">-</span>{% endif %}
   </div>
 </div>
@@ -2260,6 +3019,7 @@ TEMPLATES = {
   {% endif %}
 
   {% if session.get('role') in ['reception','nurse','doctor','admin'] %}
+    <a class="btn btn-outline-primary" target="_blank" href="{{ url_for('patient_summary_pdf', visit_id=visit.visit_id) }}">Patient Summary</a>
     <a class="btn btn-outline-secondary" target="_blank" href="{{ url_for('home_med_pdf', visit_id=visit.visit_id) }}">Home Medication</a>
   {% endif %}
 
@@ -2269,10 +3029,10 @@ TEMPLATES = {
 
 {% if session.get('role') in ['doctor','admin'] %}
 <form method="POST" action="{{ url_for('close_visit', visit_id=visit.visit_id) }}" class="card p-3 bg-white mb-3">
-  <h6 class="fw-bold">Close Visit</h6>
+  <h6 class="fw-bold">Update Status</h6>
   <div class="row g-2 align-items-end">
     <div class="col-md-4">
-      <label class="form-label fw-bold small">Close Status</label>
+      <label class="form-label fw-bold small mb-1">&nbsp;</label>
       <select class="form-select" name="status">
         <option>DISCHARGED</option>
         <option>ADMITTED</option>
@@ -2283,94 +3043,11 @@ TEMPLATES = {
       </select>
     </div>
     <div class="col-md-3">
-      <button class="btn btn-danger w-100">Close Visit</button>
+      <button class="btn btn-danger w-100">Update Status</button>
     </div>
   </div>
 </form>
 {% endif %}
-
-
-<div class="row mb-3">
-  <div class="col-md-6">
-    <div class="card p-3 bg-white h-100">
-      <h6>Lab Requests / Results</h6>
-      {% if lab_requests %}
-        <table class="table table-sm table-striped mb-0">
-          <thead>
-            <tr>
-              <th>#</th>
-              <th>Test</th>
-              <th>Status</th>
-              <th>Result</th>
-              <th>Updated</th>
-            </tr>
-          </thead>
-          <tbody>
-            {% for r in lab_requests %}
-              <tr>
-                <td>{{ loop.index }}</td>
-                <td>{{ r.test_name }}</td>
-                <td>{{ r.status }}</td>
-                <td>{{ r.result_text or '-' }}</td>
-                <td>
-                  {% if r.reported_at %}
-                    {{ r.reported_at }} ({{ r.reported_by }})
-                  {% elif r.received_at %}
-                    {{ r.received_at }} ({{ r.received_by }})
-                  {% else %}
-                    {{ r.requested_at }} ({{ r.requested_by }})
-                  {% endif %}
-                </td>
-              </tr>
-            {% endfor %}
-          </tbody>
-        </table>
-      {% else %}
-        <div class="text-muted small">No lab requests for this visit.</div>
-      {% endif %}
-    </div>
-  </div>
-
-  <div class="col-md-6">
-    <div class="card p-3 bg-white h-100">
-      <h6>Radiology Requests / Reports</h6>
-      {% if radiology_requests %}
-        <table class="table table-sm table-striped mb-0">
-          <thead>
-            <tr>
-              <th>#</th>
-              <th>Test</th>
-              <th>Status</th>
-              <th>Report</th>
-              <th>Updated</th>
-            </tr>
-          </thead>
-          <tbody>
-            {% for r in radiology_requests %}
-              <tr>
-                <td>{{ loop.index }}</td>
-                <td>{{ r.test_name }}</td>
-                <td>{{ r.status }}</td>
-                <td>{{ r.report_text or '-' }}</td>
-                <td>
-                  {% if r.reported_at %}
-                    {{ r.reported_at }} ({{ r.reported_by }})
-                  {% elif r.done_at %}
-                    {{ r.done_at }} ({{ r.done_by }})
-                  {% else %}
-                    {{ r.requested_at }} ({{ r.requested_by }})
-                  {% endif %}
-                </td>
-              </tr>
-            {% endfor %}
-          </tbody>
-        </table>
-      {% else %}
-        <div class="text-muted small">No radiology requests for this visit.</div>
-      {% endif %}
-    </div>
-  </div>
-</div>
 
 <div class="card p-3 bg-white mb-3">
   <h6>Attach Patient ID</h6>
@@ -2495,13 +3172,14 @@ TEMPLATES = {
 
   <hr class="my-3">
 
-  <label class="form-label fw-bold mt-2">Triage Category (CAT)</label>
+  <label class="form-label fw-bold mt-2">Triage Category (ES)</label>
   <select class="form-select" name="triage_cat" required>
     <option value="">-- Select --</option>
-    <option value="Red" {% if visit.triage_cat=='Red' %}selected{% endif %}>Red</option>
-    <option value="Yellow" {% if visit.triage_cat=='Yellow' %}selected{% endif %}>Yellow</option>
-    <option value="Green" {% if visit.triage_cat=='Green' %}selected{% endif %}>Green</option>
-    <option value="Orange" {% if visit.triage_cat=='Orange' %}selected{% endif %}>Orange</option>
+    <option value="ES1" {% if visit.triage_cat=='ES1' %}selected{% endif %}>ES1</option>
+    <option value="ES2" {% if visit.triage_cat=='ES2' %}selected{% endif %}>ES2</option>
+    <option value="ES3" {% if visit.triage_cat=='ES3' %}selected{% endif %}>ES3</option>
+    <option value="ES4" {% if visit.triage_cat=='ES4' %}selected{% endif %}>ES4</option>
+    <option value="ES5" {% if visit.triage_cat=='ES5' %}selected{% endif %}>ES5</option>
   </select>
 
   <button class="btn btn-success mt-3">Save Triage</button>
@@ -2509,6 +3187,255 @@ TEMPLATES = {
 {% endblock %}
 """,
 
+"lab_board.html": """
+{% extends "base.html" %}
+{% block content %}
+<h4 class="mb-3">Lab Board</h4>
+
+{% with messages = get_flashed_messages(with_categories=true) %}
+  {% for category, msg in messages %}
+    <div class="alert alert-{{ category }}">{{ msg }}</div>
+  {% endfor %}
+{% endwith %}
+
+<form method="GET" class="card p-2 mb-3 bg-white">
+  <div class="row g-2 align-items-end">
+    <div class="col-md-3 col-sm-4">
+      <label class="form-label fw-bold small mb-1">Status</label>
+      <select name="status" class="form-select form-select-sm">
+        <option value="PENDING" {% if status_filter=='PENDING' %}selected{% endif %}>Pending / Received</option>
+        <option value="REPORTED" {% if status_filter=='REPORTED' %}selected{% endif %}>Reported</option>
+        <option value="ALL" {% if status_filter=='ALL' %}selected{% endif %}>All</option>
+      </select>
+    </div>
+    <div class="col-md-5 col-sm-8">
+      <label class="form-label fw-bold small mb-1">Search</label>
+      <input type="text"
+             name="q"
+             value="{{ q or '' }}"
+             class="form-control form-control-sm"
+             placeholder="Name / ID / Visit / Test">
+    </div>
+    <div class="col-md-2 col-sm-6">
+      <label class="form-label fw-bold small mb-1">&nbsp;</label>
+      <button class="btn btn-sm btn-primary w-100">Search / Filter</button>
+    </div>
+    <div class="col-md-2 col-sm-6 text-end small text-muted">
+      Showing last 500 requests only.
+    </div>
+  </div>
+</form>
+
+
+<table class="table table-sm table-striped table-hover bg-white align-middle">
+  <thead class="table-light">
+    <tr>
+      <th style="width:60px;">#</th>
+      <th>Visit</th>
+      <th>Patient</th>
+      <th>ID</th>
+      <th>Test</th>
+      <th>Status</th>
+      <th>Result</th>
+      <th style="width:220px;">Actions</th>
+    </tr>
+  </thead>
+  <tbody>
+  {% if not rows %}
+    <tr>
+      <td colspan="8" class="text-center text-muted small py-3">
+        No lab requests found for current filter.
+      </td>
+    </tr>
+  {% else %}
+    {% for r in rows %}
+      <tr>
+        <td>{{ r.id }}</td>
+        <td class="fw-bold">{{ r.visit_id }}</td>
+        <td>{{ r.name }}</td>
+        <td>{{ r.id_number or '-' }}</td>
+        <td>{{ r.test_name }}</td>
+        <td>
+          {% if r.status == 'REQUESTED' %}
+            <span class="badge bg-secondary">Waiting sample</span>
+          {% elif r.status == 'RECEIVED' %}
+            <span class="badge bg-warning text-dark">Sample received</span>
+          {% elif r.status == 'REPORTED' %}
+            <span class="badge bg-success">Reported</span>
+          {% else %}
+            <span class="badge bg-light text-muted">{{ r.status }}</span>
+          {% endif %}
+        </td>
+        <td style="max-width:260px; white-space:pre-wrap; font-size:0.85rem;">
+          {{ r.result_text or '-' }}
+        </td>
+        <td>
+          <div class="d-flex flex-column gap-1">
+            {% if session.get('role') in ['lab','admin'] %}
+              {% if r.status == 'REQUESTED' %}
+                <form method="POST"
+                      action="{{ url_for('lab_receive_sample', rid=r.id) }}">
+                  <button class="btn btn-sm btn-outline-primary w-100">
+                    ✅ Receive Sample
+                  </button>
+                </form>
+              {% endif %}
+
+              {% if r.status in ['REQUESTED','RECEIVED'] %}
+                <form method="POST"
+                      action="{{ url_for('lab_report_result', rid=r.id) }}">
+                  <div class="input-group input-group-sm mb-1">
+                    <input type="text"
+                           name="result_text"
+                           class="form-control"
+                           placeholder="Enter result...">
+                  </div>
+                  <button class="btn btn-sm btn-success w-100">
+                    💾 Save Result
+                  </button>
+                </form>
+              {% elif r.status == 'REPORTED' %}
+                <span class="small text-muted">
+                  {{ r.reported_at or '' }} | {{ r.reported_by or '' }}
+                </span>
+              {% endif %}
+            {% else %}
+              <span class="small text-muted">Read-only</span>
+            {% endif %}
+          </div>
+        </td>
+      </tr>
+    {% endfor %}
+  {% endif %}
+  </tbody>
+</table>
+{% endblock %}
+""",
+
+"radiology_board.html": """
+{% extends "base.html" %}
+{% block content %}
+<h4 class="mb-3">Radiology Board</h4>
+
+{% with messages = get_flashed_messages(with_categories=true) %}
+  {% for category, msg in messages %}
+    <div class="alert alert-{{ category }}">{{ msg }}</div>
+  {% endfor %}
+{% endwith %}
+
+<form method="GET" class="card p-2 mb-3 bg-white">
+  <div class="row g-2 align-items-end">
+    <div class="col-md-3 col-sm-4">
+      <label class="form-label fw-bold small mb-1">Status</label>
+      <select name="status" class="form-select form-select-sm">
+        <option value="PENDING" {% if status_filter=='PENDING' %}selected{% endif %}>Pending / Done</option>
+        <option value="REPORTED" {% if status_filter=='REPORTED' %}selected{% endif %}>Reported</option>
+        <option value="ALL" {% if status_filter=='ALL' %}selected{% endif %}>All</option>
+      </select>
+    </div>
+    <div class="col-md-5 col-sm-8">
+      <label class="form-label fw-bold small mb-1">Search</label>
+      <input type="text"
+             name="q"
+             value="{{ q or '' }}"
+             class="form-control form-control-sm"
+             placeholder="Name / ID / Visit / Study">
+    </div>
+    <div class="col-md-2 col-sm-6">
+      <label class="form-label fw-bold small mb-1">&nbsp;</label>
+      <button class="btn btn-sm btn-primary w-100">Search / Filter</button>
+    </div>
+    <div class="col-md-2 col-sm-6 text-end small text-muted">
+      Showing last 500 requests only.
+    </div>
+  </div>
+</form>
+
+
+<table class="table table-sm table-striped table-hover bg-white align-middle">
+  <thead class="table-light">
+    <tr>
+      <th style="width:60px;">#</th>
+      <th>Visit</th>
+      <th>Patient</th>
+      <th>ID</th>
+      <th>Study</th>
+      <th>Status</th>
+      <th>Report</th>
+      <th style="width:260px;">Actions</th>
+    </tr>
+  </thead>
+  <tbody>
+  {% if not rows %}
+    <tr>
+      <td colspan="8" class="text-center text-muted small py-3">
+        No radiology requests found for current filter.
+      </td>
+    </tr>
+  {% else %}
+    {% for r in rows %}
+      <tr>
+        <td>{{ r.id }}</td>
+        <td class="fw-bold">{{ r.visit_id }}</td>
+        <td>{{ r.name }}</td>
+        <td>{{ r.id_number or '-' }}</td>
+        <td>{{ r.test_name }}</td>
+        <td>
+          {% if r.status == 'REQUESTED' %}
+            <span class="badge bg-secondary">Waiting</span>
+          {% elif r.status == 'DONE' %}
+            <span class="badge bg-warning text-dark">Done</span>
+          {% elif r.status == 'REPORTED' %}
+            <span class="badge bg-success">Reported</span>
+          {% else %}
+            <span class="badge bg-light text-muted">{{ r.status }}</span>
+          {% endif %}
+        </td>
+        <td style="max-width:260px; white-space:pre-wrap; font-size:0.85rem;">
+          {{ r.report_text or '-' }}
+        </td>
+        <td>
+          <div class="d-flex flex-column gap-1">
+            {% if session.get('role') in ['radiology','admin'] %}
+              {% if r.status == 'REQUESTED' %}
+                <form method="POST"
+                      action="{{ url_for('radiology_mark_done', rid=r.id) }}">
+                  <button class="btn btn-sm btn-outline-primary w-100">
+                    ✅ Mark as Done
+                  </button>
+                </form>
+              {% endif %}
+
+              {% if r.status in ['REQUESTED','DONE'] %}
+                <form method="POST"
+                      action="{{ url_for('radiology_report_result', rid=r.id) }}">
+                  <div class="input-group input-group-sm mb-1">
+                    <textarea name="report_text"
+                              class="form-control"
+                              rows="2"
+                              placeholder="Enter radiology report..."></textarea>
+                  </div>
+                  <button class="btn btn-sm btn-success w-100">
+                    💾 Save Report
+                  </button>
+                </form>
+              {% elif r.status == 'REPORTED' %}
+                <span class="small text-muted">
+                  {{ r.reported_at or '' }} | {{ r.reported_by or '' }}
+                </span>
+              {% endif %}
+            {% else %}
+              <span class="small text-muted">Read-only</span>
+            {% endif %}
+          </div>
+        </td>
+      </tr>
+    {% endfor %}
+  {% endif %}
+  </tbody>
+</table>
+{% endblock %}
+""",
 "clinical_orders.html": """
 {% extends "base.html" %}
 {% block content %}
@@ -2522,6 +3449,26 @@ TEMPLATES = {
     <div class="alert alert-{{ category }}">{{ msg }}</div>
   {% endfor %}
 {% endwith %}
+
+<div class="mb-3 d-flex flex-wrap gap-2">
+  <a class="btn btn-sm btn-outline-secondary"
+     target="_blank"
+     href="{{ url_for('lab_results_pdf', visit_id=visit.visit_id) }}">
+    Print Lab Results PDF
+  </a>
+
+  <a class="btn btn-sm btn-outline-secondary"
+     target="_blank"
+     href="{{ url_for('radiology_results_pdf', visit_id=visit.visit_id) }}">
+    Print Radiology Reports PDF
+  </a>
+
+  <a class="btn btn-sm btn-outline-dark"
+     target="_blank"
+     href="{{ url_for('auto_summary_pdf', visit_id=visit.visit_id) }}">
+    Auto ED Course Summary PDF
+  </a>
+</div>
 
 <div class="row g-3">
   <div class="col-lg-7">
@@ -2701,6 +3648,96 @@ TEMPLATES = {
     </div>
     {% endif %}
   </div>
+</div>
+
+<div class="card p-3 bg-white mt-3">
+  <h6 class="fw-bold mb-2">Lab Requests / Results</h6>
+  {% if not lab_reqs %}
+    <div class="text-muted small">No lab requests for this visit.</div>
+  {% else %}
+    <table class="table table-sm mb-0">
+      <thead>
+        <tr>
+          <th style="width:60px;">#</th>
+          <th>Test</th>
+          <th>Status</th>
+          <th>Result</th>
+          <th class="small">Requested</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for l in lab_reqs %}
+          <tr>
+            <td>{{ l.id }}</td>
+            <td>{{ l.test_name }}</td>
+            <td>
+              {% if l.status == 'REQUESTED' %}
+                <span class="badge bg-secondary">Waiting Sample</span>
+              {% elif l.status == 'RECEIVED' %}
+                <span class="badge bg-warning text-dark">Sample Received</span>
+              {% elif l.status == 'REPORTED' %}
+                <span class="badge bg-success">Result Ready</span>
+              {% else %}
+                <span class="badge bg-light text-muted">{{ l.status }}</span>
+              {% endif %}
+            </td>
+            <td style="max-width:260px;white-space:pre-wrap;font-size:0.85rem;">
+              {{ l.result_text or '-' }}
+            </td>
+            <td class="small text-muted">
+              {{ l.requested_at or '-' }}<br>
+              by {{ l.requested_by or '-' }}
+            </td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  {% endif %}
+</div>
+
+<div class="card p-3 bg-white mt-3">
+  <h6 class="fw-bold mb-2">Radiology Requests / Reports</h6>
+  {% if not rad_reqs %}
+    <div class="text-muted small">No radiology requests for this visit.</div>
+  {% else %}
+    <table class="table table-sm mb-0">
+      <thead>
+        <tr>
+          <th style="width:60px;">#</th>
+          <th>Study</th>
+          <th>Status</th>
+          <th>Report</th>
+          <th class="small">Requested</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for r in rad_reqs %}
+          <tr>
+            <td>{{ r.id }}</td>
+            <td>{{ r.test_name }}</td>
+            <td>
+              {% if r.status == 'REQUESTED' %}
+                <span class="badge bg-secondary">Waiting</span>
+              {% elif r.status == 'DONE' %}
+                <span class="badge bg-warning text-dark">Done</span>
+              {% elif r.status == 'REPORTED' %}
+                <span class="badge bg-success">Report Ready</span>
+              {% else %}
+                <span class="badge bg-light text-muted">{{ r.status }}</span>
+              {% endif %}
+            </td>
+            <td style="max-width:260px;white-space:pre-wrap;font-size:0.85rem;">
+              {{ r.report_text or '-' }}
+            </td>
+            <td class="small text-muted">
+              {{ r.requested_at or '-' }}<br>
+              by {{ r.requested_by or '-' }}
+            </td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  {% endif %}
 </div>
 
 <div class="card p-3 bg-white mt-3">
