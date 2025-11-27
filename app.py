@@ -179,6 +179,7 @@ def init_db():
             comment TEXT,
 
             allergy_status TEXT,
+            allergy_details TEXT,
             pulse_rate TEXT,
             resp_rate TEXT,
             bp_systolic TEXT,
@@ -187,6 +188,8 @@ def init_db():
             consciousness_level TEXT,
             spo2 TEXT,
             pain_score TEXT,
+            weight TEXT,
+            height TEXT,
 
             status TEXT DEFAULT 'OPEN',
             closed_at TEXT,
@@ -319,6 +322,10 @@ def init_db():
         ensure_column("visits", "cancel_reason", "TEXT")
         ensure_column("visits", "cancelled_by", "TEXT")
         ensure_column("visits", "cancelled_at", "TEXT")
+        # Triage extra fields
+        ensure_column("visits", "allergy_details", "TEXT")
+        ensure_column("visits", "weight", "TEXT")
+        ensure_column("visits", "height", "TEXT")
     except Exception:
         pass
 
@@ -1208,6 +1215,7 @@ def triage(visit_id):
 
     if request.method == "POST":
         allergy = request.form.get("allergy_status","").strip()
+        allergy_details = request.form.get("allergy_details","").strip()
         pr = request.form.get("pulse_rate","").strip()
         rr = request.form.get("resp_rate","").strip()
         bp_sys = request.form.get("bp_systolic","").strip()
@@ -1216,6 +1224,8 @@ def triage(visit_id):
         gcs = request.form.get("consciousness_level","").strip()
         spo2 = request.form.get("spo2","").strip()
         pain = request.form.get("pain_score","").strip()
+        weight = request.form.get("weight","").strip()
+        height = request.form.get("height","").strip()
         cat = request.form.get("triage_cat","").strip()
         comment = request.form.get("comment","").strip()
 
@@ -1229,6 +1239,7 @@ def triage(visit_id):
                 triage_cat=?,
                 comment=?,
                 allergy_status=?,
+                allergy_details=?,
                 pulse_rate=?,
                 resp_rate=?,
                 bp_systolic=?,
@@ -1236,9 +1247,11 @@ def triage(visit_id):
                 temperature=?,
                 consciousness_level=?,
                 spo2=?,
-                pain_score=?
+                pain_score=?,
+                weight=?,
+                height=?
             WHERE visit_id=?
-        """,(cat, comment, allergy, pr, rr, bp_sys, bp_dia, temp, gcs, spo2, pain, visit_id))
+        """,(cat, comment, allergy, allergy_details, pr, rr, bp_sys, bp_dia, temp, gcs, spo2, pain, weight, height, visit_id))
         db.commit()
         log_action("TRIAGE_UPDATE", visit_id=visit_id, details=f"CAT={cat}")
         flash("Triage saved successfully.", "success")
@@ -1299,6 +1312,17 @@ def build_auto_summary(visit_id):
     except Exception:
         rad_reqs = []
 
+    # Discharge summary (doctor examination / history)
+    try:
+        discharge = cur.execute("""
+            SELECT summary_text
+            FROM discharge_summaries
+            WHERE visit_id=?
+        """, (visit_id,)).fetchone()
+    except Exception:
+        discharge = None
+    discharge_text = (discharge["summary_text"] or "").strip() if discharge else ""
+
     lines = []
 
     # Basic info
@@ -1317,7 +1341,12 @@ def build_auto_summary(visit_id):
         f" - Triage Status: {visit['triage_status']} | "
         f"CAT: {visit['triage_cat'] or '-'}"
     )
-    lines.append(f" - Allergy: {visit['allergy_status'] or '-'}")
+
+    allergy_text = visit["allergy_status"] or "-"
+    if visit["allergy_details"]:
+        allergy_text += f" ({visit['allergy_details']})"
+    lines.append(f" - Allergy: {allergy_text}")
+
     lines.append(
         f" - PR: {visit['pulse_rate'] or '-'} bpm, "
         f"RR: {visit['resp_rate'] or '-'} /min, "
@@ -1331,7 +1360,20 @@ def build_auto_summary(visit_id):
         f" - Consciousness: {visit['consciousness_level'] or '-'} , "
         f"Pain: {visit['pain_score'] or '-'} /10"
     )
+    lines.append(
+        f" - Weight: {visit['weight'] or '-'} kg , "
+        f"Height: {visit['height'] or '-'} cm"
+    )
     lines.append("")
+
+    # Doctor examination / history (from discharge summary)
+    if discharge_text:
+        lines.append("Doctor Examination / History:")
+        for line in discharge_text.splitlines():
+            line = line.strip()
+            if line:
+                lines.append(f" - {line}")
+        lines.append("")
 
     # Clinical orders
     if orders:
@@ -1440,7 +1482,7 @@ def build_patient_short_summary(visit_id):
         return ""
 
     summary = cur.execute("""
-        SELECT diagnosis_cc, referral_clinic, home_medication
+        SELECT diagnosis_cc, referral_clinic, home_medication, summary_text
         FROM discharge_summaries
         WHERE visit_id=?
     """, (visit_id,)).fetchone()
@@ -1480,6 +1522,15 @@ def build_patient_short_summary(visit_id):
     else:
         lines.append(" - Not documented")
     lines.append("")
+
+    # Doctor examination / history
+    if summary and summary["summary_text"]:
+        lines.append("Doctor Examination / History:")
+        for line in summary["summary_text"].splitlines():
+            line = line.strip()
+            if line:
+                lines.append(f" - {line}")
+        lines.append("")
 
     # Referral
     if summary and summary["referral_clinic"]:
@@ -1861,26 +1912,33 @@ def discharge_save(visit_id):
     db=get_db(); cur=db.cursor()
     exists = cur.execute("SELECT * FROM discharge_summaries WHERE visit_id=?", (visit_id,)).fetchone()
     now=datetime.now().strftime("%Y-%m-%d %H:%M:%S"); user=session.get("username")
-    auto_text = build_auto_summary(visit_id)
 
     if exists:
         db.execute("""
             UPDATE discharge_summaries SET
                 diagnosis_cc=?, referral_clinic=?, home_medication=?, summary_text=?,
-                auto_summary_text=?, updated_at=?, updated_by=?
+                updated_at=?, updated_by=?
             WHERE visit_id=?
-        """,(diagnosis_cc, referral_clinic, home_medication, text, auto_text, now, user, visit_id))
+        """,(diagnosis_cc, referral_clinic, home_medication, text, now, user, visit_id))
     else:
         db.execute("""
             INSERT INTO discharge_summaries
-            (visit_id, diagnosis_cc, referral_clinic, home_medication, summary_text, auto_summary_text, created_at, created_by)
-            VALUES (?,?,?,?,?,?,?,?)
-        """,(visit_id, diagnosis_cc, referral_clinic, home_medication, text, auto_text, now, user))
+            (visit_id, diagnosis_cc, referral_clinic, home_medication, summary_text, created_at, created_by)
+            VALUES (?,?,?,?,?,?,?)
+        """,(visit_id, diagnosis_cc, referral_clinic, home_medication, text, now, user))
     db.commit()
+
+    # Refresh auto-summarized ED course (including updated doctor examination / history)
+    auto_text = build_auto_summary(visit_id)
+    db.execute(
+        "UPDATE discharge_summaries SET auto_summary_text=? WHERE visit_id=?",
+        (auto_text, visit_id),
+    )
+    db.commit()
+
     log_action("SAVE_DISCHARGE", visit_id=visit_id)
     flash("Discharge summary saved.", "success")
     return redirect(url_for("clinical_orders_page", visit_id=visit_id))
-
 @app.route("/discharge/<visit_id>/pdf")
 @login_required
 def discharge_summary_pdf(visit_id):
@@ -1915,7 +1973,7 @@ def discharge_summary_pdf(visit_id):
     draw_multiline("Diagnosis / Chief Complaint:", summary["diagnosis_cc"] if summary else "")
     draw_multiline("Referral to Clinic:", summary["referral_clinic"] if summary else "")
     draw_multiline("Home Medication:", summary["home_medication"] if summary else "")
-    draw_multiline("Doctor / Staff Notes:", summary["summary_text"] if summary else "")
+    draw_multiline("Doctor Examination / History:", summary["summary_text"] if summary else "")
 
     c.setFont("Helvetica-Bold",12); c.drawString(2*cm,y,"Auto ED Course Summary:"); y-=0.6*cm
     c.setFont("Helvetica",9)
@@ -3148,8 +3206,14 @@ TEMPLATES = {
   <div><strong>Phone:</strong> {{ visit.phone or '-' }}</div>
   <div><strong>Insurance:</strong> {{ visit.insurance or '-' }}</div>
   <div><strong>Insurance No:</strong> {{ visit.insurance_no or '-' }}</div>
-  <div><strong>Comment:</strong> {{ visit.comment or '-' }}</div>
-  <div><strong>Allergy:</strong> {{ visit.allergy_status or '-' }}</div>
+  <div><strong>Patient Complaint:</strong> {{ visit.comment or '-' }}</div>
+  <div>
+    <strong>Allergy:</strong>
+    {{ visit.allergy_status or '-' }}
+    {% if visit.allergy_details %}
+      – {{ visit.allergy_details }}
+    {% endif %}
+  </div>
   <div><strong>Triage Status:</strong> {{ visit.triage_status }}</div>
   <div><strong>Status:</strong> {{ visit.status }}</div>
   {% if visit.status == 'CANCELLED' %}
@@ -3165,9 +3229,12 @@ TEMPLATES = {
       Temp: {{ visit.temperature or '-' }} °C |
       SpO₂: {{ visit.spo2 or '-' }}% |
       Consciousness: {{ visit.consciousness_level or '-' }} |
-      Pain: {{ visit.pain_score or '-' }}/10
+      Pain: {{ visit.pain_score or '-' }}/10 |
+      Wt: {{ visit.weight or '-' }} kg |
+      Ht: {{ visit.height or '-' }} cm
     </div>
   </div>
+
 
   <div class="mt-2"><strong>Triage ES:</strong>
     {% set cat = (visit.triage_cat or '').lower() %}
@@ -3350,6 +3417,7 @@ TEMPLATES = {
 {% endblock %}
 """,
 
+
 "triage.html": """
 {% extends "base.html" %}
 {% block content %}
@@ -3364,34 +3432,65 @@ TEMPLATES = {
 <form method="POST" class="card p-3 bg-white">
   <div class="mb-2"><strong>Patient:</strong> {{ visit.name }} | ID: {{ visit.id_number }} | INS: {{ visit.insurance }}</div>
 
-  <label class="form-label fw-bold mt-2">Comment</label>
+  <label class="form-label fw-bold mt-2">Patient's Complaint</label>
   <input class="form-control" name="comment" value="{{ visit.comment or '' }}">
 
   <label class="form-label fw-bold mt-2">Allergy</label>
-  <select class="form-select" name="allergy_status">
-    {% set al = visit.allergy_status or '' %}
-    <option value="" {% if al=='' %}selected{% endif %}>-- Select --</option>
-    <option value="No" {% if al=='No' %}selected{% endif %}>No</option>
-    <option value="Yes" {% if al=='Yes' %}selected{% endif %}>Yes</option>
-  </select>
+  <div class="row g-2">
+    <div class="col-md-4">
+      <select class="form-select" name="allergy_status" id="allergy_status">
+        {% set al = visit.allergy_status or '' %}
+        <option value="" {% if al=='' %}selected{% endif %}>-- Select --</option>
+        <option value="No" {% if al=='No' %}selected{% endif %}>No</option>
+        <option value="Yes" {% if al=='Yes' %}selected{% endif %}>Yes</option>
+      </select>
+    </div>
+    <div class="col-md-8"
+         id="allergy_details_group"
+         style="display: {% if (visit.allergy_status or '') == 'Yes' %}block{% else %}none{% endif %};">
+      <input class="form-control"
+             name="allergy_details"
+             placeholder="Cause of allergy (drug / food / other)"
+             value="{{ visit.allergy_details or '' }}">
+    </div>
+  </div>
 
   <hr class="my-3">
 
   <h6 class="fw-bold">Vital Signs</h6>
   <div class="row g-2">
-    <div class="col-md-4"><label class="form-label">Pulse Rate (bpm)</label>
-      <input class="form-control" name="pulse_rate" value="{{ visit.pulse_rate or '' }}"></div>
-    <div class="col-md-4"><label class="form-label">Resp Rate (/min)</label>
-      <input class="form-control" name="resp_rate" value="{{ visit.resp_rate or '' }}"></div>
-    <div class="col-md-4"><label class="form-label">Temp (°C)</label>
-      <input class="form-control" name="temperature" value="{{ visit.temperature or '' }}"></div>
-    <div class="col-md-4"><label class="form-label">BP Systolic</label>
-      <input class="form-control" name="bp_systolic" value="{{ visit.bp_systolic or '' }}"></div>
-    <div class="col-md-4"><label class="form-label">BP Diastolic</label>
-      <input class="form-control" name="bp_diastolic" value="{{ visit.bp_diastolic or '' }}"></div>
-    <div class="col-md-4"><label class="form-label">SpO₂ (%)</label>
-      <input class="form-control" name="spo2" value="{{ visit.spo2 or '' }}"></div>
-
+    <div class="col-md-4">
+      <label class="form-label">Pulse Rate (bpm)</label>
+      <input class="form-control" name="pulse_rate" value="{{ visit.pulse_rate or '' }}">
+    </div>
+    <div class="col-md-4">
+      <label class="form-label">Resp Rate (/min)</label>
+      <input class="form-control" name="resp_rate" value="{{ visit.resp_rate or '' }}">
+    </div>
+    <div class="col-md-4">
+      <label class="form-label">Temp (°C)</label>
+      <input class="form-control" name="temperature" value="{{ visit.temperature or '' }}">
+    </div>
+    <div class="col-md-4">
+      <label class="form-label">BP Systolic</label>
+      <input class="form-control" name="bp_systolic" value="{{ visit.bp_systolic or '' }}">
+    </div>
+    <div class="col-md-4">
+      <label class="form-label">BP Diastolic</label>
+      <input class="form-control" name="bp_diastolic" value="{{ visit.bp_diastolic or '' }}">
+    </div>
+    <div class="col-md-4">
+      <label class="form-label">SpO₂ (%)</label>
+      <input class="form-control" name="spo2" value="{{ visit.spo2 or '' }}">
+    </div>
+    <div class="col-md-4">
+      <label class="form-label">Weight (kg)</label>
+      <input class="form-control" name="weight" value="{{ visit.weight or '' }}">
+    </div>
+    <div class="col-md-4">
+      <label class="form-label">Height (cm)</label>
+      <input class="form-control" name="height" value="{{ visit.height or '' }}">
+    </div>
     <div class="col-md-6">
       <label class="form-label">Level of Consciousness</label>
       <select class="form-select" name="consciousness_level">
@@ -3424,6 +3523,25 @@ TEMPLATES = {
 
   <button class="btn btn-success mt-3">Save Triage</button>
 </form>
+
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+  const allergySelect = document.getElementById('allergy_status');
+  const detailsGroup = document.getElementById('allergy_details_group');
+  if (!allergySelect || !detailsGroup) return;
+
+  function toggleDetails() {
+    if (allergySelect.value === 'Yes') {
+      detailsGroup.style.display = 'block';
+    } else {
+      detailsGroup.style.display = 'none';
+    }
+  }
+
+  allergySelect.addEventListener('change', toggleDetails);
+  toggleDetails();
+});
+</script>
 {% endblock %}
 """,
 
@@ -3898,9 +4016,9 @@ TEMPLATES = {
         <textarea class="form-control mb-2" name="home_medication" rows="2"
           placeholder="Home discharge meds...">{{ summary.home_medication if summary else '' }}</textarea>
 
-        <label class="form-label fw-bold small">Doctor / Staff Notes</label>
+        <label class="form-label fw-bold small">Doctor Examination / History</label>
         <textarea class="form-control mb-2" name="summary_text" rows="4"
-                  placeholder="Write discharge summary notes...">{{ summary.summary_text if summary else '' }}</textarea>
+                  placeholder="Write doctor examination / patient history...">{{ summary.summary_text if summary else '' }}</textarea>
 
         <button class="btn btn-sm btn-success">Save Summary</button>
       </form>
