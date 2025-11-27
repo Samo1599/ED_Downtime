@@ -958,7 +958,30 @@ def patient_details(visit_id):
         SELECT * FROM attachments WHERE visit_id=? ORDER BY id DESC
     """,(visit_id,)).fetchall()
 
-    return render_template("patient_details.html", visit=visit, attachments=attachments)
+    # Lab & radiology results for read-only display
+    try:
+        lab_reqs = cur.execute("""
+            SELECT * FROM lab_requests
+            WHERE visit_id=?
+            ORDER BY id ASC
+        """, (visit_id,)).fetchall()
+    except Exception:
+        lab_reqs = []
+
+    try:
+        rad_reqs = cur.execute("""
+            SELECT * FROM radiology_requests
+            WHERE visit_id=?
+            ORDER BY id ASC
+        """, (visit_id,)).fetchall()
+    except Exception:
+        rad_reqs = []
+
+    return render_template("patient_details.html",
+                           visit=visit,
+                           attachments=attachments,
+                           lab_reqs=lab_reqs,
+                           rad_reqs=rad_reqs)
 
 @app.route("/patient/<visit_id>/edit", methods=["GET","POST"])
 @login_required
@@ -1313,13 +1336,19 @@ def build_auto_summary(visit_id):
 
 
 def build_patient_short_summary(visit_id):
-    """Build a short, patient-friendly summary text without internal staff details."""
+    """Patient-friendly summary:
+       - Diagnosis
+       - Referral
+       - ED medications given
+       - Lab results (only REPORTED)
+       - Radiology results (only REPORTED)
+       - Home medication
+    """
     db = get_db()
     cur = db.cursor()
 
     visit = cur.execute("""
-        SELECT v.*, p.name, p.id_number, p.phone, p.insurance, p.insurance_no,
-               p.dob, p.sex, p.nationality
+        SELECT v.visit_id, p.name, p.id_number, p.insurance
         FROM visits v
         JOIN patients p ON p.id=v.patient_id
         WHERE v.visit_id=?
@@ -1334,109 +1363,96 @@ def build_patient_short_summary(visit_id):
         WHERE visit_id=?
     """, (visit_id,)).fetchone()
 
-    # Lab and radiology requests (if tables exist)
-    try:
-        lab_reqs = cur.execute("""
-            SELECT * FROM lab_requests
-            WHERE visit_id=?
-            ORDER BY id ASC
-        """, (visit_id,)).fetchall()
-    except Exception:
-        lab_reqs = []
+    # ED medications from clinical orders
+    orders = cur.execute("""
+        SELECT medications
+        FROM clinical_orders
+        WHERE visit_id=?
+    """, (visit_id,)).fetchall()
 
-    try:
-        rad_reqs = cur.execute("""
-            SELECT * FROM radiology_requests
-            WHERE visit_id=?
-            ORDER BY id ASC
-        """, (visit_id,)).fetchall()
-    except Exception:
-        rad_reqs = []
+    # Only REPORTED labs
+    labs = cur.execute("""
+        SELECT test_name, status, result_text
+        FROM lab_requests
+        WHERE visit_id=?
+    """, (visit_id,)).fetchall()
+
+    # Only REPORTED radiology
+    rads = cur.execute("""
+        SELECT test_name, status, report_text
+        FROM radiology_requests
+        WHERE visit_id=?
+    """, (visit_id,)).fetchall()
 
     lines = []
 
+    # Header
     lines.append(f"Visit ID: {visit_id}")
-    lines.append(
-        f"Patient: {visit['name']} | ID: {visit['id_number'] or '-'} | "
-        f"INS: {visit['insurance'] or '-'}"
-    )
+    lines.append(f"Patient: {visit['name']} | ID: {visit['id_number'] or '-'} | INS: {visit['insurance'] or '-'}")
     lines.append("")
 
-    # Basic triage/vitals
-    lines.append("Triage & Vital Signs (ED):")
-    es_cat = visit['triage_cat'] or '-'
-    lines.append(f" - Triage Category (ES): {es_cat}")
-    lines.append(
-        f" - PR: {visit['pulse_rate'] or '-'} bpm, "
-        f"RR: {visit['resp_rate'] or '-'} /min, "
-        f"Temp: {visit['temperature'] or '-'} C"
-    )
-    lines.append(
-        f" - BP: {visit['bp_systolic'] or '-'} / {visit['bp_diastolic'] or '-'} , "
-        f"SpO2: {visit['spo2'] or '-'}%"
-    )
-    lines.append(
-        f" - Consciousness: {visit['consciousness_level'] or '-'} , "
-        f"Pain: {visit['pain_score'] or '-'} /10"
-    )
-    lines.append("")
-
-    # Diagnosis / plan
-    if summary and (summary["diagnosis_cc"] or summary["referral_clinic"] or summary["home_medication"]):
-        lines.append("Diagnosis & Plan:")
-        if summary["diagnosis_cc"]:
-            lines.append(f" - Diagnosis / Main Complaint: {summary['diagnosis_cc']}")
-        if summary["referral_clinic"]:
-            lines.append(f" - Follow-up / Referral: {summary['referral_clinic']}")
-        lines.append("")
+    # Diagnosis
+    lines.append("Diagnosis:")
+    if summary and summary["diagnosis_cc"]:
+        lines.append(f" - {summary['diagnosis_cc']}")
     else:
-        lines.append("Diagnosis & Plan: (not documented)")
+        lines.append(" - Not documented")
+    lines.append("")
+
+    # Referral
+    if summary and summary["referral_clinic"]:
+        lines.append("Referral Clinic:")
+        lines.append(f" - {summary['referral_clinic']}")
         lines.append("")
+
+    # ED Medications
+    ed_meds = []
+    for o in orders:
+        if o["medications"]:
+            for m in o["medications"].split(","):
+                m = m.strip()
+                if m and m not in ed_meds:
+                    ed_meds.append(m)
+
+    lines.append("Medications Given in ED:")
+    if ed_meds:
+        for m in ed_meds:
+            lines.append(f" - {m}")
+    else:
+        lines.append(" - None")
+    lines.append("")
+
+    # Lab Results (ONLY reported)
+    reported_labs = [l for l in labs if l["status"] == "REPORTED"]
+    lines.append("Lab Results:")
+    if reported_labs:
+        for l in reported_labs:
+            result = l["result_text"] or "-"
+            lines.append(f" - {l['test_name']}: {result}")
+    else:
+        lines.append(" - No reported results yet")
+    lines.append("")
+
+    # Radiology Results (ONLY reported)
+    reported_rads = [r for r in rads if r["status"] == "REPORTED"]
+    lines.append("Radiology Reports:")
+    if reported_rads:
+        for r in reported_rads:
+            report = r["report_text"] or "-"
+            lines.append(f" - {r['test_name']}: {report}")
+    else:
+        lines.append(" - No reported imaging yet")
+    lines.append("")
 
     # Home medication
+    lines.append("Home Medication (Pharmacy):")
     if summary and summary["home_medication"]:
-        lines.append("Home Medication:")
         for line in summary["home_medication"].splitlines():
             if line.strip():
                 lines.append(f" - {line.strip()}")
-        lines.append("")
     else:
-        lines.append("Home Medication: None documented")
-        lines.append("")
-
-    # Labs (patient view)
-    if lab_reqs:
-        lines.append("Lab Tests & Results:")
-        for l in lab_reqs:
-            line = f" - {l['test_name']}: "
-            if l["status"] == "REPORTED" and l["result_text"]:
-                line += l["result_text"]
-            else:
-                line += f"Status {l['status']}"
-            lines.append(line)
-        lines.append("")
-    else:
-        lines.append("Lab Tests & Results: None")
-        lines.append("")
-
-    # Radiology (patient view)
-    if rad_reqs:
-        lines.append("Radiology Studies & Reports:")
-        for r in rad_reqs:
-            line = f" - {r['test_name']}: "
-            if r["status"] == "REPORTED" and r["report_text"]:
-                line += r["report_text"]
-            else:
-                line += f"Status {r['status']}"
-            lines.append(line)
-        lines.append("")
-    else:
-        lines.append("Radiology Studies & Reports: None")
-        lines.append("")
-
-    lines.append(f"Final Visit Status: {visit['status']}")
-    if visit["closed_at"]:
-        lines.append(f"Closed At: {visit['closed_at']} by {visit['closed_by'] or '-'}")
+        lines.append(" - None")
+    lines.append("")
 
     return "\n".join(lines).strip()
 
@@ -2173,7 +2189,7 @@ def patient_summary_pdf(visit_id):
     y = height - 2*cm
 
     c.setFont("Helvetica-Bold", 16)
-    c.drawString(2*cm, y, "Patient Short Summary")
+    c.drawString(2*cm, y, "ED Visit Summary - Patient Copy")
     y -= 1.0*cm
 
     c.setFont("Helvetica", 11)
@@ -2993,6 +3009,12 @@ TEMPLATES = {
         </a>
     {% endif %}
 
+    <a class="btn btn-sm btn-outline-primary"
+       target="_blank"
+       href="{{ url_for('patient_summary_pdf', visit_id=v.visit_id) }}">
+       ED Visit Summary - Patient Copy
+    </a>
+
     <a class="btn btn-sm btn-outline-secondary"
        target="_blank"
        href="{{ url_for('home_med_pdf', visit_id=v.visit_id) }}">
@@ -3069,6 +3091,51 @@ TEMPLATES = {
   </div>
 </div>
 
+{% if session.get('role') == 'reception' %}
+<div class="card p-3 bg-white mb-3">
+  <h6 class="fw-bold mb-2">Investigations (Read-only for Reception)</h6>
+  <div class="row">
+    <div class="col-md-6 mb-2">
+      <strong>Lab Results:</strong>
+      {% if lab_reqs %}
+        <ul class="small mb-0">
+          {% for l in lab_reqs %}
+            {% if l.status == 'REPORTED' %}
+              <li>{{ l.test_name }}: {{ l.result_text or '-' }}</li>
+            {% else %}
+              <li>{{ l.test_name }} – {{ l.status }}</li>
+            {% endif %}
+          {% endfor %}
+        </ul>
+      {% else %}
+        <div class="small text-muted">No lab requests for this visit.</div>
+      {% endif %}
+    </div>
+    <div class="col-md-6 mb-2">
+      <strong>Radiology Reports:</strong>
+      {% if rad_reqs %}
+        <ul class="small mb-0">
+          {% for r in rad_reqs %}
+            {% if r.status == 'REPORTED' %}
+              <li>{{ r.test_name }}: {{ r.report_text or '-' }}</li>
+            {% else %}
+              <li>{{ r.test_name }} – {{ r.status }}</li>
+            {% endif %}
+          {% endfor %}
+        </ul>
+      {% else %}
+        <div class="small text-muted">No radiology requests for this visit.</div>
+      {% endif %}
+    </div>
+  </div>
+  <div class="small text-muted mt-1">
+    * View only – reception cannot edit results.
+  </div>
+</div>
+{% endif %}
+
+</div>
+
 <div class="d-flex gap-2 mb-3 flex-wrap">
   {% if session.get('role') in ['reception','admin'] %}
     <a class="btn btn-outline-warning" href="{{ url_for('edit_patient', visit_id=visit.visit_id) }}">Edit Patient</a>
@@ -3087,7 +3154,7 @@ TEMPLATES = {
   {% endif %}
 
   {% if session.get('role') in ['reception','nurse','doctor','admin'] %}
-    <a class="btn btn-outline-primary" target="_blank" href="{{ url_for('patient_summary_pdf', visit_id=visit.visit_id) }}">Patient Summary</a>
+    <a class="btn btn-outline-primary" target="_blank" href="{{ url_for('patient_summary_pdf', visit_id=visit.visit_id) }}">ED Visit Summary - Patient Copy</a>
     <a class="btn btn-outline-secondary" target="_blank" href="{{ url_for('home_med_pdf', visit_id=visit.visit_id) }}">Home Medication</a>
   {% endif %}
 
