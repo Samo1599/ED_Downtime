@@ -177,6 +177,7 @@ def init_db():
             triage_status TEXT DEFAULT 'NO',
             triage_cat TEXT,
             comment TEXT,
+            payment_details TEXT,
 
             allergy_status TEXT,
             allergy_details TEXT,
@@ -326,6 +327,7 @@ def init_db():
         ensure_column("visits", "allergy_details", "TEXT")
         ensure_column("visits", "weight", "TEXT")
         ensure_column("visits", "height", "TEXT")
+        ensure_column("visits", "payment_details", "TEXT")
     except Exception:
         pass
 
@@ -747,7 +749,7 @@ def register_patient():
         dob = request.form.get("dob","").strip()
         sex = request.form.get("sex","").strip()
         nationality = request.form.get("nationality","").strip()
-        comment = request.form.get("comment","").strip()
+        payment_details = request.form.get("payment_details","").strip()
 
         if not name:
             flash("Patient name is required.", "danger")
@@ -771,11 +773,11 @@ def register_patient():
         cur.execute("""
             INSERT INTO visits
             (visit_id, patient_id, queue_no, triage_status, status,
-             comment, created_at, created_by)
+             payment_details, created_at, created_by)
             VALUES (?,?,?,?,?,?,?,?)
         """,(
             visit_id, patient_id, queue_no, "NO", "OPEN",
-            comment,
+            payment_details,
             datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
             session.get("username")
         ))
@@ -799,7 +801,7 @@ def search_patients():
 
     cur = get_db().cursor()
     sql = """
-        SELECT v.visit_id, v.queue_no, v.triage_status, v.triage_cat, v.status, v.comment, v.created_at, v.created_by,
+        SELECT v.visit_id, v.queue_no, v.triage_status, v.triage_cat, v.status, v.payment_details, v.created_at, v.created_by,
                p.name, p.id_number, p.phone, p.insurance, p.insurance_no
         FROM visits v
         JOIN patients p ON p.id = v.patient_id
@@ -860,7 +862,7 @@ def ed_board():
 
     sql = """
         SELECT v.visit_id, v.queue_no, v.triage_status, v.triage_cat,
-               v.status, v.comment, v.created_at, v.created_by,
+               v.status, v.payment_details, v.created_at, v.created_by,
                p.name, p.id_number, p.insurance
         FROM visits v
         JOIN patients p ON p.id = v.patient_id
@@ -923,7 +925,7 @@ def export_ed_board_csv():
     rows = cur.execute("""
         SELECT v.queue_no, v.visit_id, p.name, p.id_number, p.phone,
                p.insurance, p.insurance_no, v.triage_status,
-               v.triage_cat, v.status, v.comment, v.created_at
+               v.triage_cat, v.status, v.payment_details, v.created_at
         FROM visits v
         JOIN patients p ON p.id = v.patient_id
         ORDER BY v.id DESC LIMIT 500
@@ -934,7 +936,7 @@ def export_ed_board_csv():
     writer.writerow([
         "Queue","VisitID","Name","ID","Phone",
         "Insurance","Insurance No",
-        "TriageStatus","CAT","Status","Comment","Created"
+        "TriageStatus","CAT","Status","Payment Details","Created"
     ])
     for r in rows:
         writer.writerow(list(r))
@@ -1013,7 +1015,7 @@ def edit_patient(visit_id):
     db = get_db()
     cur = db.cursor()
     rec = cur.execute("""
-        SELECT v.visit_id, v.comment, v.queue_no, v.status, p.*
+        SELECT v.visit_id, v.payment_details, v.comment, v.queue_no, v.status, p.*
         FROM visits v JOIN patients p ON p.id=v.patient_id
         WHERE v.visit_id=?
     """,(visit_id,)).fetchone()
@@ -1030,7 +1032,7 @@ def edit_patient(visit_id):
         dob = request.form.get("dob","").strip()
         sex = request.form.get("sex","").strip()
         nationality = request.form.get("nationality","").strip()
-        comment = request.form.get("comment","").strip()
+        payment_details = request.form.get("payment_details","").strip()
 
         if not name:
             flash("Patient name is required.", "danger")
@@ -1042,7 +1044,7 @@ def edit_patient(visit_id):
                 dob=?, sex=?, nationality=?
             WHERE id=?
         """,(name, id_number, phone, insurance, insurance_no, dob, sex, nationality, rec["id"]))
-        db.execute("UPDATE visits SET comment=? WHERE visit_id=?", (comment, visit_id))
+        db.execute("UPDATE visits SET payment_details=? WHERE visit_id=?", (payment_details, visit_id))
         db.commit()
 
         log_action("EDIT_PATIENT", visit_id=visit_id, details=f"Name={name}")
@@ -2691,7 +2693,6 @@ TEMPLATES = {
   <span class="navbar-brand fw-bold">ED Downtime</span>
 
   <div class="d-flex gap-3 align-items-center">
-    <button type="button" class="btn btn-sm btn-outline-secondary" onclick="location.reload()">Refresh</button>
     <a class="nav-link" href="{{ url_for('ed_board') }}">ED Board</a>
     <a class="nav-link" href="{{ url_for('search_patients') }}">Search</a>
     {% if session.get('role') in ['lab','admin','doctor','nurse'] %}
@@ -2939,7 +2940,7 @@ TEMPLATES = {
     <div class="col-md-2"><label class="form-label fw-bold">Sex</label>
       <select class="form-select" name="sex"><option value=""></option><option>M</option><option>F</option></select></div>
     <div class="col-md-6"><label class="form-label fw-bold">Nationality</label><input class="form-control" name="nationality"></div>
-    <div class="col-md-12"><label class="form-label fw-bold">Comment</label><input class="form-control" name="comment"></div>
+    <div class="col-md-12"><label class="form-label fw-bold">Payment Details</label><input class="form-control" name="payment_details"></div>
   </div>
   <button class="btn btn-primary mt-3">Save & Create Visit</button>
 </form>
@@ -2991,7 +2992,7 @@ TEMPLATES = {
   <thead>
     <tr>
       <th>Visit</th><th>Queue</th><th>Name</th><th>ID</th><th>INS</th><th>INS No</th>
-      <th>Phone</th><th>Comment</th><th>Triage</th><th>CAT</th><th>Status</th><th>Actions</th>
+      <th>Phone</th><th>Payment</th><th>Triage</th><th>CAT</th><th>Status</th><th>Actions</th>
     </tr>
   </thead>
   <tbody>
@@ -3004,7 +3005,7 @@ TEMPLATES = {
       <td>{{ r.insurance }}</td>
       <td>{{ r.insurance_no }}</td>
       <td>{{ r.phone }}</td>
-      <td>{{ r.comment or '-' }}</td>
+      <td>{{ r.payment_details or '-' }}</td>
       <td>{{ r.triage_status }}</td>
       <td>
         {% set cat = (r.triage_cat or '').lower() %}
@@ -3110,7 +3111,7 @@ TEMPLATES = {
   <thead>
     <tr>
       <th>Queue</th><th>Visit</th><th>Name</th><th>ID</th><th>INS</th>
-      <th>Comment</th><th>Triage</th><th>ES</th><th>Status</th><th>Created</th><th>Actions</th>
+      <th>Payment</th><th>Triage</th><th>ES</th><th>Status</th><th>Created</th><th>Actions</th>
     </tr>
   </thead>
   <tbody>
@@ -3121,7 +3122,7 @@ TEMPLATES = {
       <td>{{ v.name }}</td>
       <td>{{ v.id_number }}</td>
       <td>{{ v.insurance }}</td>
-      <td style="max-width:220px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">{{ v.comment or '-' }}</td>
+      <td style="max-width:220px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">{{ v.payment_details or '-' }}</td>
       <td>
         {% if v.triage_status=='YES' %}<span class="badge badge-triage-yes">YES</span>
         {% else %}<span class="badge badge-triage-no">NO</span>{% endif %}
@@ -3206,6 +3207,7 @@ TEMPLATES = {
   <div><strong>Phone:</strong> {{ visit.phone or '-' }}</div>
   <div><strong>Insurance:</strong> {{ visit.insurance or '-' }}</div>
   <div><strong>Insurance No:</strong> {{ visit.insurance_no or '-' }}</div>
+  <div><strong>Payment Details:</strong> {{ visit.payment_details or '-' }}</div>
   <div><strong>Patient Complaint:</strong> {{ visit.comment or '-' }}</div>
   <div>
     <strong>Allergy:</strong>
@@ -3407,7 +3409,7 @@ TEMPLATES = {
       </select>
     </div>
     <div class="col-md-6"><label class="form-label fw-bold">Nationality</label><input class="form-control" name="nationality" value="{{ r.nationality }}"></div>
-    <div class="col-md-12"><label class="form-label fw-bold">Comment</label><input class="form-control" name="comment" value="{{ r.comment }}"></div>
+    <div class="col-md-12"><label class="form-label fw-bold">Payment Details</label><input class="form-control" name="payment_details" value="{{ r.payment_details }}"></div>
   </div>
   <div class="mt-3 d-flex gap-2">
     <button class="btn btn-success">Save Changes</button>
