@@ -4298,16 +4298,23 @@ function applyBundle(name){
   <meta charset="utf-8">
   <title>Sticker</title>
   <style>
+    @page {
+      size: 5cm 3cm;
+      margin: 0;
+    }
     body { margin:0; padding:0; font-family: Arial; }
     .label {
       width: 5cm; height: 3cm;
       border:1px solid #000; padding:0.25cm;
       box-sizing:border-box;
     }
-    /* Smaller font as requested */
     .row { font-size:10pt; margin:0.05cm 0; }
     .title { font-weight:bold; font-size:11pt; }
     #btnPrint { margin-top:10px; padding:6px 12px; font-size:12px; }
+    @media print {
+      body { margin:0; padding:0; }
+      #btnPrint { display:none; }
+    }
   </style>
 </head>
 <body onload="window.print()">
