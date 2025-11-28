@@ -4011,8 +4011,33 @@ document.addEventListener('DOMContentLoaded', function () {
           placeholder="Diagnosis / chief complaint...">{{ summary.diagnosis_cc if summary else '' }}</textarea>
 
         <label class="form-label fw-bold small">Referral to Clinic</label>
-        <input class="form-control mb-2" name="referral_clinic" placeholder="e.g., Ortho / IM / FM"
-          value="{{ summary.referral_clinic if summary else '' }}">
+        <input class="form-control mb-2"
+               name="referral_clinic"
+               list="clinic_list"
+               placeholder="Select / type clinic"
+               value="{{ summary.referral_clinic if summary else '' }}">
+        <datalist id="clinic_list">
+          <option value="ED / Emergency">
+          <option value="General Medicine OPD">
+          <option value="General Surgery OPD">
+          <option value="Pediatrics OPD">
+          <option value="Obstetrics & Gynecology OPD">
+          <option value="Orthopedics OPD">
+          <option value="Cardiology OPD">
+          <option value="Neurology OPD">
+          <option value="ENT OPD">
+          <option value="Ophthalmology OPD">
+          <option value="Urology OPD">
+          <option value="Dermatology OPD">
+          <option value="Psychiatry OPD">
+          <option value="Dental OPD">
+          <option value="Oncology OPD">
+          <option value="Endocrinology OPD">
+          <option value="Nephrology OPD">
+          <option value="Pulmonology OPD">
+          <option value="ICU">
+          <option value="LDR">
+        </datalist>
 
         <label class="form-label fw-bold small">Home Medication</label>
         <textarea class="form-control mb-2" name="home_medication" rows="2"
@@ -4305,11 +4330,11 @@ function applyBundle(name){
     body { margin:0; padding:0; font-family: Arial; }
     .label {
       width: 5cm; height: 3cm;
-      border:1px solid #000; padding:0.25cm;
+      border:1px solid #000; padding:0.15cm;
       box-sizing:border-box;
     }
-    .row { font-size:10pt; margin:0.05cm 0; }
-    .title { font-weight:bold; font-size:11pt; }
+    .row { font-size:8pt; margin:0.03cm 0; }
+    .title { font-weight:bold; font-size:9pt; }
     #btnPrint { margin-top:10px; padding:6px 12px; font-size:12px; }
     @media print {
       body { margin:0; padding:0; }
