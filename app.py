@@ -19,7 +19,7 @@ V5 adds:
 """
 from flask import (
     Flask, request, g, redirect, url_for,
-    render_template, session, Response, send_from_directory, flash
+    render_template, session, Response, send_from_directory, flash, jsonify
 )
 import sqlite3
 from datetime import datetime, timedelta
@@ -289,6 +289,16 @@ def init_db():
             filename TEXT NOT NULL,
             uploaded_at TEXT NOT NULL,
             uploaded_by TEXT NOT NULL
+        )
+    """)
+
+    # Chat messages
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS chat_messages (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL,
+            message TEXT NOT NULL,
+            created_at TEXT NOT NULL
         )
     """)
 
@@ -2695,6 +2705,7 @@ TEMPLATES = {
   <div class="d-flex gap-3 align-items-center">
     <a class="nav-link" href="{{ url_for('ed_board') }}">ED Board</a>
     <a class="nav-link" href="{{ url_for('search_patients') }}">Search</a>
+    <a class="nav-link" href="{{ url_for('chat_page') }}">Live Chat</a>
     {% if session.get('role') in ['lab','admin','doctor','nurse'] %}
       <a class="nav-link" href="{{ url_for('lab_board') }}">Lab Board</a>
     {% endif %}
@@ -4353,6 +4364,142 @@ function applyBundle(name){
 </body>
 </html>
 """
+
+,"chat.html": """
+{% extends "base.html" %}
+{% block content %}
+<h4 class="mb-3">Live Chat – Staff</h4>
+
+<div class="row">
+  <div class="col-md-8">
+    <div class="card bg-white">
+      <div class="card-body" style="height:400px; overflow-y:auto;" id="chat-box">
+        <div class="text-muted small">Loading messages...</div>
+      </div>
+      <div class="card-footer">
+        <div class="input-group">
+          <input type="text" id="chat-input" class="form-control" placeholder="اكتب رسالتك واضغط Enter أو Send ...">
+          <button class="btn btn-primary" id="chat-send-btn">Send</button>
+        </div>
+        <div class="small text-muted mt-1">
+          القناة الحالية: كل الموظفين (Public ED Room)
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+(function() {
+  const chatBox = document.getElementById("chat-box");
+  const input   = document.getElementById("chat-input");
+  const sendBtn = document.getElementById("chat-send-btn");
+
+  let lastTimestamp = "";
+
+  function appendMessage(msg) {
+    const div = document.createElement("div");
+    div.className = "mb-1";
+    div.innerHTML =
+      '<span class="badge bg-light text-dark me-1">' +
+      (msg.username || "User") +
+      '</span>' +
+      '<span class="small text-muted me-1">[' + msg.created_at + ']</span>' +
+      '<span>' + escapeHtml(msg.message) + '</span>';
+    chatBox.appendChild(div);
+    chatBox.scrollTop = chatBox.scrollHeight;
+  }
+
+  function escapeHtml(text) {
+    if (!text) return "";
+    return text
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;");
+  }
+
+  function playBeep() {
+    try {
+      const ctx = new (window.AudioContext || window.webkitAudioContext)();
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = "sine";
+      osc.frequency.value = 880;
+      gain.gain.value = 0.05;
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.start();
+      setTimeout(function() {
+        osc.stop();
+        ctx.close();
+      }, 200);
+    } catch (e) {
+      console.log("Beep error", e);
+    }
+  }
+
+  async function loadMessages() {
+    try {
+      const url = lastTimestamp
+        ? "/chat/messages?after=" + encodeURIComponent(lastTimestamp)
+        : "/chat/messages";
+
+      const res = await fetch(url);
+      if (!res.ok) return;
+      const data = await res.json();
+      if (!data.ok) return;
+
+      if (data.messages && data.messages.length > 0) {
+        const isInitial = !lastTimestamp;
+        data.messages.forEach(function(m) {
+          appendMessage(m);
+          lastTimestamp = m.created_at;
+        });
+        if (!isInitial) {
+          playBeep();
+        }
+      } else if (!lastTimestamp) {
+        chatBox.innerHTML = '<div class="text-muted small">لا يوجد رسائل بعد. اكتب أول رسالة 👋</div>';
+      }
+    } catch (e) {
+      // ignore
+    }
+  }
+
+  async function sendMessage() {
+    const text = (input.value || "").trim();
+    if (!text) return;
+
+    try {
+      const res = await fetch("/chat/send", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ message: text })
+      });
+      const data = await res.json();
+      if (data.ok) {
+        input.value = "";
+        loadMessages();
+      }
+    } catch (e) {
+      alert("Error sending message");
+    }
+  }
+
+  sendBtn.addEventListener("click", sendMessage);
+  input.addEventListener("keydown", function(e) {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      sendMessage();
+    }
+  });
+
+  loadMessages();
+  setInterval(loadMessages, 3000);
+})();
+</script>
+{% endblock %}
+"""
 }
 
 @app.context_processor
@@ -4399,6 +4546,73 @@ def bootstrap_once():
 def _ensure_bootstrap():
     # First request triggers bootstrap on WSGI servers
     bootstrap_once()
+
+
+# ============================================================
+# Live Chat (Staff)
+# ============================================================
+
+@app.route("/chat")
+@login_required
+def chat_page():
+    return render_template("chat.html")
+
+@app.route("/chat/send", methods=["POST"])
+@login_required
+def chat_send():
+    data = request.get_json(silent=True) or {}
+    msg = (data.get("message") or "").strip()
+
+    if not msg:
+        return jsonify({"ok": False, "error": "Empty message"}), 400
+
+    db = get_db()
+    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    username = session.get("username", "UNKNOWN")
+
+    db.execute(
+        """
+        INSERT INTO chat_messages (username, message, created_at)
+        VALUES (?,?,?)
+        """,
+        (username, msg, now),
+    )
+    db.commit()
+
+    try:
+        log_action("CHAT_SEND", details=f"{username}: {msg[:50]}")
+    except Exception:
+        pass
+
+    return jsonify({"ok": True})
+
+@app.route("/chat/messages")
+@login_required
+def chat_messages():
+    after = (request.args.get("after") or "").strip()
+
+    cur = get_db().cursor()
+    sql = "SELECT username, message, created_at FROM chat_messages"
+    params = []
+
+    if after:
+        sql += " WHERE datetime(created_at) > datetime(?)"
+        params.append(after)
+
+    sql += " ORDER BY datetime(created_at) ASC LIMIT 200"
+
+    rows = cur.execute(sql, params).fetchall()
+
+    messages = [
+        {
+            "username": r["username"],
+            "message": r["message"],
+            "created_at": r["created_at"],
+        }
+        for r in rows
+    ]
+
+    return jsonify({"ok": True, "messages": messages})
 
 # ============================================================
 # Run
