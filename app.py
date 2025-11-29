@@ -2642,7 +2642,7 @@ def sticker_html(visit_id):
 def sticker_zpl(visit_id):
     cur = get_db().cursor()
     v = cur.execute("""
-        SELECT v.created_at, p.name, p.id_number, p.insurance
+        SELECT v.created_at, p.name, p.id_number, p.insurance, p.dob
         FROM visits v 
         JOIN patients p ON p.id=v.patient_id 
         WHERE v.visit_id=?
@@ -2651,27 +2651,46 @@ def sticker_zpl(visit_id):
     if not v:
         return "Not Found", 404
 
-    # Extract time only
+    # Extract time only (HH:MM)
     t = v["created_at"][11:16]
 
-    # ZPL 5x3 cm label - 20 dots font size
+    # Compute age in years based on DOB and visit date
+    age_str = "-"
+    dob_str = v.get("dob") if isinstance(v, dict) else v["dob"]
+    if dob_str:
+        try:
+            dob_dt = datetime.strptime(dob_str, "%Y-%m-%d")
+            visit_date = datetime.strptime(v["created_at"][:10], "%Y-%m-%d")
+            age_years = visit_date.year - dob_dt.year - (
+                (visit_date.month, visit_date.day) < (dob_dt.month, dob_dt.day)
+            )
+            age_str = str(age_years)
+        except Exception:
+            age_str = "-"
+
+    # ZPL label 50.8mm x 31.75mm (2" x 1.25") - landscape
+    # 203 dpi → width ≈ 406 dots, height ≈ 254 dots
     zpl = f"""
 ^XA
-^PW400
-^LL300
+^PW406
+^LL254
+^FWR
+^CI28
 
-^CF0,20
-^FO20,10^FDED DOWNTIME^FS
+^CF0,24
+^FO20,20^FDED DOWNTIME^FS
 
-^CF0,22
-^FO20,60^FDNAME: {v['name']}^FS
-^FO20,100^FDID: {v['id_number'] or '-'}^FS
-^FO20,140^FDINS: {v['insurance'] or '-'}^FS
-^FO20,180^FDTIME: {t}^FS
+^CF0,26
+^FO110,20^FDNAME: {v['name']}^FS
+^FO200,20^FDID: {v['id_number'] or '-'}^FS
+^FO290,20^FDAGE: {age_str}^FS
+^FO360,20^FDINS: {v['insurance'] or '-'}^FS
+^FO430,20^FDTIME: {t}^FS
 
 ^XZ
 """
     return Response(zpl, mimetype="text/plain")
+
 
 # ============================================================
 # Templates (Single-file)
