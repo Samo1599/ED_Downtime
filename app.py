@@ -873,7 +873,8 @@ def ed_board():
     sql = """
         SELECT v.visit_id, v.queue_no, v.triage_status, v.triage_cat,
                v.status, v.payment_details, v.created_at, v.created_by,
-               p.name, p.id_number, p.insurance
+               p.name, p.id_number, p.insurance,
+               CAST((julianday(date(v.created_at)) - julianday(p.dob)) / 365.25 AS INT) AS age
         FROM visits v
         JOIN patients p ON p.id = v.patient_id
         WHERE 1=1
@@ -2628,21 +2629,30 @@ def home_med_pdf(visit_id):
 @app.route("/sticker/<visit_id>")
 @login_required
 def sticker_html(visit_id):
-    cur=get_db().cursor()
-    v=cur.execute("""
-        SELECT v.visit_id, v.queue_no, v.created_at, p.name, p.id_number, p.insurance
-        FROM visits v JOIN patients p ON p.id=v.patient_id WHERE v.visit_id=?
-    """,(visit_id,)).fetchone()
-    if not v: return "Not found",404
-    time_only=v["created_at"][11:16]
-    return render_template("sticker.html", v=v, time_only=time_only)
+    cur = get_db().cursor()
+    v = cur.execute("""
+        SELECT v.visit_id, v.queue_no, v.created_at,
+               p.name, p.id_number, p.insurance,
+               CAST((julianday(date(v.created_at)) - julianday(p.dob)) / 365.25 AS INT) AS age
+        FROM visits v
+        JOIN patients p ON p.id=v.patient_id
+        WHERE v.visit_id=?
+    """, (visit_id,)).fetchone()
+    if not v:
+        return "Not found", 404
+    time_only = v["created_at"][11:16]
+    age = v["age"]
+    return render_template("sticker.html", v=v, time_only=time_only, age=age)
 
 @app.route("/sticker/<visit_id>/zpl")
+
 @login_required
 def sticker_zpl(visit_id):
     cur = get_db().cursor()
     v = cur.execute("""
-        SELECT v.created_at, p.name, p.id_number, p.insurance, p.dob
+        SELECT v.created_at,
+               p.name, p.id_number, p.insurance,
+               CAST((julianday(date(v.created_at)) - julianday(p.dob)) / 365.25 AS INT) AS age
         FROM visits v 
         JOIN patients p ON p.id=v.patient_id 
         WHERE v.visit_id=?
@@ -2651,22 +2661,9 @@ def sticker_zpl(visit_id):
     if not v:
         return "Not Found", 404
 
-    # Extract time only (HH:MM)
+    # Extract time only HH:MM
     t = v["created_at"][11:16]
-
-    # Compute age in years based on DOB and visit date
-    age_str = "-"
-    dob_str = v.get("dob") if isinstance(v, dict) else v["dob"]
-    if dob_str:
-        try:
-            dob_dt = datetime.strptime(dob_str, "%Y-%m-%d")
-            visit_date = datetime.strptime(v["created_at"][:10], "%Y-%m-%d")
-            age_years = visit_date.year - dob_dt.year - (
-                (visit_date.month, visit_date.day) < (dob_dt.month, dob_dt.day)
-            )
-            age_str = str(age_years)
-        except Exception:
-            age_str = "-"
+    age = v["age"] if v["age"] is not None else "-"
 
     # ZPL label 50.8mm x 31.75mm (2" x 1.25") - landscape
     # 203 dpi → width ≈ 406 dots, height ≈ 254 dots
@@ -2681,11 +2678,11 @@ def sticker_zpl(visit_id):
 ^FO20,20^FDED DOWNTIME^FS
 
 ^CF0,26
-^FO110,20^FDNAME: {v['name']}^FS
-^FO200,20^FDID: {v['id_number'] or '-'}^FS
-^FO290,20^FDAGE: {age_str}^FS
-^FO360,20^FDINS: {v['insurance'] or '-'}^FS
-^FO430,20^FDTIME: {t}^FS
+^FO80,20^FDNAME: {v["name"]}^FS
+^FO150,20^FDID: {v["id_number"] or "-"}^FS
+^FO220,20^FDAGE: {age}^FS
+^FO290,20^FDINS: {v["insurance"] or "-"}^FS
+^FO360,20^FDTIME: {t}^FS
 
 ^XZ
 """
@@ -3140,7 +3137,7 @@ TEMPLATES = {
 <table class="table table-sm table-striped bg-white">
   <thead>
     <tr>
-      <th>Queue</th><th>Visit</th><th>Name</th><th>ID</th><th>INS</th>
+      <th>Queue</th><th>Visit</th><th>Name</th><th>ID</th><th>AGE</th><th>INS</th>
       <th>Payment</th><th>Triage</th><th>ES</th><th>Status</th><th>Created</th><th>Actions</th>
     </tr>
   </thead>
@@ -3151,6 +3148,7 @@ TEMPLATES = {
       <td>{{ v.visit_id }}</td>
       <td>{{ v.name }}</td>
       <td>{{ v.id_number }}</td>
+      <td>{{ v.age if v.age is not none else "-" }}</td>
       <td>{{ v.insurance }}</td>
       <td style="max-width:220px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">{{ v.payment_details or '-' }}</td>
       <td>
@@ -4376,6 +4374,7 @@ function applyBundle(name){
   <div class="label">
     <div class="row title">NAME: {{ v.name }}</div>
     <div class="row">ID: {{ v.id_number or '-' }}</div>
+    <div class="row">AGE: {{ age if age is not none else '-' }}</div>
     <div class="row">INS: {{ v.insurance or '-' }}</div>
     <div class="row">TIME: {{ time_only }}</div>
   </div>
