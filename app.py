@@ -401,6 +401,45 @@ def clean_text(v):
     return v.replace("'", " ").replace(";", " ").replace("--", " ")
 
 
+
+
+def parse_dob_input(raw):
+    """
+    Parse DOB entered as DD.MM.YYYY (primary) or YYYY-MM-DD (fallback)
+    and return normalized YYYY-MM-DD string for storage.
+    """
+    raw = (raw or "").strip()
+    if not raw:
+        return ""
+    from datetime import datetime as _dt
+    for fmt in ("%d.%m.%Y", "%Y-%m-%d"):
+        try:
+            dt = _dt.strptime(raw, fmt)
+            return dt.strftime("%Y-%m-%d")
+        except ValueError:
+            continue
+    # if parsing fails, keep the original text so data is not lost
+    return raw
+
+
+def format_dob_display(val):
+    """
+    Format stored DOB for display as DD.MM.YYYY where possible.
+    Accepts values already in DD.MM.YYYY or YYYY-MM-DD.
+    """
+    val = (val or "").strip()
+    if not val:
+        return ""
+    from datetime import datetime as _dt
+    # Try ISO then already-formatted style
+    for fmt_in in ("%Y-%m-%d", "%d.%m.%Y"):
+        try:
+            dt = _dt.strptime(val, fmt_in)
+            return dt.strftime("%d.%m.%Y")
+        except ValueError:
+            continue
+    return val
+
 def get_page_args(default_per_page=25, max_per_page=100):
     try:
         page = int(request.args.get("page", 1))
@@ -451,7 +490,7 @@ def do_backup():
 
 def backup_scheduler_loop():
     while True:
-        time.sleep(1800)  # every 30 minutes
+        time.sleep(3600)  # hourly
         do_backup()
 
 def start_backup_scheduler_once():
@@ -756,7 +795,8 @@ def register_patient():
         phone = request.form.get("phone","").strip()
         insurance = request.form.get("insurance","").strip()
         insurance_no = request.form.get("insurance_no","").strip()
-        dob = request.form.get("dob","").strip()
+        dob_raw = request.form.get("dob","").strip()
+        dob = parse_dob_input(dob_raw)
         sex = request.form.get("sex","").strip()
         nationality = request.form.get("nationality","").strip()
         payment_details = request.form.get("payment_details","").strip()
@@ -1039,7 +1079,8 @@ def edit_patient(visit_id):
         phone = request.form.get("phone","").strip()
         insurance = request.form.get("insurance","").strip()
         insurance_no = request.form.get("insurance_no","").strip()
-        dob = request.form.get("dob","").strip()
+        dob_raw = request.form.get("dob","").strip()
+        dob = parse_dob_input(dob_raw)
         sex = request.form.get("sex","").strip()
         nationality = request.form.get("nationality","").strip()
         payment_details = request.form.get("payment_details","").strip()
@@ -1061,7 +1102,7 @@ def edit_patient(visit_id):
         flash("Patient updated successfully.", "success")
         return redirect(url_for("patient_details", visit_id=visit_id))
 
-    return render_template("edit_patient.html", r=rec)
+    return render_template("edit_patient.html", r=rec, dob_display=format_dob_display(rec["dob"]))
 
 @app.route("/patient/<visit_id>/upload_id", methods=["POST"])
 @login_required
@@ -2947,7 +2988,7 @@ TEMPLATES = {
     <div class="col-md-4"><label class="form-label fw-bold">Phone</label><input class="form-control" name="phone"></div>
     <div class="col-md-4"><label class="form-label fw-bold">Insurance</label><input class="form-control" name="insurance"></div>
     <div class="col-md-4"><label class="form-label fw-bold">Insurance No</label><input class="form-control" name="insurance_no"></div>
-    <div class="col-md-4"><label class="form-label fw-bold">DOB</label><input class="form-control" name="dob" placeholder="YYYY-MM-DD"></div>
+    <div class="col-md-4"><label class="form-label fw-bold">DOB</label><input class="form-control" name="dob" placeholder="DD.MM.YYYY"></div>
     <div class="col-md-2"><label class="form-label fw-bold">Sex</label>
       <select class="form-select" name="sex"><option value=""></option><option>M</option><option>F</option></select></div>
     <div class="col-md-6"><label class="form-label fw-bold">Nationality</label><input class="form-control" name="nationality"></div>
@@ -3411,7 +3452,7 @@ TEMPLATES = {
     <div class="col-md-4"><label class="form-label fw-bold">Phone</label><input class="form-control" name="phone" value="{{ r.phone }}"></div>
     <div class="col-md-4"><label class="form-label fw-bold">Insurance</label><input class="form-control" name="insurance" value="{{ r.insurance }}"></div>
     <div class="col-md-4"><label class="form-label fw-bold">Insurance No</label><input class="form-control" name="insurance_no" value="{{ r.insurance_no }}"></div>
-    <div class="col-md-4"><label class="form-label fw-bold">DOB</label><input class="form-control" name="dob" value="{{ r.dob }}"></div>
+    <div class="col-md-4"><label class="form-label fw-bold">DOB</label><input class="form-control" name="dob" value="{{ dob_display }}" placeholder="DD.MM.YYYY"></div>
     <div class="col-md-2"><label class="form-label fw-bold">Sex</label>
       <select class="form-select" name="sex">
         <option value="" {% if not r.sex %}selected{% endif %}></option>
@@ -4378,7 +4419,7 @@ function applyBundle(name){
       </div>
       <div class="card-footer">
         <div class="input-group">
-          <input type="text" id="chat-input" class="form-control" placeholder="اكتب رسالتك واضغط Enter أو Send ...">
+          <input type="text" id="chat-input" class="form-control" placeholder="Type your message and press Enter or click Send ...">
           <button class="btn btn-primary" id="chat-send-btn">Send</button>
         </div>
         <div class="small text-muted mt-1">
@@ -4459,7 +4500,7 @@ function applyBundle(name){
           playBeep();
         }
       } else if (!lastTimestamp) {
-        chatBox.innerHTML = '<div class="text-muted small">لا يوجد رسائل بعد. اكتب أول رسالة 👋</div>';
+        chatBox.innerHTML = '<div class="text-muted small">No messages yet. Type the first message 👋</div>';
       }
     } catch (e) {
       // ignore
