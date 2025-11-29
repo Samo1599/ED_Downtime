@@ -401,45 +401,6 @@ def clean_text(v):
     return v.replace("'", " ").replace(";", " ").replace("--", " ")
 
 
-
-
-def parse_dob_input(raw):
-    """
-    Parse DOB entered as DD.MM.YYYY (primary) or YYYY-MM-DD (fallback)
-    and return normalized YYYY-MM-DD string for storage.
-    """
-    raw = (raw or "").strip()
-    if not raw:
-        return ""
-    from datetime import datetime as _dt
-    for fmt in ("%d.%m.%Y", "%Y-%m-%d"):
-        try:
-            dt = _dt.strptime(raw, fmt)
-            return dt.strftime("%Y-%m-%d")
-        except ValueError:
-            continue
-    # if parsing fails, keep the original text so data is not lost
-    return raw
-
-
-def format_dob_display(val):
-    """
-    Format stored DOB for display as DD.MM.YYYY where possible.
-    Accepts values already in DD.MM.YYYY or YYYY-MM-DD.
-    """
-    val = (val or "").strip()
-    if not val:
-        return ""
-    from datetime import datetime as _dt
-    # Try ISO then already-formatted style
-    for fmt_in in ("%Y-%m-%d", "%d.%m.%Y"):
-        try:
-            dt = _dt.strptime(val, fmt_in)
-            return dt.strftime("%d.%m.%Y")
-        except ValueError:
-            continue
-    return val
-
 def get_page_args(default_per_page=25, max_per_page=100):
     try:
         page = int(request.args.get("page", 1))
@@ -490,7 +451,7 @@ def do_backup():
 
 def backup_scheduler_loop():
     while True:
-        time.sleep(3600)  # hourly
+        time.sleep(1800)  # every 30 minutes
         do_backup()
 
 def start_backup_scheduler_once():
@@ -738,6 +699,62 @@ def admin_backup_now():
     else:
         flash("Backup failed.", "danger")
     return redirect(url_for("ed_board"))
+
+@app.route("/admin/backup_file/<path:filename>")
+@login_required
+@role_required("admin")
+def admin_backup_file(filename):
+    # Download specific .db backup from BACKUP_FOLDER
+    safe_name = secure_filename(filename)
+    full_path = os.path.join(BACKUP_FOLDER, safe_name)
+    if not os.path.exists(full_path):
+        return "Backup not found", 404
+    if not safe_name.lower().endswith(".db"):
+        return "Invalid backup file", 400
+    return send_from_directory(BACKUP_FOLDER, safe_name, as_attachment=True)
+
+@app.route("/admin/restore_file/<path:filename>", methods=["GET","POST"])
+@login_required
+@role_required("admin")
+def admin_restore_file(filename):
+    """
+    Restore DB directly from a selected backup file, with password confirmation.
+    """
+    safe_name = secure_filename(filename)
+    src_path = os.path.join(BACKUP_FOLDER, safe_name)
+
+    if (not os.path.exists(src_path)) or (not safe_name.lower().endswith(".db")):
+        flash("Backup file not found or invalid.", "danger")
+        return redirect(url_for("admin_restore"))
+
+    if request.method == "POST":
+        password = request.form.get("password", "").strip()
+        user_id = session.get("user_id")
+        if not user_id:
+            flash("Please login again.", "danger")
+            return redirect(url_for("login"))
+
+        cur = get_db().cursor()
+        u = cur.execute("SELECT * FROM users WHERE id=?", (user_id,)).fetchone()
+        if not u or not check_password_hash(u["password_hash"], password):
+            flash("Incorrect password. Restore cancelled.", "danger")
+            return redirect(url_for("admin_restore_file", filename=filename))
+
+        try:
+            # safety backup of current DB before overwrite
+            if os.path.exists(DATABASE):
+                shutil.copy2(DATABASE, DATABASE + ".before_restore.bak")
+
+            shutil.copy2(src_path, DATABASE)
+            log_action("BACKUP_RESTORE_FILE", details=safe_name)
+            flash("Database restored successfully from selected backup. Please restart the app/server.", "success")
+        except Exception as e:
+            flash(f"Restore from file failed: {e}", "danger")
+
+        return redirect(url_for("ed_board"))
+
+    # GET: show confirmation form
+    return render_template("admin_restore_confirm.html", backup_name=safe_name)
 @app.route("/admin/restore", methods=["GET","POST"])
 @login_required
 @role_required("admin")
@@ -773,7 +790,27 @@ def admin_restore():
 
         return redirect(url_for("ed_board"))
 
-    return render_template("admin_restore.html")
+    # GET: list available backup .db files (newest first)
+    backups = []
+    try:
+        for fname in os.listdir(BACKUP_FOLDER):
+            full = os.path.join(BACKUP_FOLDER, fname)
+            if not os.path.isfile(full):
+                continue
+            if not fname.lower().endswith(".db"):
+                continue
+            st = os.stat(full)
+            backups.append({
+                "name": fname,
+                "size_kb": st.st_size / 1024.0,
+                "mtime": datetime.fromtimestamp(st.st_mtime).strftime("%Y-%m-%d %H:%M:%S"),
+            })
+        backups.sort(key=lambda b: b["mtime"], reverse=True)
+    except Exception:
+        backups = []
+
+    return render_template("admin_restore.html", backups=backups)
+
 
 
 
@@ -795,8 +832,7 @@ def register_patient():
         phone = request.form.get("phone","").strip()
         insurance = request.form.get("insurance","").strip()
         insurance_no = request.form.get("insurance_no","").strip()
-        dob_raw = request.form.get("dob","").strip()
-        dob = parse_dob_input(dob_raw)
+        dob = request.form.get("dob","").strip()
         sex = request.form.get("sex","").strip()
         nationality = request.form.get("nationality","").strip()
         payment_details = request.form.get("payment_details","").strip()
@@ -1079,8 +1115,7 @@ def edit_patient(visit_id):
         phone = request.form.get("phone","").strip()
         insurance = request.form.get("insurance","").strip()
         insurance_no = request.form.get("insurance_no","").strip()
-        dob_raw = request.form.get("dob","").strip()
-        dob = parse_dob_input(dob_raw)
+        dob = request.form.get("dob","").strip()
         sex = request.form.get("sex","").strip()
         nationality = request.form.get("nationality","").strip()
         payment_details = request.form.get("payment_details","").strip()
@@ -1102,7 +1137,7 @@ def edit_patient(visit_id):
         flash("Patient updated successfully.", "success")
         return redirect(url_for("patient_details", visit_id=visit_id))
 
-    return render_template("edit_patient.html", r=rec, dob_display=format_dob_display(rec["dob"]))
+    return render_template("edit_patient.html", r=rec)
 
 @app.route("/patient/<visit_id>/upload_id", methods=["POST"])
 @login_required
@@ -2958,13 +2993,91 @@ TEMPLATES = {
     A safety copy (*.before_restore.bak) will be created automatically.
   </p>
 
-  <form method="POST" enctype="multipart/form-data">
+  <h6 class="fw-bold mt-2">Available backup files</h6>
+  {% if backups %}
+    <div class="table-responsive mb-3">
+      <table class="table table-sm table-hover align-middle mb-0">
+        <thead>
+          <tr>
+            <th>#</th>
+            <th>File name</th>
+            <th>Created / Modified</th>
+            <th>Size (KB)</th>
+            <th>Download</th>
+            <th>Restore</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for b in backups %}
+          <tr>
+            <td>{{ loop.index }}</td>
+            <td>
+              <a href="{{ url_for('admin_backup_file', filename=b.name) }}">
+                {{ b.name }}
+              </a>
+            </td>
+            <td>{{ b.mtime }}</td>
+            <td>{{ "%.1f"|format(b.size_kb) }}</td>
+            <td>
+              <a class="btn btn-sm btn-outline-primary"
+                 href="{{ url_for('admin_backup_file', filename=b.name) }}">
+                Download
+              </a>
+            </td>
+            <td>
+              <a class="btn btn-sm btn-outline-danger"
+                 href="{{ url_for('admin_restore_file', filename=b.name) }}">
+                Restore this backup
+              </a>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  {% else %}
+    <p class="text-muted small">No backup .db files found in the backups folder yet.</p>
+  {% endif %}
+
+  <form method="POST" enctype="multipart/form-data" class="mt-2">
     <div class="mb-2">
       <label class="form-label fw-bold">Select backup .db file</label>
       <input type="file" name="file" class="form-control" required>
     </div>
     <button class="btn btn-danger mt-2">Restore Now</button>
     <a class="btn btn-secondary mt-2" href="{{ url_for('ed_board') }}">Cancel</a>
+  </form>
+</div>
+{% endblock %}
+""",
+
+"admin_restore_confirm.html": """
+{% extends "base.html" %}
+{% block content %}
+<h4 class="mb-3">Confirm Restore from Backup</h4>
+
+{% with messages = get_flashed_messages(with_categories=true) %}
+  {% for category, msg in messages %}
+    <div class="alert alert-{{ category }}">{{ msg }}</div>
+  {% endfor %}
+{% endwith %}
+
+<div class="card p-3 bg-white">
+  <p class="text-danger small mb-2">
+    ⚠️ You are about to restore the database from backup file:
+    <strong>{{ backup_name }}</strong>
+  </p>
+  <p class="text-muted small mb-2">
+    This will overwrite the current database. A safety copy (*.before_restore.bak) will be created automatically.
+  </p>
+
+  <form method="POST">
+    <div class="mb-2">
+      <label class="form-label fw-bold">Re-enter your password to confirm</label>
+      <input type="password" name="password" class="form-control" required autofocus>
+    </div>
+    <button class="btn btn-danger mt-2">Confirm Restore</button>
+    <a class="btn btn-secondary mt-2" href="{{ url_for('admin_restore') }}">Cancel</a>
   </form>
 </div>
 {% endblock %}
@@ -2988,7 +3101,7 @@ TEMPLATES = {
     <div class="col-md-4"><label class="form-label fw-bold">Phone</label><input class="form-control" name="phone"></div>
     <div class="col-md-4"><label class="form-label fw-bold">Insurance</label><input class="form-control" name="insurance"></div>
     <div class="col-md-4"><label class="form-label fw-bold">Insurance No</label><input class="form-control" name="insurance_no"></div>
-    <div class="col-md-4"><label class="form-label fw-bold">DOB</label><input class="form-control" name="dob" placeholder="DD.MM.YYYY"></div>
+    <div class="col-md-4"><label class="form-label fw-bold">DOB</label><input class="form-control" name="dob" placeholder="YYYY-MM-DD"></div>
     <div class="col-md-2"><label class="form-label fw-bold">Sex</label>
       <select class="form-select" name="sex"><option value=""></option><option>M</option><option>F</option></select></div>
     <div class="col-md-6"><label class="form-label fw-bold">Nationality</label><input class="form-control" name="nationality"></div>
@@ -3452,7 +3565,7 @@ TEMPLATES = {
     <div class="col-md-4"><label class="form-label fw-bold">Phone</label><input class="form-control" name="phone" value="{{ r.phone }}"></div>
     <div class="col-md-4"><label class="form-label fw-bold">Insurance</label><input class="form-control" name="insurance" value="{{ r.insurance }}"></div>
     <div class="col-md-4"><label class="form-label fw-bold">Insurance No</label><input class="form-control" name="insurance_no" value="{{ r.insurance_no }}"></div>
-    <div class="col-md-4"><label class="form-label fw-bold">DOB</label><input class="form-control" name="dob" value="{{ dob_display }}" placeholder="DD.MM.YYYY"></div>
+    <div class="col-md-4"><label class="form-label fw-bold">DOB</label><input class="form-control" name="dob" value="{{ r.dob }}"></div>
     <div class="col-md-2"><label class="form-label fw-bold">Sex</label>
       <select class="form-select" name="sex">
         <option value="" {% if not r.sex %}selected{% endif %}></option>
@@ -4419,7 +4532,7 @@ function applyBundle(name){
       </div>
       <div class="card-footer">
         <div class="input-group">
-          <input type="text" id="chat-input" class="form-control" placeholder="Type your message and press Enter or click Send ...">
+          <input type="text" id="chat-input" class="form-control" placeholder="اكتب رسالتك واضغط Enter أو Send ...">
           <button class="btn btn-primary" id="chat-send-btn">Send</button>
         </div>
         <div class="small text-muted mt-1">
@@ -4500,7 +4613,7 @@ function applyBundle(name){
           playBeep();
         }
       } else if (!lastTimestamp) {
-        chatBox.innerHTML = '<div class="text-muted small">No messages yet. Type the first message 👋</div>';
+        chatBox.innerHTML = '<div class="text-muted small">لا يوجد رسائل بعد. اكتب أول رسالة 👋</div>';
       }
     } catch (e) {
       // ignore
