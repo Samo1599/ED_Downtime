@@ -2706,8 +2706,8 @@ TEMPLATES = {
     <a class="nav-link" href="{{ url_for('ed_board') }}">ED Board</a>
     <a class="nav-link" href="{{ url_for('search_patients') }}">Search</a>
     <a class="nav-link position-relative" href="{{ url_for('chat_page') }}">
-      Live Chat
-      <span id="chat-unread-badge" class="badge rounded-pill bg-danger ms-1" style="display:none;">0</span>
+    Live Chat
+    <span id="chat-unread-badge" class="badge rounded-pill bg-danger ms-1" style="display:none;">0</span>
     </a>
     {% if session.get('role') in ['lab','admin','doctor','nurse'] %}
       <a class="nav-link" href="{{ url_for('lab_board') }}">Lab Board</a>
@@ -4458,6 +4458,7 @@ function applyBundle(name){
   </div>
 </div>
 
+
 <script>
 (function() {
   const chatBox = document.getElementById("chat-box");
@@ -4502,6 +4503,31 @@ function applyBundle(name){
       .replace(/>/g, "&gt;");
   }
 
+  function requestNotificationPermission() {
+    if (!("Notification" in window)) return;
+    if (Notification.permission === "default") {
+      try {
+        Notification.requestPermission();
+      } catch (e) {
+        console.log("Notification permission error", e);
+      }
+    }
+  }
+
+  function showNotification(msg) {
+    if (!("Notification" in window)) return;
+    if (Notification.permission !== "granted") return;
+    if (msg && msg.username && msg.username === currentUser) return;
+    const title = "New chat message from " + (msg.username || "User");
+    const body = msg.message || "";
+    try {
+      const n = new Notification(title, { body: body });
+      setTimeout(function() { n.close(); }, 7000);
+    } catch (e) {
+      console.log("Notification error", e);
+    }
+  }
+
   function playBeep() {
     try {
       const ctx = new (window.AudioContext || window.webkitAudioContext)();
@@ -4540,9 +4566,11 @@ function applyBundle(name){
           lastTimestamp = m.created_at;
         });
         if (!isInitial) {
+          const lastMsg = data.messages[data.messages.length - 1];
           playBeep();
+          showNotification(lastMsg);
         }
-        // mark all received messages as "read" for this user
+        // mark as read
         saveChatLastSeen(lastTimestamp);
       } else if (!lastTimestamp) {
         chatBox.innerHTML = '<div class="text-muted small">لا يوجد رسائل بعد. اكتب أول رسالة 👋</div>';
@@ -4580,10 +4608,30 @@ function applyBundle(name){
     }
   });
 
+  requestNotificationPermission();
   loadMessages();
   setInterval(loadMessages, 3000);
 })();
-</script> DB, default admin, and background scheduler once per process."""
+</script>
+{% endblock %}
+"""
+}
+
+@app.context_processor
+def inject_footer():
+    return dict(footer_text=APP_FOOTER_TEXT)
+
+app.jinja_loader = DictLoader(TEMPLATES)
+
+
+# ============================================================
+# Bootstrap (works for Gunicorn/Render/PythonAnywhere)
+# ============================================================
+
+_bootstrapped = False
+
+def bootstrap_once():
+    """Initialize DB, default admin, and background scheduler once per process."""
     global _bootstrapped
     if _bootstrapped:
         return
