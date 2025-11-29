@@ -451,7 +451,7 @@ def do_backup():
 
 def backup_scheduler_loop():
     while True:
-        time.sleep(3600)  # hourly
+        time.sleep(1800)  # every 30 minutes
         do_backup()
 
 def start_backup_scheduler_once():
@@ -2705,10 +2705,7 @@ TEMPLATES = {
   <div class="d-flex gap-3 align-items-center">
     <a class="nav-link" href="{{ url_for('ed_board') }}">ED Board</a>
     <a class="nav-link" href="{{ url_for('search_patients') }}">Search</a>
-    <a class="nav-link position-relative" href="{{ url_for('chat_page') }}">
-    Live Chat
-    <span id="chat-unread-badge" class="badge rounded-pill bg-danger ms-1" style="display:none;">0</span>
-    </a>
+    <a class="nav-link" href="{{ url_for('chat_page') }}">Live Chat</a>
     {% if session.get('role') in ['lab','admin','doctor','nurse'] %}
       <a class="nav-link" href="{{ url_for('lab_board') }}">Lab Board</a>
     {% endif %}
@@ -2741,72 +2738,6 @@ TEMPLATES = {
 </footer>
 
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
-<script>
-(function() {
-  const badge = document.getElementById("chat-unread-badge");
-  const currentUser = "{{ session.get('username') }}";
-
-  if (!badge || !currentUser) {
-    return;
-  }
-
-  // لا نعرض عدّاد على صفحة الشات نفسها
-  if (window.location.pathname.indexOf("/chat") === 0) {
-    badge.style.display = "none";
-    return;
-  }
-
-  function updateBadge(count) {
-    if (!count || count <= 0) {
-      badge.style.display = "none";
-      badge.textContent = "";
-    } else {
-      badge.style.display = "inline-block";
-      badge.textContent = count > 99 ? "99+" : String(count);
-    }
-  }
-
-  function getLastSeenKey() {
-    return "chat_last_seen_" + currentUser;
-  }
-
-  function getLastSeen() {
-    try {
-      return localStorage.getItem(getLastSeenKey()) || "";
-    } catch (e) {
-      return "";
-    }
-  }
-
-  async function pollUnread() {
-    const after = getLastSeen();
-    const url = after
-      ? "/chat/messages?after=" + encodeURIComponent(after)
-      : "/chat/messages";
-
-    try {
-      const res = await fetch(url);
-      if (!res.ok) return;
-      const data = await res.json();
-      if (!data.ok || !data.messages) return;
-
-      let count = 0;
-      data.messages.forEach(function(m) {
-        if (!m.username || m.username !== currentUser) {
-          count++;
-        }
-      });
-
-      updateBadge(count);
-    } catch (e) {
-      // ignore
-    }
-  }
-
-  pollUnread();
-  setInterval(pollUnread, 5000);
-})();
-</script>
 </body>
 </html>
 """,
@@ -4458,29 +4389,13 @@ function applyBundle(name){
   </div>
 </div>
 
-
 <script>
 (function() {
   const chatBox = document.getElementById("chat-box");
   const input   = document.getElementById("chat-input");
   const sendBtn = document.getElementById("chat-send-btn");
 
-  const currentUser = "{{ session.get('username') }}";
-
   let lastTimestamp = "";
-
-  function chatLastSeenKey() {
-    return "chat_last_seen_" + currentUser;
-  }
-
-  function saveChatLastSeen(ts) {
-    if (!ts) return;
-    try {
-      localStorage.setItem(chatLastSeenKey(), ts);
-    } catch (e) {
-      // ignore
-    }
-  }
 
   function appendMessage(msg) {
     const div = document.createElement("div");
@@ -4501,31 +4416,6 @@ function applyBundle(name){
       .replace(/&/g, "&amp;")
       .replace(/</g, "&lt;")
       .replace(/>/g, "&gt;");
-  }
-
-  function requestNotificationPermission() {
-    if (!("Notification" in window)) return;
-    if (Notification.permission === "default") {
-      try {
-        Notification.requestPermission();
-      } catch (e) {
-        console.log("Notification permission error", e);
-      }
-    }
-  }
-
-  function showNotification(msg) {
-    if (!("Notification" in window)) return;
-    if (Notification.permission !== "granted") return;
-    if (msg && msg.username && msg.username === currentUser) return;
-    const title = "New chat message from " + (msg.username || "User");
-    const body = msg.message || "";
-    try {
-      const n = new Notification(title, { body: body });
-      setTimeout(function() { n.close(); }, 7000);
-    } catch (e) {
-      console.log("Notification error", e);
-    }
   }
 
   function playBeep() {
@@ -4566,12 +4456,8 @@ function applyBundle(name){
           lastTimestamp = m.created_at;
         });
         if (!isInitial) {
-          const lastMsg = data.messages[data.messages.length - 1];
           playBeep();
-          showNotification(lastMsg);
         }
-        // mark as read
-        saveChatLastSeen(lastTimestamp);
       } else if (!lastTimestamp) {
         chatBox.innerHTML = '<div class="text-muted small">لا يوجد رسائل بعد. اكتب أول رسالة 👋</div>';
       }
@@ -4608,7 +4494,6 @@ function applyBundle(name){
     }
   });
 
-  requestNotificationPermission();
   loadMessages();
   setInterval(loadMessages, 3000);
 })();
