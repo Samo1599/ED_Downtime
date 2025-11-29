@@ -873,8 +873,7 @@ def ed_board():
     sql = """
         SELECT v.visit_id, v.queue_no, v.triage_status, v.triage_cat,
                v.status, v.payment_details, v.created_at, v.created_by,
-               p.name, p.id_number, p.insurance,
-               CAST((julianday(date(v.created_at)) - julianday(p.dob)) / 365.25 AS INT) AS age
+               p.name, p.id_number, p.insurance
         FROM visits v
         JOIN patients p ON p.id = v.patient_id
         WHERE 1=1
@@ -2629,30 +2628,21 @@ def home_med_pdf(visit_id):
 @app.route("/sticker/<visit_id>")
 @login_required
 def sticker_html(visit_id):
-    cur = get_db().cursor()
-    v = cur.execute("""
-        SELECT v.visit_id, v.queue_no, v.created_at,
-               p.name, p.id_number, p.insurance,
-               CAST((julianday(date(v.created_at)) - julianday(p.dob)) / 365.25 AS INT) AS age
-        FROM visits v
-        JOIN patients p ON p.id=v.patient_id
-        WHERE v.visit_id=?
-    """, (visit_id,)).fetchone()
-    if not v:
-        return "Not found", 404
-    time_only = v["created_at"][11:16]
-    age = v["age"]
-    return render_template("sticker.html", v=v, time_only=time_only, age=age)
+    cur=get_db().cursor()
+    v=cur.execute("""
+        SELECT v.visit_id, v.queue_no, v.created_at, p.name, p.id_number, p.insurance
+        FROM visits v JOIN patients p ON p.id=v.patient_id WHERE v.visit_id=?
+    """,(visit_id,)).fetchone()
+    if not v: return "Not found",404
+    time_only=v["created_at"][11:16]
+    return render_template("sticker.html", v=v, time_only=time_only)
 
 @app.route("/sticker/<visit_id>/zpl")
-
 @login_required
 def sticker_zpl(visit_id):
     cur = get_db().cursor()
     v = cur.execute("""
-        SELECT v.created_at,
-               p.name, p.id_number, p.insurance,
-               CAST((julianday(date(v.created_at)) - julianday(p.dob)) / 365.25 AS INT) AS age
+        SELECT v.created_at, p.name, p.id_number, p.insurance
         FROM visits v 
         JOIN patients p ON p.id=v.patient_id 
         WHERE v.visit_id=?
@@ -2661,33 +2651,27 @@ def sticker_zpl(visit_id):
     if not v:
         return "Not Found", 404
 
-    # Extract time only HH:MM
+    # Extract time only
     t = v["created_at"][11:16]
-    age = v["age"] if v["age"] is not None else "-"
 
-    # ZPL label 50.8mm x 31.75mm (2" x 1.25") - landscape
-    # 203 dpi → width ≈ 406 dots, height ≈ 254 dots
+    # ZPL 5x3 cm label - 20 dots font size
     zpl = f"""
 ^XA
-^PW406
-^LL254
-^FWR
-^CI28
+^PW400
+^LL300
 
-^CF0,24
-^FO20,20^FDED DOWNTIME^FS
+^CF0,20
+^FO20,10^FDED DOWNTIME^FS
 
-^CF0,26
-^FO80,20^FDNAME: {v["name"]}^FS
-^FO150,20^FDID: {v["id_number"] or "-"}^FS
-^FO220,20^FDAGE: {age}^FS
-^FO290,20^FDINS: {v["insurance"] or "-"}^FS
-^FO360,20^FDTIME: {t}^FS
+^CF0,22
+^FO20,60^FDNAME: {v['name']}^FS
+^FO20,100^FDID: {v['id_number'] or '-'}^FS
+^FO20,140^FDINS: {v['insurance'] or '-'}^FS
+^FO20,180^FDTIME: {t}^FS
 
 ^XZ
 """
     return Response(zpl, mimetype="text/plain")
-
 
 # ============================================================
 # Templates (Single-file)
@@ -2721,7 +2705,10 @@ TEMPLATES = {
   <div class="d-flex gap-3 align-items-center">
     <a class="nav-link" href="{{ url_for('ed_board') }}">ED Board</a>
     <a class="nav-link" href="{{ url_for('search_patients') }}">Search</a>
-    <a class="nav-link" href="{{ url_for('chat_page') }}">Live Chat</a>
+    <a class="nav-link position-relative" href="{{ url_for('chat_page') }}">
+      Live Chat
+      <span id="chat-unread-badge" class="badge rounded-pill bg-danger ms-1" style="display:none;">0</span>
+    </a>
     {% if session.get('role') in ['lab','admin','doctor','nurse'] %}
       <a class="nav-link" href="{{ url_for('lab_board') }}">Lab Board</a>
     {% endif %}
@@ -2754,6 +2741,72 @@ TEMPLATES = {
 </footer>
 
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+<script>
+(function() {
+  const badge = document.getElementById("chat-unread-badge");
+  const currentUser = "{{ session.get('username') }}";
+
+  if (!badge || !currentUser) {
+    return;
+  }
+
+  // لا نعرض عدّاد على صفحة الشات نفسها
+  if (window.location.pathname.indexOf("/chat") === 0) {
+    badge.style.display = "none";
+    return;
+  }
+
+  function updateBadge(count) {
+    if (!count || count <= 0) {
+      badge.style.display = "none";
+      badge.textContent = "";
+    } else {
+      badge.style.display = "inline-block";
+      badge.textContent = count > 99 ? "99+" : String(count);
+    }
+  }
+
+  function getLastSeenKey() {
+    return "chat_last_seen_" + currentUser;
+  }
+
+  function getLastSeen() {
+    try {
+      return localStorage.getItem(getLastSeenKey()) || "";
+    } catch (e) {
+      return "";
+    }
+  }
+
+  async function pollUnread() {
+    const after = getLastSeen();
+    const url = after
+      ? "/chat/messages?after=" + encodeURIComponent(after)
+      : "/chat/messages";
+
+    try {
+      const res = await fetch(url);
+      if (!res.ok) return;
+      const data = await res.json();
+      if (!data.ok || !data.messages) return;
+
+      let count = 0;
+      data.messages.forEach(function(m) {
+        if (!m.username || m.username !== currentUser) {
+          count++;
+        }
+      });
+
+      updateBadge(count);
+    } catch (e) {
+      // ignore
+    }
+  }
+
+  pollUnread();
+  setInterval(pollUnread, 5000);
+})();
+</script>
 </body>
 </html>
 """,
@@ -3137,7 +3190,7 @@ TEMPLATES = {
 <table class="table table-sm table-striped bg-white">
   <thead>
     <tr>
-      <th>Queue</th><th>Visit</th><th>Name</th><th>ID</th><th>AGE</th><th>INS</th>
+      <th>Queue</th><th>Visit</th><th>Name</th><th>ID</th><th>INS</th>
       <th>Payment</th><th>Triage</th><th>ES</th><th>Status</th><th>Created</th><th>Actions</th>
     </tr>
   </thead>
@@ -3148,7 +3201,6 @@ TEMPLATES = {
       <td>{{ v.visit_id }}</td>
       <td>{{ v.name }}</td>
       <td>{{ v.id_number }}</td>
-      <td>{{ v.age if v.age is not none else "-" }}</td>
       <td>{{ v.insurance }}</td>
       <td style="max-width:220px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">{{ v.payment_details or '-' }}</td>
       <td>
@@ -4374,7 +4426,6 @@ function applyBundle(name){
   <div class="label">
     <div class="row title">NAME: {{ v.name }}</div>
     <div class="row">ID: {{ v.id_number or '-' }}</div>
-    <div class="row">AGE: {{ age if age is not none else '-' }}</div>
     <div class="row">INS: {{ v.insurance or '-' }}</div>
     <div class="row">TIME: {{ time_only }}</div>
   </div>
@@ -4413,7 +4464,22 @@ function applyBundle(name){
   const input   = document.getElementById("chat-input");
   const sendBtn = document.getElementById("chat-send-btn");
 
+  const currentUser = "{{ session.get('username') }}";
+
   let lastTimestamp = "";
+
+  function chatLastSeenKey() {
+    return "chat_last_seen_" + currentUser;
+  }
+
+  function saveChatLastSeen(ts) {
+    if (!ts) return;
+    try {
+      localStorage.setItem(chatLastSeenKey(), ts);
+    } catch (e) {
+      // ignore
+    }
+  }
 
   function appendMessage(msg) {
     const div = document.createElement("div");
@@ -4476,6 +4542,8 @@ function applyBundle(name){
         if (!isInitial) {
           playBeep();
         }
+        // mark all received messages as "read" for this user
+        saveChatLastSeen(lastTimestamp);
       } else if (!lastTimestamp) {
         chatBox.innerHTML = '<div class="text-muted small">لا يوجد رسائل بعد. اكتب أول رسالة 👋</div>';
       }
@@ -4515,26 +4583,7 @@ function applyBundle(name){
   loadMessages();
   setInterval(loadMessages, 3000);
 })();
-</script>
-{% endblock %}
-"""
-}
-
-@app.context_processor
-def inject_footer():
-    return dict(footer_text=APP_FOOTER_TEXT)
-
-app.jinja_loader = DictLoader(TEMPLATES)
-
-
-# ============================================================
-# Bootstrap (works for Gunicorn/Render/PythonAnywhere)
-# ============================================================
-
-_bootstrapped = False
-
-def bootstrap_once():
-    """Initialize DB, default admin, and background scheduler once per process."""
+</script> DB, default admin, and background scheduler once per process."""
     global _bootstrapped
     if _bootstrapped:
         return
