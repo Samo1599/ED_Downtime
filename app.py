@@ -1,3 +1,4 @@
+
 """
 ED Downtime – Cerner-like Board (V5 Full Single-File)
 Internal ED use only — Downtime Tool © 2025
@@ -15,13 +16,10 @@ V5 adds:
     * Home medication
     * Auto-Summary PDF (full ED course)
 - Sticker HTML + ZPL 5x3cm (fixed)
-- Enhanced filters for clinics by type
-- Improved restore backup page with file listing
-- Upload results functionality for Lab/Radiology boards
 """
 from flask import (
     Flask, request, g, redirect, url_for,
-    render_template, session, Response, send_from_directory, flash, jsonify
+    render_template, render_template_string, session, Response, send_from_directory, flash, jsonify
 )
 import sqlite3
 from datetime import datetime, timedelta
@@ -30,7 +28,7 @@ from werkzeug.security import generate_password_hash, check_password_hash
 from werkzeug.utils import secure_filename
 from jinja2 import DictLoader
 import os, io, csv, shutil, threading, time
-import glob
+import textwrap
 
 # PDF
 from reportlab.lib.pagesizes import A4
@@ -63,38 +61,37 @@ app.config["UPLOAD_FOLDER"] = UPLOAD_FOLDER
 APP_FOOTER_TEXT = "Downtime Tool © 2025 — Developed by: Samy Aly | ID 20155"
 ALLOWED_EXTENSIONS = {"png", "jpg", "jpeg", "pdf"}
 
+# Simple helper for wrapping long PDF lines so text doesn't get cut off.
+from reportlab.lib.units import cm as _cm_for_wrap
 
-# List of hospital clinics shown in the Clinics menu and boards.
-# You can edit this list to match your hospital.
-CLINICS = [
-    {"id": "gen_surg",      "name": "General Surgery", "type": "surgical"},
-    {"id": "int_med",       "name": "Internal Medicine", "type": "medical"},
-    {"id": "obs_gyn",       "name": "Obstetrics & Gynecology", "type": "specialty"},
-    {"id": "pediatrics",    "name": "Pediatrics", "type": "medical"},
-    {"id": "orthopedics",   "name": "Orthopedics", "type": "surgical"},
-    {"id": "cardiology",    "name": "Cardiology", "type": "medical"},
-    {"id": "ent",           "name": "ENT", "type": "surgical"},
-    {"id": "ophthalmology", "name": "Ophthalmology", "type": "surgical"},
-    {"id": "dental",        "name": "Dental Clinic", "type": "dental"},
-    {"id": "dermatology",   "name": "Dermatology", "type": "medical"},
-    {"id": "urology",       "name": "Urology", "type": "surgical"},
-    {"id": "neurology",     "name": "Neurology", "type": "medical"},
-    {"id": "nephrology",    "name": "Nephrology", "type": "medical"},
-    {"id": "oncology",      "name": "Oncology", "type": "medical"},
-    {"id": "endocrinology", "name": "Endocrinology", "type": "medical"},
-    {"id": "rheumatology",  "name": "Rheumatology", "type": "medical"},
-    {"id": "pulmonology",   "name": "Pulmonology", "type": "medical"},
-    {"id": "gi",            "name": "Gastroenterology", "type": "medical"},
-]
+def draw_wrapped_lines(c, text, x, y, max_chars, line_height, page_height, font_name="Helvetica", font_size=10):
+    """Draw text with basic word wrapping on the PDF canvas."""
+    c.setFont(font_name, font_size)
 
-# Clinic types for filtering
-CLINIC_TYPES = [
-    {"id": "all", "name": "All Clinics"},
-    {"id": "medical", "name": "Medical Clinics"},
-    {"id": "surgical", "name": "Surgical Clinics"},
-    {"id": "specialty", "name": "Specialty Clinics"},
-    {"id": "dental", "name": "Dental Clinic"},
-]
+    # Fallback if text is empty
+    if text is None or str(text).strip() == "":
+        text = "-"
+
+    for raw in str(text).splitlines():
+        raw = raw.rstrip()
+        if not raw:
+            # Blank line -> just move cursor down
+            y -= line_height
+            if y < 2*_cm_for_wrap:
+                c.showPage()
+                y = page_height - 2*_cm_for_wrap
+                c.setFont(font_name, font_size)
+            continue
+
+        for line in textwrap.wrap(raw, max_chars):
+            c.drawString(x, y, line)
+            y -= line_height
+            if y < 2*_cm_for_wrap:
+                c.showPage()
+                y = page_height - 2*_cm_for_wrap
+                c.setFont(font_name, font_size)
+
+    return y
 
 # ============================================================
 # Database Helper
@@ -238,44 +235,7 @@ def init_db():
         )
     """)
 
-    
-    # Clinic visits (per outpatient clinic)
-    cur.execute("""
-        CREATE TABLE IF NOT EXISTS clinic_visits (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            visit_id TEXT UNIQUE NOT NULL,
-            clinic_id TEXT NOT NULL,
-            clinic_name TEXT NOT NULL,
-            patient_id INTEGER NOT NULL,
-            triage_status TEXT DEFAULT 'NO',
-            triage_cat TEXT,
-            comment TEXT,
-            payment_details TEXT,
-            doctor_name TEXT,
-
-            allergy_status TEXT,
-            allergy_details TEXT,
-            pulse_rate TEXT,
-            resp_rate TEXT,
-            bp_systolic TEXT,
-            bp_diastolic TEXT,
-            temperature TEXT,
-            consciousness_level TEXT,
-            spo2 TEXT,
-            pain_score TEXT,
-            weight TEXT,
-            height TEXT,
-
-            status TEXT DEFAULT 'OPEN',
-            closed_at TEXT,
-            closed_by TEXT,
-
-            created_at TEXT NOT NULL,
-            created_by TEXT NOT NULL,
-            FOREIGN KEY(patient_id) REFERENCES patients(id)
-        )
-    """)
-# Clinical orders
+    # Clinical orders
     cur.execute("""
         CREATE TABLE IF NOT EXISTS clinical_orders (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -419,18 +379,14 @@ def init_db():
 # ============================================================
 
 def generate_visit_id():
-    """Generate a unique visit_id for both ED and Clinic visits."""
     today = datetime.now().strftime("%Y%m%d")
     cur = get_db().cursor()
-    row = cur.execute("""
-        SELECT visit_id FROM (
-            SELECT visit_id FROM visits WHERE visit_id LIKE ?
-            UNION ALL
-            SELECT visit_id FROM clinic_visits WHERE visit_id LIKE ?
-        )
-        ORDER BY visit_id DESC LIMIT 1
-    """, (today+"%", today+"%")).fetchone()
-    last_num = int(row["visit_id"][-5:]) if row else 0
+    last = cur.execute("""
+        SELECT visit_id FROM visits
+        WHERE visit_id LIKE ?
+        ORDER BY id DESC LIMIT 1
+    """,(today+"%",)).fetchone()
+    last_num = int(last["visit_id"][-5:]) if last else 0
     return f"{today}{last_num+1:05d}"
 
 def generate_queue_no():
@@ -478,67 +434,43 @@ def clean_text(v):
     return v.replace("'", " ").replace(";", " ").replace("--", " ")
 
 
-
-
-def parse_dob_input(raw):
-    """
-    Parse DOB entered as DD.MM.YYYY (primary) or YYYY-MM-DD (fallback).
-    Also accepts DD/MM/YYYY. Returns normalized YYYY-MM-DD string.
-    """
-    raw = (raw or "").strip()
-    if not raw:
-        return ""
-    from datetime import datetime as _dt
-    # Try dot, ISO, then slash formats
-    for fmt in ("%d.%m.%Y", "%Y-%m-%d", "%d/%m/%Y"):
-        try:
-            dt = _dt.strptime(raw, fmt)
-            return dt.strftime("%Y-%m-%d")
-        except ValueError:
-            continue
-    # if parsing fails, keep original text so data is not lost
-    return raw
-
-
-def format_dob_display(val):
-    """
-    Format stored DOB for display as DD.MM.YYYY where possible.
-    Accepts values already in DD.MM.YYYY or YYYY-MM-DD.
-    """
-    val = (val or "").strip()
-    if not val:
-        return ""
-    from datetime import datetime as _dt
-    for fmt_in in ("%Y-%m-%d", "%d.%m.%Y"):
-        try:
-            dt = _dt.strptime(val, fmt_in)
-            return dt.strftime("%d.%m.%Y")
-        except ValueError:
-            continue
-    return val
-
-
-def calculate_age_years(dob_str):
-    """
-    Calculate age in whole years from DOB string
-    (supports YYYY-MM-DD, DD.MM.YYYY, and DD/MM/YYYY). Returns None if invalid.
-    """
-    dob_str = (dob_str or "").strip()
+def calc_age(dob_str):
+    """Return age in years from DOB string 'YYYY-MM-DD', or '' if invalid."""
     if not dob_str:
-        return None
-    from datetime import datetime as _dt, date as _date
-    # Try ISO, dot, then slash formats
-    for fmt in ("%Y-%m-%d", "%d.%m.%Y", "%d/%m/%Y"):
-        try:
-            dob = _dt.strptime(dob_str, fmt).date()
-            today = _date.today()
-            years = today.year - dob.year - ((today.month, today.day) < (dob.month, dob.day))
-            if years < 0:
-                return None
-            return years
-        except ValueError:
-            continue
-    return None
+        return ""
+    try:
+        # Accept formats like YYYY-MM-DD or DD/MM/YYYY etc.
+        s = dob_str.strip()
+        if "-" in s:
+            parts = s.split("-")
+        elif "/" in s:
+            parts = s.split("/")
+        else:
+            return ""
+        parts = [p for p in parts if p]
+        if len(parts) != 3:
+            return ""
+        # Try to guess ordering; assume year is the 4-digit part
+        year_idx = 0
+        for i, p in enumerate(parts):
+            if len(p) == 4:
+                year_idx = i
+                break
+        year = int(parts[year_idx])
+        # remaining two are month and day
+        others = [int(parts[i]) for i in range(3) if i != year_idx]
+        if len(others) != 2:
+            return ""
+        month, day = others
+        born = datetime(year, month, day)
+        today = datetime.today()
+        age = today.year - born.year - ((today.month, today.day) < (born.month, born.day))
+        if age < 0 or age > 150:
+            return ""
+        return age
+    except Exception:
+        return ""
+
 
 def get_page_args(default_per_page=25, max_per_page=100):
     try:
@@ -590,7 +522,7 @@ def do_backup():
 
 def backup_scheduler_loop():
     while True:
-        time.sleep(3600)  # hourly
+        time.sleep(1800)  # every 30 minutes
         do_backup()
 
 def start_backup_scheduler_once():
@@ -839,60 +771,69 @@ def admin_backup_now():
         flash("Backup failed.", "danger")
     return redirect(url_for("ed_board"))
 
-def get_backup_files():
-    """Get list of backup files with their details"""
-    backup_files = []
-    pattern = os.path.join(BACKUP_FOLDER, "triage_ed_*.db")
-    for file_path in glob.glob(pattern):
-        try:
-            stat = os.stat(file_path)
-            file_size = stat.st_size / 1024  # Convert to KB
-            modified_time = datetime.fromtimestamp(stat.st_mtime).strftime("%Y-%m-%d %H:%M:%S")
-            backup_files.append({
-                'filename': os.path.basename(file_path),
-                'file_path': file_path,
-                'size_kb': round(file_size, 1),
-                'modified': modified_time
-            })
-        except OSError:
-            continue
-    
-    # Sort by modification time, newest first
-    backup_files.sort(key=lambda x: x['modified'], reverse=True)
-    return backup_files
+@app.route("/admin/backup_file/<path:filename>")
+@login_required
+@role_required("admin")
+def admin_backup_file(filename):
+    # Download specific .db backup from BACKUP_FOLDER
+    safe_name = secure_filename(filename)
+    full_path = os.path.join(BACKUP_FOLDER, safe_name)
+    if not os.path.exists(full_path):
+        return "Backup not found", 404
+    if not safe_name.lower().endswith(".db"):
+        return "Invalid backup file", 400
+    return send_from_directory(BACKUP_FOLDER, safe_name, as_attachment=True)
 
+@app.route("/admin/restore_file/<path:filename>", methods=["GET","POST"])
+@login_required
+@role_required("admin")
+def admin_restore_file(filename):
+    """
+    Restore DB directly from a selected backup file, with password confirmation.
+    """
+    safe_name = secure_filename(filename)
+    src_path = os.path.join(BACKUP_FOLDER, safe_name)
+
+    if (not os.path.exists(src_path)) or (not safe_name.lower().endswith(".db")):
+        flash("Backup file not found or invalid.", "danger")
+        return redirect(url_for("admin_restore"))
+
+    if request.method == "POST":
+        password = request.form.get("password", "").strip()
+        user_id = session.get("user_id")
+        if not user_id:
+            flash("Please login again.", "danger")
+            return redirect(url_for("login"))
+
+        cur = get_db().cursor()
+        u = cur.execute("SELECT * FROM users WHERE id=?", (user_id,)).fetchone()
+        if not u or not check_password_hash(u["password_hash"], password):
+            flash("Incorrect password. Restore cancelled.", "danger")
+            return redirect(url_for("admin_restore_file", filename=filename))
+
+        try:
+            # safety backup of current DB before overwrite
+            if os.path.exists(DATABASE):
+                shutil.copy2(DATABASE, DATABASE + ".before_restore.bak")
+
+            shutil.copy2(src_path, DATABASE)
+            log_action("BACKUP_RESTORE_FILE", details=safe_name)
+            flash("Database restored successfully from selected backup. Please restart the app/server.", "success")
+        except Exception as e:
+            flash(f"Restore from file failed: {e}", "danger")
+
+        return redirect(url_for("ed_board"))
+
+    # GET: show confirmation form
+    return render_template("admin_restore_confirm.html", backup_name=safe_name)
 @app.route("/admin/restore", methods=["GET","POST"])
 @login_required
 @role_required("admin")
 def admin_restore():
     """
-    Restore DB from uploaded backup file or from existing backup files.
+    Restore DB from uploaded backup file.
     """
-    backup_files = get_backup_files()
-    
     if request.method == "POST":
-        # Check if restoring from existing backup file
-        restore_file = request.form.get("restore_file")
-        if restore_file:
-            # Restore from selected backup file
-            file_path = os.path.join(BACKUP_FOLDER, restore_file)
-            if os.path.exists(file_path):
-                try:
-                    # safety backup of current DB before overwrite
-                    if os.path.exists(DATABASE):
-                        shutil.copy2(DATABASE, DATABASE + ".before_restore.bak")
-
-                    shutil.copy2(file_path, DATABASE)
-
-                    log_action("BACKUP_RESTORE", details=restore_file)
-                    flash("Database restored successfully. Please restart the app/server.", "success")
-                except Exception as e:
-                    flash(f"Restore failed: {e}", "danger")
-            else:
-                flash("Selected backup file not found.", "danger")
-            return redirect(url_for("ed_board"))
-
-        # Handle file upload
         file = request.files.get("file")
         if not file or file.filename == "":
             flash("Please choose a backup file.", "danger")
@@ -920,7 +861,29 @@ def admin_restore():
 
         return redirect(url_for("ed_board"))
 
-    return render_template("admin_restore.html", backup_files=backup_files)
+    # GET: list available backup .db files (newest first)
+    backups = []
+    try:
+        for fname in os.listdir(BACKUP_FOLDER):
+            full = os.path.join(BACKUP_FOLDER, fname)
+            if not os.path.isfile(full):
+                continue
+            if not fname.lower().endswith(".db"):
+                continue
+            st = os.stat(full)
+            backups.append({
+                "name": fname,
+                "size_kb": st.st_size / 1024.0,
+                "mtime": datetime.fromtimestamp(st.st_mtime).strftime("%Y-%m-%d %H:%M:%S"),
+            })
+        backups.sort(key=lambda b: b["mtime"], reverse=True)
+    except Exception:
+        backups = []
+
+    return render_template("admin_restore.html", backups=backups)
+
+
+
 
 
 # ============================================================
@@ -940,11 +903,11 @@ def register_patient():
         phone = request.form.get("phone","").strip()
         insurance = request.form.get("insurance","").strip()
         insurance_no = request.form.get("insurance_no","").strip()
-        dob_raw = request.form.get("dob","").strip()
-        dob = parse_dob_input(dob_raw)
+        dob = request.form.get("dob","").strip()
         sex = request.form.get("sex","").strip()
         nationality = request.form.get("nationality","").strip()
         payment_details = request.form.get("payment_details","").strip()
+        elig_file = request.files.get("eligibility_file")
 
         if not name:
             flash("Patient name is required.", "danger")
@@ -976,6 +939,26 @@ def register_patient():
             datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
             session.get("username")
         ))
+
+        # Optional attachment from Register Patient (eligibility / ID)
+        if elig_file and getattr(elig_file, "filename", ""):
+            filename_original = elig_file.filename
+            if allowed_file(filename_original):
+                safe_name = secure_filename(filename_original)
+                filename = f"{visit_id}_{int(datetime.now().timestamp())}_{safe_name}"
+                elig_file.save(os.path.join(UPLOAD_FOLDER, filename))
+                cur.execute("""
+                    INSERT INTO attachments (visit_id, filename, uploaded_at, uploaded_by)
+                    VALUES (?,?,?,?)
+                """,(
+                    visit_id,
+                    filename,
+                    datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                    session.get("username")
+                ))
+            else:
+                flash("Attachment file type is not allowed.", "danger")
+
         db.commit()
 
         log_action("REGISTER_PATIENT", visit_id=visit_id, details=f"Name={name}")
@@ -985,355 +968,60 @@ def register_patient():
     return render_template("register.html")
 
 
-@app.route("/clinics/<clinic_id>/register", methods=["GET","POST"])
-@login_required
-@role_required("reception","admin")
-def clinic_register(clinic_id):
-    """
-    Register a patient for a specific clinic (outpatient).
-    """
-    # Find clinic definition
-    clinic = None
-    for c in CLINICS:
-        if c.get("id") == clinic_id:
-            clinic = c
-            break
-
-    if not clinic:
-        flash("Unknown clinic.", "danger")
-        return redirect(url_for("ed_board"))
-
-    db = get_db()
-    cur = db.cursor()
-
-    if request.method == "POST":
-        name = request.form.get("name","").strip()
-        id_number = request.form.get("id_number","").strip()
-        phone = request.form.get("phone","").strip()
-        insurance = request.form.get("insurance","").strip()
-        insurance_no = request.form.get("insurance_no","").strip()
-        dob_raw = request.form.get("dob","").strip()
-        dob = parse_dob_input(dob_raw)
-        sex = request.form.get("sex","").strip()
-        nationality = request.form.get("nationality","").strip()
-        payment_details = request.form.get("payment_details","").strip()
-        doctor_name = request.form.get("doctor_name","").strip()
-
-        if not name:
-            flash("Patient name is required.", "danger")
-            return redirect(url_for("clinic_register", clinic_id=clinic_id))
-        if not doctor_name:
-            flash("Doctor name is required for clinic visits.", "danger")
-            return redirect(url_for("clinic_register", clinic_id=clinic_id))
-
-        # Create patient
-        cur.execute("""
-            INSERT INTO patients
-            (name, id_number, phone,
-             insurance, insurance_no, dob, sex, nationality,
-             created_at, created_by)
-            VALUES (?,?,?,?,?,?,?,?,?,?)
-        """,(
-            name, id_number, phone, insurance, insurance_no, dob, sex, nationality,
-            datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-            session.get("username")
-        ))
-        patient_id = cur.lastrowid
-
-        visit_id = generate_visit_id()
-
-        cur.execute("""
-            INSERT INTO clinic_visits
-            (visit_id, clinic_id, clinic_name, patient_id,
-             triage_status, status, comment,
-             payment_details, doctor_name,
-             created_at, created_by)
-            VALUES (?,?,?,?,?,?,?,?,?,?,?)
-        """,(
-            visit_id, clinic_id, clinic.get("name",""), patient_id,
-            "NO", "OPEN", "",
-            payment_details, doctor_name,
-            datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-            session.get("username")
-        ))
-        db.commit()
-
-        log_action("REGISTER_CLINIC_PATIENT", visit_id=visit_id,
-                   details=f"Clinic={clinic.get('name','')}; Name={name}; Doctor={doctor_name}")
-        flash(f"Patient registered in {clinic.get('name','')} clinic. Visit ID: {visit_id}", "success")
-        return redirect(url_for("clinic_board", clinic_id=clinic_id))
-
-    return render_template("clinic_register.html", clinic=clinic)
-
-
-@app.route("/clinics/<clinic_id>/board")
-@login_required
-@role_required("reception","doctor","nurse","admin")
-def clinic_board(clinic_id):
-    """
-    Simple board listing clinic visits for a given clinic.
-    """
-    clinic = None
-    for c in CLINICS:
-        if c.get("id") == clinic_id:
-            clinic = c
-            break
-    if not clinic:
-        flash("Unknown clinic.", "danger")
-        return redirect(url_for("ed_board"))
-
-    cur = get_db().cursor()
-    rows = cur.execute("""
-        SELECT cv.visit_id,
-               cv.created_at,
-               cv.doctor_name,
-               cv.payment_details,
-               cv.status,
-               cv.triage_status,
-               cv.triage_cat,
-               cv.created_by,
-               p.name,
-               p.id_number,
-               p.dob
-        FROM clinic_visits cv
-        JOIN patients p ON p.id = cv.patient_id
-        WHERE cv.clinic_id=?
-        ORDER BY cv.created_at DESC
-    """, (clinic_id,)).fetchall()
-
-    items = []
-    for r in rows:
-        age = calculate_age_years(r["dob"])
-        items.append({
-            "visit_id": r["visit_id"],
-            "created_at": r["created_at"],
-            "created_by": r["created_by"],
-            "name": r["name"],
-            "id_number": r["id_number"],
-            "age": age,
-            "doctor_name": r["doctor_name"],
-            "payment_details": r["payment_details"],
-            "status": r["status"],
-            "triage_status": r["triage_status"],
-            "triage_cat": r["triage_cat"],
-        })
-
-    return render_template("clinic_board.html", clinic=clinic, rows=items)
-
-
-
-@app.route("/clinic_visit/<visit_id>/status/<new_status>", methods=["POST"])
-@login_required
-@role_required("doctor","nurse","admin")
-def clinic_visit_status(visit_id, new_status):
-    """
-    Update status of a clinic visit from the Clinic Board.
-    Allowed statuses: IN_PROGRESS, COMPLETED, CANCELLED.
-    """
-    allowed = {"IN_PROGRESS", "COMPLETED", "CANCELLED"}
-    if new_status not in allowed:
-        flash("Invalid status.", "danger")
-        return redirect(url_for("clinics_overview"))
-
-    db = get_db()
-    cur = db.cursor()
-    row = cur.execute(
-        "SELECT clinic_id FROM clinic_visits WHERE visit_id=?",
-        (visit_id,)
-    ).fetchone()
-    if not row:
-        flash("Clinic visit not found.", "danger")
-        return redirect(url_for("clinics_overview"))
-
-    cur.execute(
-        "UPDATE clinic_visits SET status=? WHERE visit_id=?",
-        (new_status, visit_id)
-    )
-    db.commit()
-
-    if new_status == "IN_PROGRESS":
-        flash("Clinic visit marked as in progress.", "success")
-    elif new_status == "COMPLETED":
-        flash("Clinic visit marked as complete.", "success")
-    else:
-        flash("Clinic visit cancelled.", "warning")
-
-    return redirect(url_for("clinic_board", clinic_id=row["clinic_id"]))
-@app.route("/clinics")
-@login_required
-@role_required("reception","doctor","nurse","admin")
-def clinics_overview():
-    """
-    Overview page showing all clinics with filtering options.
-    """
-    clinic_type = request.args.get("type", "all")
-    
-    # Filter clinics by type
-    if clinic_type == "all":
-        filtered_clinics = CLINICS
-    else:
-        filtered_clinics = [c for c in CLINICS if c.get("type") == clinic_type]
-    
-    # Get visit counts for each clinic
-    cur = get_db().cursor()
-    clinic_stats = []
-    
-    for clinic in filtered_clinics:
-        count = cur.execute("""
-            SELECT COUNT(*) as count 
-            FROM clinic_visits 
-            WHERE clinic_id=? AND status='OPEN'
-        """, (clinic["id"],)).fetchone()
-        
-        clinic_stats.append({
-            "clinic": clinic,
-            "open_visits": count["count"] if count else 0
-        })
-    
-    return render_template("clinics_overview.html", 
-                         clinic_stats=clinic_stats,
-                         clinic_types=CLINIC_TYPES,
-                         current_type=clinic_type)
-
-
 @app.route("/search")
 @login_required
 def search_patients():
-    """
-    Search patients across both ED visits and Clinic visits.
-    """
-    query   = request.args.get("q","").strip()
+    query = request.args.get("q","").strip()
     visit_f = request.args.get("visit_id","").strip()
     user_f  = request.args.get("user","").strip()
     dfrom   = request.args.get("date_from","").strip()
     dto     = request.args.get("date_to","").strip()
 
     cur = get_db().cursor()
-
-    base_ed = """
-        SELECT 'ED' AS source,
-               v.visit_id,
-               v.queue_no,
-               v.triage_status,
-               v.triage_cat,
-               v.status,
-               v.payment_details,
-               v.created_at,
-               v.created_by,
-               p.name,
-               p.id_number,
-               p.phone,
-               p.insurance,
-               p.insurance_no
+    sql = """
+        SELECT v.visit_id, v.queue_no, v.triage_status, v.triage_cat, v.status, v.payment_details, v.created_at, v.created_by,
+               p.name, p.id_number, p.phone, p.insurance, p.insurance_no
         FROM visits v
         JOIN patients p ON p.id = v.patient_id
         WHERE 1=1
     """
-
-    base_clinic = """
-        SELECT 'CLINIC' AS source,
-               cv.visit_id,
-               NULL AS queue_no,
-               cv.triage_status,
-               cv.triage_cat,
-               cv.status,
-               cv.payment_details,
-               cv.created_at,
-               cv.created_by,
-               p.name,
-               p.id_number,
-               p.phone,
-               p.insurance,
-               p.insurance_no
-        FROM clinic_visits cv
-        JOIN patients p ON p.id = cv.patient_id
-        WHERE 1=1
-    """
-
-    ed_sql = base_ed
-    cl_sql = base_clinic
-    ed_params = []
-    cl_params = []
+    params = []
 
     if query:
         like = f"%{query}%"
-        ed_sql += " AND (p.name LIKE ? OR p.id_number LIKE ? OR p.insurance_no LIKE ? OR v.visit_id LIKE ?)"
-        cl_sql += " AND (p.name LIKE ? OR p.id_number LIKE ? OR p.insurance_no LIKE ? OR cv.visit_id LIKE ?)"
-        ed_params += [like, like, like, like]
-        cl_params += [like, like, like, like]
+        sql += " AND (p.name LIKE ? OR p.id_number LIKE ? OR p.insurance_no LIKE ? OR v.visit_id LIKE ?)"
+        params += [like, like, like, like]
 
     if visit_f:
-        like_visit = f"%{visit_f}%"
-        ed_sql += " AND v.visit_id LIKE ?"
-        cl_sql += " AND cv.visit_id LIKE ?"
-        ed_params.append(like_visit)
-        cl_params.append(like_visit)
+        sql += " AND v.visit_id LIKE ?"
+        params.append(f"%{visit_f}%")
 
     if user_f:
-        ed_sql += " AND v.created_by=?"
-        cl_sql += " AND cv.created_by=?"
-        ed_params.append(user_f)
-        cl_params.append(user_f)
+        sql += " AND v.created_by=?"
+        params.append(user_f)
 
     if dfrom:
-        ed_sql += " AND date(v.created_at) >= date(?)"
-        cl_sql += " AND date(cv.created_at) >= date(?)"
-        ed_params.append(dfrom)
-        cl_params.append(dfrom)
+        sql += " AND date(v.created_at) >= date(?)"
+        params.append(dfrom)
     if dto:
-        ed_sql += " AND date(v.created_at) <= date(?)"
-        cl_sql += " AND date(cv.created_at) <= date(?)"
-        ed_params.append(dto)
-        cl_params.append(dto)
-
-    # Combine ED + Clinic queries into one UNION ALL
-    sql = f"""
-        SELECT * FROM (
-            {ed_sql}
-            UNION ALL
-            {cl_sql}
-        ) AS all_visits
-    """
-
-    params = ed_params + cl_params
+        sql += " AND date(v.created_at) <= date(?)"
+        params.append(dto)
 
     page, per_page, offset = get_page_args(25)
 
     count_sql = "SELECT COUNT(*) FROM (" + sql + ")"
     total = cur.execute(count_sql, params).fetchone()[0]
-    pages = (total + per_page - 1) // per_page if per_page else 1
+    pages = (total + per_page - 1) // per_page
 
-    sql_paged = sql + " ORDER BY created_at DESC LIMIT ? OFFSET ?"
+    sql += " ORDER BY v.id DESC LIMIT ? OFFSET ?"
     params2 = params + [per_page, offset]
-    results = cur.execute(sql_paged, params2).fetchall()
+    results = cur.execute(sql, params2).fetchall()
 
-    users = cur.execute("""
-        SELECT DISTINCT created_by FROM (
-            SELECT created_by FROM visits
-            UNION
-            SELECT created_by FROM clinic_visits
-        ) ORDER BY created_by
-    """).fetchall()
+    users = cur.execute("SELECT DISTINCT created_by FROM visits ORDER BY created_by").fetchall()
 
-    return render_template(
-        "search.html",
-        q=query,
-        results=results,
-        visit_f=visit_f,
-        user_f=user_f,
-        dfrom=dfrom,
-        dto=dto,
-        users=users,
-        page=page,
-        pages=pages,
-        per_page=per_page,
-        total=total,
-    )
-
-# ============================================================
-# ED Board
-# ============================================================
-
+    return render_template("search.html", q=query, results=results,
+                           visit_f=visit_f, user_f=user_f, dfrom=dfrom, dto=dto, users=users,
+                           page=page, pages=pages, per_page=per_page, total=total)
 
 # ============================================================
 # ED Board
@@ -1353,7 +1041,7 @@ def ed_board():
     sql = """
         SELECT v.visit_id, v.queue_no, v.triage_status, v.triage_cat,
                v.status, v.payment_details, v.created_at, v.created_by,
-               p.name, p.id_number, p.insurance, p.dob
+               p.name, p.id_number, p.insurance, p.dob AS dob
         FROM visits v
         JOIN patients p ON p.id = v.patient_id
         WHERE 1=1
@@ -1404,30 +1092,16 @@ def ed_board():
 
     visits = []
     for r in rows:
-        age = calculate_age_years(r["dob"])
-        row_dict = dict(r)
-        row_dict["age"] = age
-        visits.append(row_dict)
+        d = dict(r)
+        d["age"] = calc_age(d.get("dob"))
+        visits.append(d)
 
-    users = get_db().cursor().execute(
-        "SELECT DISTINCT created_by FROM visits ORDER BY created_by"
-    ).fetchall()
+    users = get_db().cursor().execute("SELECT DISTINCT created_by FROM visits ORDER BY created_by").fetchall()
 
-    return render_template(
-        "ed_board.html",
-        visits=visits,
-        status_filter=status_filter,
-        cat_filter=cat_filter,
-        visit_f=visit_f,
-        user_f=user_f,
-        dfrom=dfrom,
-        dto=dto,
-        users=users,
-        page=page,
-        pages=pages,
-        per_page=per_page,
-        total=total,
-    )
+    return render_template("ed_board.html", visits=visits,
+                           status_filter=status_filter, cat_filter=cat_filter,
+                           visit_f=visit_f, user_f=user_f, dfrom=dfrom, dto=dto, users=users,
+                           page=page, pages=pages, per_page=per_page, total=total)
 
 @app.route("/export/ed_board.csv")
 @login_required
@@ -1461,6 +1135,188 @@ def export_ed_board_csv():
 # ============================================================
 # Patient Details / Edit / Attachments / Close Visit
 # ============================================================
+
+
+
+REPORTS_TEMPLATE = """
+{% extends "base.html" %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-2">
+  <h4 class="mb-0">Reports</h4>
+</div>
+
+<form class="card p-3 mb-3 bg-white" method="GET">
+  <div class="row g-2 align-items-end">
+    <div class="col-md-3">
+      <label class="form-label">From</label>
+      <input type="date" name="date_from" value="{{ dfrom }}" class="form-control">
+    </div>
+    <div class="col-md-3">
+      <label class="form-label">To</label>
+      <input type="date" name="date_to" value="{{ dto }}" class="form-control">
+    </div>
+    <div class="col-md-3">
+      <button class="btn btn-primary mt-4">Apply</button>
+      <a href="{{ url_for('reports') }}" class="btn btn-outline-secondary mt-4">Reset</a>
+    </div>
+  </div>
+</form>
+
+<div class="row g-3 mb-3">
+  <div class="col-md-3">
+    <div class="card p-3 bg-white">
+      <div class="text-muted small">Total visits</div>
+      <div class="h4 mb-0">{{ total_visits }}</div>
+    </div>
+  </div>
+  <div class="col-md-3">
+    <div class="card p-3 bg-white">
+      <div class="text-muted small">Open visits</div>
+      <div class="h4 mb-0">{{ open_visits }}</div>
+    </div>
+  </div>
+  <div class="col-md-3">
+    <div class="card p-3 bg-white">
+      <div class="text-muted small">Lab requests</div>
+      <div class="h4 mb-0">{{ lab_requests }}</div>
+    </div>
+  </div>
+  <div class="col-md-3">
+    <div class="card p-3 bg-white">
+      <div class="text-muted small">Radiology requests</div>
+      <div class="h4 mb-0">{{ radiology_requests }}</div>
+    </div>
+  </div>
+</div>
+
+<div class="card p-3 bg-white">
+  <h6 class="mb-2">Daily counts</h6>
+  <div class="table-responsive">
+    <table class="table table-sm table-striped mb-0">
+      <thead>
+        <tr>
+          <th>Date</th>
+          <th>Visits</th>
+          <th>Lab</th>
+          <th>Radiology</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in daily %}
+        <tr>
+          <td>{{ row.date }}</td>
+          <td>{{ row.visits }}</td>
+          <td>{{ row.lab }}</td>
+          <td>{{ row.rad }}</td>
+        </tr>
+        {% endfor %}
+        {% if not daily %}
+        <tr>
+          <td colspan="4" class="text-muted text-center">No data for this period.</td>
+        </tr>
+        {% endif %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+{% endblock %}
+"""
+
+@app.route("/reports")
+@login_required
+@role_required("admin","doctor","nurse")
+def reports():
+    """Simple dashboard with basic statistics for visits, labs, and radiology."""
+    db = get_db()
+    cur = db.cursor()
+
+    dfrom = request.args.get("date_from","").strip()
+    dto   = request.args.get("date_to","").strip()
+
+    today = datetime.now().strftime("%Y-%m-%d")
+    if not dfrom and not dto:
+        start_date = datetime.now() - timedelta(days=6)
+        dfrom = start_date.strftime("%Y-%m-%d")
+        dto   = today
+    elif not dfrom:
+        dfrom = dto
+    elif not dto:
+        dto = dfrom
+
+    # High level counts
+    total_visits = cur.execute(
+        "SELECT COUNT(*) FROM visits WHERE date(created_at) BETWEEN date(?) AND date(?)",
+        (dfrom, dto),
+    ).fetchone()[0]
+
+    open_visits = cur.execute(
+        "SELECT COUNT(*) FROM visits WHERE status='OPEN' AND date(created_at) BETWEEN date(?) AND date(?)",
+        (dfrom, dto),
+    ).fetchone()[0]
+
+    lab_requests = cur.execute(
+        "SELECT COUNT(*) FROM lab_requests WHERE date(requested_at) BETWEEN date(?) AND date(?)",
+        (dfrom, dto),
+    ).fetchone()[0]
+
+    radiology_requests = cur.execute(
+        "SELECT COUNT(*) FROM radiology_requests WHERE date(requested_at) BETWEEN date(?) AND date(?)",
+        (dfrom, dto),
+    ).fetchone()[0]
+
+    # Daily breakdown
+    v_rows = cur.execute(
+        "SELECT date(created_at) AS d, COUNT(*) AS c FROM visits "
+        "WHERE date(created_at) BETWEEN date(?) AND date(?) "
+        "GROUP BY date(created_at) ORDER BY d",
+        (dfrom, dto),
+    ).fetchall()
+    l_rows = cur.execute(
+        "SELECT date(requested_at) AS d, COUNT(*) AS c FROM lab_requests "
+        "WHERE date(requested_at) BETWEEN date(?) AND date(?) "
+        "GROUP BY date(requested_at) ORDER BY d",
+        (dfrom, dto),
+    ).fetchall()
+    r_rows = cur.execute(
+        "SELECT date(requested_at) AS d, COUNT(*) AS c FROM radiology_requests "
+        "WHERE date(requested_at) BETWEEN date(?) AND date(?) "
+        "GROUP BY date(requested_at) ORDER BY d",
+        (dfrom, dto),
+    ).fetchall()
+
+    v_map = {row["d"]: row["c"] for row in v_rows}
+    l_map = {row["d"]: row["c"] for row in l_rows}
+    r_map = {row["d"]: row["c"] for row in r_rows}
+
+    daily = []
+    try:
+        start_dt = datetime.strptime(dfrom, "%Y-%m-%d")
+        end_dt   = datetime.strptime(dto, "%Y-%m-%d")
+        d = start_dt
+        while d <= end_dt:
+            ds = d.strftime("%Y-%m-%d")
+            daily.append({
+                "date": ds,
+                "visits": v_map.get(ds, 0),
+                "lab": l_map.get(ds, 0),
+                "rad": r_map.get(ds, 0),
+            })
+            d += timedelta(days=1)
+    except Exception:
+        # Fallback: no daily breakdown if dates are invalid
+        daily = []
+
+    return render_template_string(
+        REPORTS_TEMPLATE,
+        dfrom=dfrom,
+        dto=dto,
+        total_visits=total_visits,
+        open_visits=open_visits,
+        lab_requests=lab_requests,
+        radiology_requests=radiology_requests,
+        daily=daily,
+    )
 
 @app.route("/patient/<visit_id>")
 @login_required
@@ -1540,8 +1396,7 @@ def edit_patient(visit_id):
         phone = request.form.get("phone","").strip()
         insurance = request.form.get("insurance","").strip()
         insurance_no = request.form.get("insurance_no","").strip()
-        dob_raw = request.form.get("dob","").strip()
-        dob = parse_dob_input(dob_raw)
+        dob = request.form.get("dob","").strip()
         sex = request.form.get("sex","").strip()
         nationality = request.form.get("nationality","").strip()
         payment_details = request.form.get("payment_details","").strip()
@@ -1563,8 +1418,7 @@ def edit_patient(visit_id):
         flash("Patient updated successfully.", "success")
         return redirect(url_for("patient_details", visit_id=visit_id))
 
-    dob_display = format_dob_display(rec['dob']) if rec else ''
-    return render_template("edit_patient.html", r=rec, dob_display=dob_display)
+    return render_template("edit_patient.html", r=rec)
 
 @app.route("/patient/<visit_id>/upload_id", methods=["POST"])
 @login_required
@@ -1607,19 +1461,31 @@ def delete_attachment(att_id):
     if not a:
         flash("Attachment not found.", "danger")
         return redirect(url_for("ed_board"))
+
+    filename = a["filename"] or ""
+    # Reception cannot delete LAB / RAD result files
+    if session.get("role") == "reception" and ("_LAB_" in filename or "_RAD_" in filename):
+        flash("Reception cannot delete lab or radiology results.", "danger")
+        return redirect(url_for("patient_details", visit_id=a["visit_id"]))
+
     try:
-        os.remove(os.path.join(UPLOAD_FOLDER, a["filename"]))
-    except:
+        os.remove(os.path.join(UPLOAD_FOLDER, filename))
+    except Exception:
         pass
+
     db.execute("DELETE FROM attachments WHERE id=?", (att_id,))
     db.commit()
-    log_action("DELETE_ATTACHMENT", visit_id=a["visit_id"], details=a["filename"])
+    log_action("DELETE_ATTACHMENT", visit_id=a["visit_id"], details=filename)
     flash("Attachment deleted.", "success")
     return redirect(url_for("patient_details", visit_id=a["visit_id"]))
+
 
 @app.route("/uploads/<path:filename>")
 @login_required
 def uploaded_file(filename):
+    # Reception is not allowed to download LAB / RAD result files
+    if session.get("role") == "reception" and ("_LAB_" in filename or "_RAD_" in filename):
+        abort(403)
     return send_from_directory(app.config["UPLOAD_FOLDER"], filename)
 
 @app.route("/visit/<visit_id>/close", methods=["POST"])
@@ -1627,7 +1493,7 @@ def uploaded_file(filename):
 @role_required("doctor","admin")
 def close_visit(visit_id):
     status = request.form.get("status","DISCHARGED").strip().upper()
-    if status not in ["DISCHARGED","ADMITTED","TRANSFERRED","LAMA","EXPIRED","IN_TREATMENT"]:
+    if status not in ["DISCHARGED","ADMITTED","TRANSFERRED","LAMA","EXPIRED","IN_TREATMENT","CANCELLED"]:
         status = "DISCHARGED"
     now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     user = session.get("username")
@@ -1714,42 +1580,19 @@ def cancel_visit(visit_id):
 @login_required
 @role_required("nurse","doctor","admin")
 def triage(visit_id):
-    """
-    Shared triage page for both ED visits and Clinic visits.
-    """
     db = get_db()
     cur = db.cursor()
-
-    # Try ED visit first
     visit = cur.execute("""
-        SELECT 'ED' AS source,
-               v.*,
+        SELECT v.*, 
                p.name, p.id_number, p.phone,
                p.insurance, p.insurance_no,
                p.dob, p.sex, p.nationality
-        FROM visits v
-        JOIN patients p ON p.id = v.patient_id
+        FROM visits v JOIN patients p ON p.id=v.patient_id
         WHERE v.visit_id=?
-    """, (visit_id,)).fetchone()
-
-    # If not found, try clinic_visits
-    if not visit:
-        visit = cur.execute("""
-            SELECT 'CLINIC' AS source,
-                   cv.*,
-                   p.name, p.id_number, p.phone,
-                   p.insurance, p.insurance_no,
-                   p.dob, p.sex, p.nationality
-            FROM clinic_visits cv
-            JOIN patients p ON p.id = cv.patient_id
-            WHERE cv.visit_id=?
-        """, (visit_id,)).fetchone()
-
+    """,(visit_id,)).fetchone()
     if not visit:
         flash("Visit not found.", "danger")
         return redirect(url_for("ed_board"))
-
-    source = visit["source"]
 
     if request.method == "POST":
         allergy = request.form.get("allergy_status","").strip()
@@ -1771,67 +1614,32 @@ def triage(visit_id):
             flash("Triage Category (ES) is required.", "danger")
             return redirect(url_for("triage", visit_id=visit_id))
 
-        if source == "ED":
-            db.execute("""
-                UPDATE visits SET
-                    triage_status='YES',
-                    triage_cat=?,
-                    comment=?,
-                    allergy_status=?,
-                    allergy_details=?,
-                    pulse_rate=?,
-                    resp_rate=?,
-                    bp_systolic=?,
-                    bp_diastolic=?,
-                    temperature=?,
-                    consciousness_level=?,
-                    spo2=?,
-                    pain_score=?,
-                    weight=?,
-                    height=?
-                WHERE visit_id=?
-            """, (cat, comment, allergy, allergy_details, pr, rr, bp_sys, bp_dia,
-                  temp, gcs, spo2, pain, weight, height, visit_id))
-        else:
-            db.execute("""
-                UPDATE clinic_visits SET
-                    triage_status='YES',
-                    triage_cat=?,
-                    comment=?,
-                    allergy_status=?,
-                    allergy_details=?,
-                    pulse_rate=?,
-                    resp_rate=?,
-                    bp_systolic=?,
-                    bp_diastolic=?,
-                    temperature=?,
-                    consciousness_level=?,
-                    spo2=?,
-                    pain_score=?,
-                    weight=?,
-                    height=?
-                WHERE visit_id=?
-            """, (cat, comment, allergy, allergy_details, pr, rr, bp_sys, bp_dia,
-                  temp, gcs, spo2, pain, weight, height, visit_id))
-
+        db.execute("""
+            UPDATE visits SET
+                triage_status='YES',
+                triage_cat=?,
+                comment=?,
+                allergy_status=?,
+                allergy_details=?,
+                pulse_rate=?,
+                resp_rate=?,
+                bp_systolic=?,
+                bp_diastolic=?,
+                temperature=?,
+                consciousness_level=?,
+                spo2=?,
+                pain_score=?,
+                weight=?,
+                height=?
+            WHERE visit_id=?
+        """,(cat, comment, allergy, allergy_details, pr, rr, bp_sys, bp_dia, temp, gcs, spo2, pain, weight, height, visit_id))
         db.commit()
         log_action("TRIAGE_UPDATE", visit_id=visit_id, details=f"CAT={cat}")
         flash("Triage saved successfully.", "success")
-
-        # Redirect back appropriately
-        if source == "ED":
-            return redirect(url_for("patient_details", visit_id=visit_id))
-        else:
-            row = cur.execute("SELECT clinic_id FROM clinic_visits WHERE visit_id=?", (visit_id,)).fetchone()
-            if row:
-                return redirect(url_for("clinic_board", clinic_id=row["clinic_id"]))
-            return redirect(url_for("ed_board"))
+        return redirect(url_for("patient_details", visit_id=visit_id))
 
     return render_template("triage.html", visit=visit)
 
-# ============================================================
-# Auto Summary Builder
-# ============================================================
 # ============================================================
 # Auto Summary Builder
 # ============================================================
@@ -1898,18 +1706,15 @@ def build_auto_summary(visit_id):
 
     lines = []
 
-    # Basic info
-    lines.append(f"Visit ID: {visit_id}")
-    lines.append(
-        f"Patient: {visit['name']} | ID: {visit['id_number'] or '-'} | "
-        f"INS: {visit['insurance'] or '-'}"
-    )
+    # Chief complaint (optional)
     if visit["comment"]:
-        lines.append(f"Chief Complaint / Comment: {visit['comment']}")
-    lines.append("")
+        lines.append("Chief Complaint:")
+        lines.append(f" - {visit['comment']}")
+        lines.append("")
 
-    # Triage + Vitals
-    lines.append("Triage & Vital Signs:")
+    # Triage & Vitals
+    lines.append("Triage & Vital Signs")
+    lines.append("---------------------")
     lines.append(
         f" - Triage Status: {visit['triage_status']} | "
         f"CAT: {visit['triage_cat'] or '-'}"
@@ -1941,7 +1746,8 @@ def build_auto_summary(visit_id):
 
     # Doctor examination / history (from discharge summary)
     if discharge_text:
-        lines.append("Doctor Examination / History:")
+        lines.append("Doctor Examination / History")
+        lines.append("----------------------------")
         for line in discharge_text.splitlines():
             line = line.strip()
             if line:
@@ -1950,7 +1756,8 @@ def build_auto_summary(visit_id):
 
     # Clinical orders
     if orders:
-        lines.append("Clinical Orders (chronological):")
+        lines.append("Clinical Orders (chronological)")
+        lines.append("--------------------------------")
         for o in orders:
             lines.append(f" Order #{o['id']} | {o['created_at']} by {o['created_by']}")
             if o["diagnosis"]:
@@ -1968,7 +1775,8 @@ def build_auto_summary(visit_id):
 
     # Labs
     if lab_reqs:
-        lines.append("Lab Tests & Results:")
+        lines.append("Lab Tests & Results")
+        lines.append("-------------------")
         for l in lab_reqs:
             line = f" Lab #{l['id']} | {l['test_name']} | Status: {l['status']}"
             if l["result_text"]:
@@ -1991,7 +1799,8 @@ def build_auto_summary(visit_id):
 
     # Radiology
     if rad_reqs:
-        lines.append("Radiology Studies & Reports:")
+        lines.append("Radiology Studies & Reports")
+        lines.append("---------------------------")
         for r in rad_reqs:
             lines.append(
                 f" Study #{r['id']} | {r['test_name']} | Status: {r['status']}"
@@ -2014,7 +1823,8 @@ def build_auto_summary(visit_id):
 
     # Nursing notes
     if notes:
-        lines.append("Nursing Notes:")
+        lines.append("Nursing Notes")
+        lines.append("-------------")
         for n in notes:
             lines.append(f" {n['created_at']} | {n['created_by']}: {n['note_text']}")
         lines.append("")
@@ -2169,69 +1979,38 @@ def build_patient_short_summary(visit_id):
 @app.route("/clinical_orders/<visit_id>")
 @login_required
 def clinical_orders_page(visit_id):
-    """
-    Clinical orders page shared between ED and Clinic visits.
-    """
     db = get_db()
     cur = db.cursor()
-
-    # ED visit first
     visit = cur.execute("""
-        SELECT 'ED' AS source,
-               v.visit_id,
-               p.name,
-               p.id_number,
-               p.insurance
-        FROM visits v
-        JOIN patients p ON p.id = v.patient_id
+        SELECT v.visit_id, p.name, p.id_number, p.insurance
+        FROM visits v JOIN patients p ON p.id=v.patient_id
         WHERE v.visit_id=?
-    """, (visit_id,)).fetchone()
-
-    # If not found, try clinic_visits
-    if not visit:
-        visit = cur.execute("""
-            SELECT 'CLINIC' AS source,
-                   cv.visit_id,
-                   p.name,
-                   p.id_number,
-                   p.insurance
-            FROM clinic_visits cv
-            JOIN patients p ON p.id = cv.patient_id
-            WHERE cv.visit_id=?
-        """, (visit_id,)).fetchone()
-
+    """,(visit_id,)).fetchone()
     if not visit:
         flash("Visit not found.", "danger")
         return redirect(url_for("ed_board"))
 
     orders = cur.execute("""
-        SELECT * FROM clinical_orders
-        WHERE visit_id=?
-        ORDER BY id DESC
-    """, (visit_id,)).fetchall()
-
+        SELECT * FROM clinical_orders WHERE visit_id=? ORDER BY id DESC
+    """,(visit_id,)).fetchall()
     notes = cur.execute("""
-        SELECT * FROM nursing_notes
-        WHERE visit_id=?
-        ORDER BY id DESC
-    """, (visit_id,)).fetchall()
-
+        SELECT * FROM nursing_notes WHERE visit_id=? ORDER BY id DESC
+    """,(visit_id,)).fetchall()
     summary = cur.execute("""
-        SELECT * FROM discharge_summaries
-        WHERE visit_id=?
-    """, (visit_id,)).fetchone()
+        SELECT * FROM discharge_summaries WHERE visit_id=?
+    """,(visit_id,)).fetchone()
 
     lab_reqs = cur.execute("""
         SELECT * FROM lab_requests
         WHERE visit_id=?
         ORDER BY id DESC
-    """, (visit_id,)).fetchall()
+    """,(visit_id,)).fetchall()
 
     rad_reqs = cur.execute("""
         SELECT * FROM radiology_requests
         WHERE visit_id=?
         ORDER BY id DESC
-    """, (visit_id,)).fetchall()
+    """,(visit_id,)).fetchall()
 
     return render_template("clinical_orders.html",
                            visit=visit,
@@ -2567,23 +2346,46 @@ def discharge_summary_pdf(visit_id):
 
     def draw_multiline(label, text):
         nonlocal y
-        c.setFont("Helvetica-Bold",11); c.drawString(2*cm,y,label); y-=0.6*cm
-        c.setFont("Helvetica",10)
-        for line in (text or "-").splitlines():
-            c.drawString(2.3*cm,y,line[:110]); y-=0.45*cm
-            if y<2*cm: c.showPage(); y=height-2*cm
-        y-=0.3*cm
+        # Section title
+        c.setFont("Helvetica-Bold", 11)
+        c.drawString(2*cm, y, label)
+        y -= 0.6*cm
+
+        # Wrapped body text
+        y_local = draw_wrapped_lines(
+            c,
+            text or "-",
+            x=2.3*cm,
+            y=y,
+            max_chars=95,
+            line_height=0.45*cm,
+            page_height=height,
+            font_name="Helvetica",
+            font_size=10,
+        )
+        y = y_local
+        y -= 0.3*cm
 
     draw_multiline("Diagnosis / Chief Complaint:", summary["diagnosis_cc"] if summary else "")
     draw_multiline("Referral to Clinic:", summary["referral_clinic"] if summary else "")
     draw_multiline("Home Medication:", summary["home_medication"] if summary else "")
     draw_multiline("Doctor Examination / History:", summary["summary_text"] if summary else "")
 
-    c.setFont("Helvetica-Bold",12); c.drawString(2*cm,y,"Auto ED Course Summary:"); y-=0.6*cm
-    c.setFont("Helvetica",9)
-    for line in (auto_text or "-").splitlines():
-        c.drawString(2.3*cm,y,line[:130]); y-=0.4*cm
-        if y<2*cm: c.showPage(); y=height-2*cm
+    c.setFont("Helvetica-Bold", 12)
+    c.drawString(2*cm, y, "Auto ED Course Summary:")
+    y -= 0.6*cm
+    c.setFont("Helvetica", 9)
+    y = draw_wrapped_lines(
+        c,
+        auto_text or "-",
+        x=2.3*cm,
+        y=y,
+        max_chars=105,
+        line_height=0.4*cm,
+        page_height=height,
+        font_name="Helvetica",
+        font_size=9,
+    )
 
     c.setFont("Helvetica-Oblique",8); c.drawString(2*cm,1.2*cm,APP_FOOTER_TEXT)
     c.showPage(); c.save(); buffer.seek(0)
@@ -2712,24 +2514,25 @@ def lab_report_result(rid):
     flash("Lab result saved.", "success")
     return redirect(url_for("lab_board"))
 
-@app.route("/lab_request/<int:rid>/upload_result", methods=["POST"])
+
+@app.route("/lab_request/<int:rid>/upload_file", methods=["POST"])
 @login_required
-@role_required("lab", "admin")
-def lab_upload_result(rid):
+@role_required("lab", "doctor", "admin")
+def lab_upload_result_file(rid):
     """
-    Upload lab result file and mark as REPORTED.
+    Upload lab result file (PDF / image) linked to this lab request & visit.
     """
-    if "result_file" not in request.files:
+    if "file" not in request.files:
         flash("No file selected.", "danger")
         return redirect(url_for("lab_board"))
 
-    file = request.files["result_file"]
+    file = request.files["file"]
     if file.filename == "":
         flash("Please choose a file.", "danger")
         return redirect(url_for("lab_board"))
 
     if not allowed_file(file.filename):
-        flash("Invalid file type. Allowed: PNG, JPG, JPEG, PDF", "danger")
+        flash("Invalid file type.", "danger")
         return redirect(url_for("lab_board"))
 
     db = get_db()
@@ -2739,25 +2542,79 @@ def lab_upload_result(rid):
         flash("Lab request not found.", "danger")
         return redirect(url_for("lab_board"))
 
-    # Save the uploaded file
+    visit_id = row["visit_id"]
     safe_name = secure_filename(file.filename)
-    filename = f"lab_result_{rid}_{int(datetime.now().timestamp())}_{safe_name}"
+    filename = f"{visit_id}_LAB_{rid}_{int(datetime.now().timestamp())}_{safe_name}"
     file.save(os.path.join(UPLOAD_FOLDER, filename))
 
-    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    user = session.get("username", "UNKNOWN")
-
-    # Update lab request with file reference
-    db.execute("""
-        UPDATE lab_requests
-        SET status='REPORTED', result_text=?, reported_at=?, reported_by=?
-        WHERE id=?
-    """,(f"File: {filename}", now, user, rid))
+    db.execute(
+        """
+        INSERT INTO attachments (visit_id, filename, uploaded_at, uploaded_by)
+        VALUES (?,?,?,?)
+        """,
+        (
+            visit_id,
+            filename,
+            datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            session.get("username", "UNKNOWN"),
+        ),
+    )
     db.commit()
 
-    log_action("LAB_UPLOAD_RESULT", visit_id=row["visit_id"], details=f"RID={rid}, File={filename}")
-    flash("Lab result file uploaded and marked as reported.", "success")
+    log_action("LAB_UPLOAD_FILE", visit_id=visit_id, details=f"RID={rid}|{filename}")
+    flash("Lab result file uploaded successfully.", "success")
     return redirect(url_for("lab_board"))
+
+
+@app.route("/radiology_request/<int:rid>/upload_file", methods=["POST"])
+@login_required
+@role_required("radiology", "doctor", "admin")
+def radiology_upload_result_file(rid):
+    """
+    Upload radiology result file (PDF / image) linked to this radiology request & visit.
+    """
+    if "file" not in request.files:
+        flash("No file selected.", "danger")
+        return redirect(url_for("radiology_board"))
+
+    file = request.files["file"]
+    if file.filename == "":
+        flash("Please choose a file.", "danger")
+        return redirect(url_for("radiology_board"))
+
+    if not allowed_file(file.filename):
+        flash("Invalid file type.", "danger")
+        return redirect(url_for("radiology_board"))
+
+    db = get_db()
+    cur = db.cursor()
+    row = cur.execute("SELECT * FROM radiology_requests WHERE id=?", (rid,)).fetchone()
+    if not row:
+        flash("Radiology request not found.", "danger")
+        return redirect(url_for("radiology_board"))
+
+    visit_id = row["visit_id"]
+    safe_name = secure_filename(file.filename)
+    filename = f"{visit_id}_RAD_{rid}_{int(datetime.now().timestamp())}_{safe_name}"
+    file.save(os.path.join(UPLOAD_FOLDER, filename))
+
+    db.execute(
+        """
+        INSERT INTO attachments (visit_id, filename, uploaded_at, uploaded_by)
+        VALUES (?,?,?,?)
+        """,
+        (
+            visit_id,
+            filename,
+            datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            session.get("username", "UNKNOWN"),
+        ),
+    )
+    db.commit()
+
+    log_action("RAD_UPLOAD_FILE", visit_id=visit_id, details=f"RID={rid}|{filename}")
+    flash("Radiology result file uploaded successfully.", "success")
+    return redirect(url_for("radiology_board"))
 
 
 # ============================================================
@@ -2882,53 +2739,6 @@ def radiology_report_result(rid):
     flash("Radiology report saved.", "success")
     return redirect(url_for("radiology_board"))
 
-@app.route("/radiology_request/<int:rid>/upload_report", methods=["POST"])
-@login_required
-@role_required("radiology", "admin")
-def radiology_upload_report(rid):
-    """
-    Upload radiology report file and mark as REPORTED.
-    """
-    if "report_file" not in request.files:
-        flash("No file selected.", "danger")
-        return redirect(url_for("radiology_board"))
-
-    file = request.files["report_file"]
-    if file.filename == "":
-        flash("Please choose a file.", "danger")
-        return redirect(url_for("radiology_board"))
-
-    if not allowed_file(file.filename):
-        flash("Invalid file type. Allowed: PNG, JPG, JPEG, PDF", "danger")
-        return redirect(url_for("radiology_board"))
-
-    db = get_db()
-    cur = db.cursor()
-    row = cur.execute("SELECT * FROM radiology_requests WHERE id=?", (rid,)).fetchone()
-    if not row:
-        flash("Radiology request not found.", "danger")
-        return redirect(url_for("radiology_board"))
-
-    # Save the uploaded file
-    safe_name = secure_filename(file.filename)
-    filename = f"radiology_report_{rid}_{int(datetime.now().timestamp())}_{safe_name}"
-    file.save(os.path.join(UPLOAD_FOLDER, filename))
-
-    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    user = session.get("username", "UNKNOWN")
-
-    # Update radiology request with file reference
-    db.execute("""
-        UPDATE radiology_requests
-        SET status='REPORTED', report_text=?, reported_at=?, reported_by=?
-        WHERE id=?
-    """,(f"File: {filename}", now, user, rid))
-    db.commit()
-
-    log_action("RAD_UPLOAD_REPORT", visit_id=row["visit_id"], details=f"RID={rid}, File={filename}")
-    flash("Radiology report file uploaded and marked as reported.", "success")
-    return redirect(url_for("radiology_board"))
-
 
 # ============================================================
 # Auto Summary PDF (Nursing / Staff Copy)
@@ -2942,7 +2752,7 @@ def auto_summary_pdf(visit_id):
     cur = db.cursor()
 
     visit = cur.execute("""
-        SELECT v.visit_id, p.name, p.id_number, p.insurance, v.created_at
+        SELECT v.visit_id, p.name, p.id_number, p.insurance, p.dob AS dob, v.created_at
         FROM visits v
         JOIN patients p ON p.id=v.patient_id
         WHERE v.visit_id=?
@@ -2958,19 +2768,30 @@ def auto_summary_pdf(visit_id):
     width, height = A4
     y = height - 2*cm
 
+    # Age for header
+    age = calc_age(visit["dob"]) if "dob" in visit.keys() else ""
+
+    # Title
     c.setFont("Helvetica-Bold", 16)
     c.drawString(2*cm, y, "Auto ED Course Summary")
     y -= 1.0*cm
 
+    # Header block
     c.setFont("Helvetica", 11)
     c.drawString(2*cm, y, f"Visit ID: {visit['visit_id']}")
     y -= 0.7*cm
     c.drawString(2*cm, y, f"Patient: {visit['name']}")
     y -= 0.6*cm
+    c.drawString(2*cm, y, f"Age: {age or '-'}")
+    y -= 0.6*cm
     c.drawString(2*cm, y, f"ID: {visit['id_number'] or '-'}    INS: {visit['insurance'] or '-'}")
     y -= 0.6*cm
     c.drawString(2*cm, y, f"Date: {visit['created_at']}")
     y -= 0.9*cm
+
+    # Separator line
+    c.line(2*cm, y, width - 2*cm, y)
+    y -= 0.7*cm
 
     c.setFont("Helvetica-Bold", 12)
     c.drawString(2*cm, y, "Summary:")
@@ -2980,13 +2801,17 @@ def auto_summary_pdf(visit_id):
     if not auto_text.strip():
         c.drawString(2.2*cm, y, "None")
     else:
-        for line in auto_text.splitlines():
-            c.drawString(2.2*cm, y, line[:130])
-            y -= 0.42*cm
-            if y < 2*cm:
-                c.showPage()
-                y = height - 2*cm
-                c.setFont("Helvetica", 9)
+        y = draw_wrapped_lines(
+            c,
+            auto_text,
+            x=2.2*cm,
+            y=y,
+            max_chars=105,
+            line_height=0.42*cm,
+            page_height=height,
+            font_name="Helvetica",
+            font_size=9,
+        )
 
     c.setFont("Helvetica-Oblique", 8)
     c.drawString(2*cm, 1.2*cm, APP_FOOTER_TEXT)
@@ -3010,7 +2835,7 @@ def patient_summary_pdf(visit_id):
     cur = db.cursor()
 
     visit = cur.execute("""
-        SELECT v.visit_id, p.name, p.id_number, p.insurance, v.created_at
+        SELECT v.visit_id, p.name, p.id_number, p.insurance, p.dob AS dob, v.created_at
         FROM visits v
         JOIN patients p ON p.id=v.patient_id
         WHERE v.visit_id=?
@@ -3021,33 +2846,49 @@ def patient_summary_pdf(visit_id):
 
     text = build_patient_short_summary(visit_id)
 
+    # Build PDF
     buffer = io.BytesIO()
     c = canvas.Canvas(buffer, pagesize=A4)
     width, height = A4
     y = height - 2*cm
 
+    # Compute age for header
+    age = calc_age(visit["dob"])
+
+    # Title
     c.setFont("Helvetica-Bold", 16)
     c.drawString(2*cm, y, "ED Visit Summary - Patient Copy")
     y -= 1.0*cm
 
+    # Header block
     c.setFont("Helvetica", 11)
     c.drawString(2*cm, y, f"Visit ID: {visit['visit_id']}")
     y -= 0.7*cm
     c.drawString(2*cm, y, f"Patient: {visit['name']}")
+    y -= 0.6*cm
+    c.drawString(2*cm, y, f"Age: {age or '-'}")
     y -= 0.6*cm
     c.drawString(2*cm, y, f"ID: {visit['id_number'] or '-'}    INS: {visit['insurance'] or '-'}")
     y -= 0.6*cm
     c.drawString(2*cm, y, f"Date: {visit['created_at']}")
     y -= 0.8*cm
 
+    # Separator line before the body text
+    c.line(2*cm, y, width - 2*cm, y)
+    y -= 0.7*cm
+
     c.setFont("Helvetica", 10)
-    for line in (text or "-").splitlines():
-        c.drawString(2*cm, y, line[:120])
-        y -= 0.40*cm
-        if y < 2*cm:
-            c.showPage()
-            y = height - 2*cm
-            c.setFont("Helvetica", 10)
+    y = draw_wrapped_lines(
+        c,
+        text or "-",
+        x=2*cm,
+        y=y,
+        max_chars=100,
+        line_height=0.40*cm,
+        page_height=height,
+        font_name="Helvetica",
+        font_size=10,
+    )
 
     c.setFont("Helvetica-Oblique", 8)
     c.drawString(2*cm, 1.2*cm, APP_FOOTER_TEXT)
@@ -3063,6 +2904,7 @@ def patient_summary_pdf(visit_id):
     )
 @app.route("/lab_results/<visit_id>/pdf")
 @login_required
+@role_required("nurse","doctor","admin","lab","radiology")
 def lab_results_pdf(visit_id):
     db = get_db()
     cur = db.cursor()
@@ -3147,6 +2989,7 @@ def lab_results_pdf(visit_id):
 
 @app.route("/radiology_results/<visit_id>/pdf")
 @login_required
+@role_required("nurse","doctor","admin","lab","radiology")
 def radiology_results_pdf(visit_id):
     db = get_db()
     cur = db.cursor()
@@ -3286,13 +3129,17 @@ def home_med_pdf(visit_id):
     if not home_med.strip():
         c.drawString(2.2*cm, y, "None")
     else:
-        for line in home_med.splitlines():
-            c.drawString(2.2*cm, y, line[:110])
-            y -= 0.45*cm
-            if y < 2*cm:
-                c.showPage()
-                y = height - 2*cm
-                c.setFont("Helvetica", 10)
+        y = draw_wrapped_lines(
+            c,
+            home_med,
+            x=2.2*cm,
+            y=y,
+            max_chars=95,
+            line_height=0.45*cm,
+            page_height=height,
+            font_name="Helvetica",
+            font_size=10,
+        )
 
     c.setFont("Helvetica-Oblique", 8)
     c.drawString(2*cm, 1.2*cm, APP_FOOTER_TEXT)
@@ -3314,103 +3161,68 @@ def home_med_pdf(visit_id):
 @app.route("/sticker/<visit_id>")
 @login_required
 def sticker_html(visit_id):
-    """
-    HTML sticker for both ED and Clinic visits.
-    Shows name, ID, insurance, time, age and doctor if available.
-    """
-    cur = get_db().cursor()
-
-    # Try ED visit
-    v = cur.execute("""
-        SELECT v.visit_id, v.queue_no, v.created_at,
-               p.name, p.id_number, p.insurance, p.dob,
-               NULL AS doctor_name
-        FROM visits v
-        JOIN patients p ON p.id = v.patient_id
-        WHERE v.visit_id=?
-    """, (visit_id,)).fetchone()
-
-    # Try clinic visit
-    if not v:
-        v = cur.execute("""
-            SELECT cv.visit_id, NULL AS queue_no, cv.created_at,
-                   p.name, p.id_number, p.insurance, p.dob,
-                   cv.doctor_name
-            FROM clinic_visits cv
-            JOIN patients p ON p.id = cv.patient_id
-            WHERE cv.visit_id=?
-        """, (visit_id,)).fetchone()
-
-    if not v:
-        return "Not found", 404
-
-    time_only = v["created_at"][11:16]
-    age = calculate_age_years(v["dob"])
-    doctor_name = v["doctor_name"]
-
-    return render_template("sticker.html",
-                           v=v,
-                           time_only=time_only,
-                           age=age,
-                           doctor_name=doctor_name)
-
+    cur=get_db().cursor()
+    v=cur.execute("""
+        SELECT v.visit_id, v.queue_no, v.created_at, v.created_by, p.name, p.id_number, p.insurance, p.dob as dob
+        FROM visits v JOIN patients p ON p.id=v.patient_id WHERE v.visit_id=?
+    """,(visit_id,)).fetchone()
+    if not v: return "Not found",404
+    time_only=v["created_at"][11:16]
+    # Age for sticker
+    try:
+        age = calc_age(v["dob"])
+    except Exception:
+        age = ""
+    return render_template("sticker.html", v=v, time_only=time_only, age=age)
 
 @app.route("/sticker/<visit_id>/zpl")
 @login_required
 def sticker_zpl(visit_id):
-    """
-    ZPL sticker for both ED and Clinic visits.
-    """
     cur = get_db().cursor()
-
     v = cur.execute("""
-        SELECT v.visit_id, v.created_at,
-               p.name, p.id_number, p.insurance, p.dob,
-               NULL AS doctor_name
-        FROM visits v
-        JOIN patients p ON p.id = v.patient_id
+        SELECT v.created_at, p.name, p.id_number, p.insurance, p.dob as dob
+        FROM visits v 
+        JOIN patients p ON p.id=v.patient_id 
         WHERE v.visit_id=?
     """, (visit_id,)).fetchone()
 
     if not v:
-        v = cur.execute("""
-            SELECT cv.visit_id, cv.created_at,
-                   p.name, p.id_number, p.insurance, p.dob,
-                   cv.doctor_name
-            FROM clinic_visits cv
-            JOIN patients p ON p.id = cv.patient_id
-            WHERE cv.visit_id=?
-        """, (visit_id,)).fetchone()
-
-    if not v:
         return "Not Found", 404
 
+    # Extract time only
     t = v["created_at"][11:16]
-    age = calculate_age_years(v["dob"])
-    age_text = age if age is not None else "-"
-    dr_text = v["doctor_name"] or "-"
 
+    # Age for ZPL sticker
+    try:
+        age = calc_age(v["dob"])
+    except Exception:
+        age = ""
+
+    # لو مفيش ID نستخدم visit_id في الباركود
+    id_for_barcode = v["id_number"] or visit_id
+
+    # ZPL 5x3 cm label مع Barcode فقط
     zpl = f"""
 ^XA
 ^PW400
-^LL320
-
-^CF0,20
-^FO20,10^FDED DOWNTIME^FS
+^LL300
 
 ^CF0,22
-^FO20,60^FDNAME: {v['name']}^FS
+^FO20,10^FDED DOWNTIME^FS
+
+^CF0,20
+^FO20,40^FDNAME: {v['name']}^FS
+^FO20,70^FDAGE: {age or '-'}^FS
 ^FO20,100^FDID: {v['id_number'] or '-'}^FS
-^FO20,140^FDINS: {v['insurance'] or '-'}^FS
-^FO20,180^FDTIME: {t}^FS
-^FO20,220^FDAGE: {age_text}^FS
-^FO20,260^FDDR: {dr_text}^FS
+^FO20,130^FDINS: {v['insurance'] or '-'}^FS
+^FO20,160^FDTIME: {t}^FS
+
+^BY2,2,40
+^FO20,200^BCN,40,Y,N,N^FD{id_for_barcode}^FS
 
 ^XZ
 """
     return Response(zpl, mimetype="text/plain")
-
-# ================================
 # ============================================================
 # Templates (Single-file)
 # ============================================================
@@ -3444,6 +3256,9 @@ TEMPLATES = {
     <a class="nav-link" href="{{ url_for('ed_board') }}">ED Board</a>
     <a class="nav-link" href="{{ url_for('search_patients') }}">Search</a>
     <a class="nav-link" href="{{ url_for('chat_page') }}">Live Chat</a>
+    {% if session.get('role') in ['admin','doctor','nurse'] %}
+      <a class="nav-link" href="{{ url_for('reports') }}">Reports</a>
+    {% endif %}
     {% if session.get('role') in ['lab','admin','doctor','nurse'] %}
       <a class="nav-link" href="{{ url_for('lab_board') }}">Lab Board</a>
     {% endif %}
@@ -3452,18 +3267,6 @@ TEMPLATES = {
     {% endif %}
     {% if session.get('role') in ['reception','admin'] %}
       <a class="nav-link" href="{{ url_for('register_patient') }}">Register</a>
-      <div class="nav-item dropdown">
-        <a class="nav-link dropdown-toggle" href="#" id="clinicsDropdown" role="button" data-bs-toggle="dropdown" aria-expanded="false">
-          Clinics
-        </a>
-        <ul class="dropdown-menu" aria-labelledby="clinicsDropdown">
-          <li><a class="dropdown-item" href="{{ url_for('clinics_overview') }}">All Clinics Overview</a></li>
-          <li><hr class="dropdown-divider"></li>
-          {% for c in clinics %}
-          <li><a class="dropdown-item" href="{{ url_for('clinic_register', clinic_id=c.id) }}">{{ c.name }}</a></li>
-          {% endfor %}
-        </ul>
-      </div>
     {% endif %}
     {% if session.get('role')=='admin' %}
       <a class="nav-link" href="{{ url_for('admin_users') }}">Users</a>
@@ -3667,116 +3470,96 @@ TEMPLATES = {
     A safety copy (*.before_restore.bak) will be created automatically.
   </p>
 
-  <h6 class="fw-bold mt-4">Available Backup Files</h6>
-  {% if backup_files %}
-  <div class="table-responsive">
-    <table class="table table-sm table-striped">
-      <thead>
-        <tr>
-          <th>File name</th>
-          <th>Created / Modified</th>
-          <th>Size (KB)</th>
-          <th>Download</th>
-          <th>Restore</th>
-        </tr>
-      </thead>
-      <tbody>
-        {% for backup in backup_files %}
-        <tr>
-          <td class="small">{{ backup.filename }}</td>
-          <td class="small">{{ backup.modified }}</td>
-          <td class="small">{{ backup.size_kb }}</td>
-          <td>
-            <a class="btn btn-sm btn-outline-primary" 
-               href="{{ url_for('uploaded_file', filename=backup.filename) }}" 
-               target="_blank">Download</a>
-          </td>
-          <td>
-            <form method="POST" style="display:inline" 
-                  onsubmit="return confirm('Restore from {{ backup.filename }}? Current database will be backed up first.');">
-              <input type="hidden" name="restore_file" value="{{ backup.filename }}">
-              <button class="btn btn-sm btn-outline-danger">Restore this backup</button>
-            </form>
-          </td>
-        </tr>
-        {% endfor %}
-      </tbody>
-    </table>
-  </div>
+  <h6 class="fw-bold mt-2">Available backup files</h6>
+  {% if backups %}
+    <div class="table-responsive mb-3">
+      <table class="table table-sm table-hover align-middle mb-0">
+        <thead>
+          <tr>
+            <th>#</th>
+            <th>File name</th>
+            <th>Created / Modified</th>
+            <th>Size (KB)</th>
+            <th>Download</th>
+            <th>Restore</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for b in backups %}
+          <tr>
+            <td>{{ loop.index }}</td>
+            <td>
+              <a href="{{ url_for('admin_backup_file', filename=b.name) }}">
+                {{ b.name }}
+              </a>
+            </td>
+            <td>{{ b.mtime }}</td>
+            <td>{{ "%.1f"|format(b.size_kb) }}</td>
+            <td>
+              <a class="btn btn-sm btn-outline-primary"
+                 href="{{ url_for('admin_backup_file', filename=b.name) }}">
+                Download
+              </a>
+            </td>
+            <td>
+              <a class="btn btn-sm btn-outline-danger"
+                 href="{{ url_for('admin_restore_file', filename=b.name) }}">
+                Restore this backup
+              </a>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
   {% else %}
-    <div class="text-muted small">No backup files found.</div>
+    <p class="text-muted small">No backup .db files found in the backups folder yet.</p>
   {% endif %}
 
-  <hr class="my-4">
-
-  <h6 class="fw-bold">Upload Backup File</h6>
-  <form method="POST" enctype="multipart/form-data">
+  <form method="POST" enctype="multipart/form-data" class="mt-2">
     <div class="mb-2">
       <label class="form-label fw-bold">Select backup .db file</label>
       <input type="file" name="file" class="form-control" required>
     </div>
-    <div class="d-flex gap-2 mt-3">
-      <button class="btn btn-danger">Restore Now</button>
-      <a class="btn btn-secondary" href="{{ url_for('ed_board') }}">Cancel</a>
-    </div>
+    <button class="btn btn-danger mt-2">Restore Now</button>
+    <a class="btn btn-secondary mt-2" href="{{ url_for('ed_board') }}">Cancel</a>
   </form>
 </div>
 {% endblock %}
 """,
 
-"clinics_overview.html": """
+"admin_restore_confirm.html": """
 {% extends "base.html" %}
 {% block content %}
-<h4 class="mb-3">Clinics Overview</h4>
+<h4 class="mb-3">Confirm Restore from Backup</h4>
 
-<div class="card p-3 bg-white mb-3">
-  <h6 class="fw-bold mb-2">Filter by Clinic Type</h6>
-  <div class="d-flex flex-wrap gap-2">
-    {% for type in clinic_types %}
-      <a class="btn btn-sm {% if current_type == type.id %}btn-primary{% else %}btn-outline-primary{% endif %}" 
-         href="{{ url_for('clinics_overview', type=type.id) }}">
-        {{ type.name }}
-      </a>
-    {% endfor %}
-  </div>
-</div>
-
-<div class="row g-3">
-  {% for stat in clinic_stats %}
-  <div class="col-md-6 col-lg-4">
-    <div class="card h-100">
-      <div class="card-body">
-        <h5 class="card-title">{{ stat.clinic.name }}</h5>
-        <p class="card-text">
-          <span class="badge {% if stat.open_visits > 0 %}bg-warning text-dark{% else %}bg-success{% endif %}">
-            {{ stat.open_visits }} Open Visit{% if stat.open_visits != 1 %}s{% endif %}
-          </span>
-        </p>
-      </div>
-      <div class="card-footer bg-transparent">
-        <div class="d-flex gap-2 flex-wrap">
-          <a class="btn btn-sm btn-primary" 
-             href="{{ url_for('clinic_register', clinic_id=stat.clinic.id) }}">
-            Register Patient
-          </a>
-          <a class="btn btn-sm btn-outline-secondary" 
-             href="{{ url_for('clinic_board', clinic_id=stat.clinic.id) }}">
-            View Board
-          </a>
-        </div>
-      </div>
-    </div>
-  </div>
-  {% else %}
-  <div class="col-12">
-    <div class="text-center text-muted py-4">
-      No clinics found for the selected filter.
-    </div>
-  </div>
+{% with messages = get_flashed_messages(with_categories=true) %}
+  {% for category, msg in messages %}
+    <div class="alert alert-{{ category }}">{{ msg }}</div>
   {% endfor %}
+{% endwith %}
+
+<div class="card p-3 bg-white">
+  <p class="text-danger small mb-2">
+    ⚠️ You are about to restore the database from backup file:
+    <strong>{{ backup_name }}</strong>
+  </p>
+  <p class="text-muted small mb-2">
+    This will overwrite the current database. A safety copy (*.before_restore.bak) will be created automatically.
+  </p>
+
+  <form method="POST">
+    <div class="mb-2">
+      <label class="form-label fw-bold">Re-enter your password to confirm</label>
+      <input type="password" name="password" class="form-control" required autofocus>
+    </div>
+    <button class="btn btn-danger mt-2">Confirm Restore</button>
+    <a class="btn btn-secondary mt-2" href="{{ url_for('admin_restore') }}">Cancel</a>
+  </form>
 </div>
 {% endblock %}
 """,
+
 
 "register.html": """
 {% extends "base.html" %}
@@ -3789,157 +3572,252 @@ TEMPLATES = {
   {% endfor %}
 {% endwith %}
 
-<form method="POST" class="card p-3 bg-white">
+<form method="POST" enctype="multipart/form-data" class="card p-3 bg-white" id="register-form">
   <div class="row g-2">
-    <div class="col-md-6"><label class="form-label fw-bold">Name</label><input class="form-control" name="name" required></div>
-    <div class="col-md-6"><label class="form-label fw-bold">ID Number</label><input class="form-control" name="id_number"></div>
-    <div class="col-md-4"><label class="form-label fw-bold">Phone</label><input class="form-control" name="phone"></div>
-    <div class="col-md-4"><label class="form-label fw-bold">Insurance</label><input class="form-control" name="insurance"></div>
-    <div class="col-md-4"><label class="form-label fw-bold">Insurance No</label><input class="form-control" name="insurance_no"></div>
-    <div class="col-md-4"><label class="form-label fw-bold">DOB</label><input class="form-control" name="dob" placeholder="DD.MM.YYYY"></div>
-    <div class="col-md-2"><label class="form-label fw-bold">Sex</label>
-      <select class="form-select" name="sex"><option value=""></option><option>M</option><option>F</option></select></div>
-    <div class="col-md-6"><label class="form-label fw-bold">Nationality</label><input class="form-control" name="nationality"></div>
-    <div class="col-md-12"><label class="form-label fw-bold">Payment Details</label><input class="form-control" name="payment_details"></div>
-  </div>
-  <button class="btn btn-primary mt-3">Save & Create Visit</button>
-</form>
-{% endblock %}
-""",
+    <div class="col-md-6">
+      <label class="form-label fw-bold">Name</label>
+      <input class="form-control" name="name" required>
+    </div>
 
-"clinic_register.html": """
-{% extends "base.html" %}
-{% block content %}
-<h4 class="mb-3">Register Patient – {{ clinic.name }}</h4>
+    <div class="col-md-6">
+      <label class="form-label fw-bold">ID Number</label>
+      <input class="form-control" name="id_number">
+    </div>
 
-{% with messages = get_flashed_messages(with_categories=true) %}
-  {% for category, msg in messages %}
-    <div class="alert alert-{{ category }}">{{ msg }}</div>
-  {% endfor %}
-{% endwith %}
+    <div class="col-md-4">
+      <label class="form-label fw-bold">Phone</label>
+      <input class="form-control" name="phone">
+    </div>
 
-<form method="POST" class="card p-3 bg-white">
-  <div class="row g-2">
-    <div class="col-md-6"><label class="form-label fw-bold">Name</label><input class="form-control" name="name" required></div>
-    <div class="col-md-6"><label class="form-label fw-bold">ID Number</label><input class="form-control" name="id_number"></div>
-    <div class="col-md-4"><label class="form-label fw-bold">Phone</label><input class="form-control" name="phone"></div>
-    <div class="col-md-4"><label class="form-label fw-bold">Insurance</label><input class="form-control" name="insurance"></div>
-    <div class="col-md-4"><label class="form-label fw-bold">Insurance No</label><input class="form-control" name="insurance_no"></div>
-    <div class="col-md-4"><label class="form-label fw-bold">DOB</label><input class="form-control" name="dob" placeholder="DD.MM.YYYY"></div>
-    <div class="col-md-2"><label class="form-label fw-bold">Sex</label>
+    <div class="col-md-4">
+      <label class="form-label fw-bold">Insurance</label>
+      <input class="form-control" name="insurance">
+    </div>
+
+    <div class="col-md-4">
+      <label class="form-label fw-bold">Insurance No</label>
+      <input class="form-control" name="insurance_no">
+    </div>
+
+    <div class="col-md-4">
+      <label class="form-label fw-bold">DOB</label>
+      <input class="form-control" name="dob" placeholder="YYYY-MM-DD">
+    </div>
+
+    <div class="col-md-2">
+      <label class="form-label fw-bold">Sex</label>
       <select class="form-select" name="sex">
         <option value=""></option>
         <option>M</option>
         <option>F</option>
       </select>
     </div>
-    <div class="col-md-6"><label class="form-label fw-bold">Nationality</label><input class="form-control" name="nationality"></div>
-    <div class="col-md-12"><label class="form-label fw-bold">Payment Details</label><input class="form-control" name="payment_details"></div>
-    <div class="col-md-6"><label class="form-label fw-bold">Doctor Name</label><input class="form-control" name="doctor_name" required></div>
+
+    <div class="col-md-6">
+      <label class="form-label fw-bold">Nationality</label>
+      <input class="form-control" name="nationality">
+    </div>
+
+    {# hidden field that will be filled automatically from insurance block #}
+    <input type="hidden" name="payment_details" id="payment_details">
   </div>
-  <div class="mt-3 d-flex gap-2">
-    <button class="btn btn-primary">Save &amp; Create Clinic Visit</button>
-    <a class="btn btn-outline-secondary" href="{{ url_for('clinic_board', clinic_id=clinic.id) }}">Open Clinic Board</a>
+
+  <hr class="mt-3 mb-2">
+
+  <h5 class="mb-2">Insurance / Contract Scheme (optional)</h5>
+
+  <div class="row g-2">
+    <div class="col-md-4">
+      <label class="form-label fw-bold">Ins. Provider</label>
+      <input class="form-control" id="ins_provider">
+    </div>
+
+    <div class="col-md-4">
+      <label class="form-label fw-bold">Insur. Card No</label>
+      <input class="form-control" id="ins_card_no">
+    </div>
+
+    <div class="col-md-4">
+      <label class="form-label fw-bold">DHA Member ID</label>
+      <input class="form-control" id="dha_member_id">
+    </div>
+
+    <div class="col-md-4">
+      <label class="form-label fw-bold">Ins. Plan</label>
+      <input class="form-control" id="ins_plan">
+    </div>
+
+    <div class="col-md-4">
+      <label class="form-label fw-bold">Policy No</label>
+      <input class="form-control" id="policy_no">
+    </div>
+
+    <div class="col-md-4">
+      <label class="form-label fw-bold">Policy Name</label>
+      <input class="form-control" id="policy_name">
+    </div>
+
+    <div class="col-md-3">
+      <label class="form-label fw-bold">Valid From</label>
+      <input type="date" class="form-control" id="valid_from">
+    </div>
+
+    <div class="col-md-3">
+      <label class="form-label fw-bold">Valid To</label>
+      <input type="date" class="form-control" id="valid_to">
+    </div>
+
+    <div class="col-md-6">
+      <label class="form-label fw-bold">Consultation Deductible %</label>
+      <input class="form-control" id="consult_deduct" placeholder="e.g. 20%">
+    </div>
+
+    <div class="col-md-12">
+      <label class="form-label fw-bold d-block">Contract Scheme Details</label>
+      <div class="small text-muted">Enter percentage or fixed amount (AED) for each service – you may leave any field blank.</div>
+    </div>
+
+    <div class="col-md-4">
+      <label class="form-label">Laboratory</label>
+      <div class="input-group mb-1">
+        <span class="input-group-text">%</span>
+        <input class="form-control" id="lab_percent" placeholder="e.g. 20">
+      </div>
+      <div class="input-group">
+        <span class="input-group-text">AED</span>
+        <input class="form-control" id="lab_amount" placeholder="e.g. 50">
+      </div>
+    </div>
+
+    <div class="col-md-4">
+      <label class="form-label">Radiology</label>
+      <div class="input-group mb-1">
+        <span class="input-group-text">%</span>
+        <input class="form-control" id="radiology_percent" placeholder="e.g. 20">
+      </div>
+      <div class="input-group">
+        <span class="input-group-text">AED</span>
+        <input class="form-control" id="radiology_amount" placeholder="e.g. 50">
+      </div>
+    </div>
+
+    <div class="col-md-4">
+      <label class="form-label">Investigation</label>
+      <div class="input-group mb-1">
+        <span class="input-group-text">%</span>
+        <input class="form-control" id="investigation_percent" placeholder="e.g. 20">
+      </div>
+      <div class="input-group">
+        <span class="input-group-text">AED</span>
+        <input class="form-control" id="investigation_amount" placeholder="e.g. 50">
+      </div>
+    </div>
+
+    <div class="col-md-4">
+      <label class="form-label">Inpatient</label>
+      <div class="input-group mb-1">
+        <span class="input-group-text">%</span>
+        <input class="form-control" id="inpatient_percent" placeholder="e.g. 10">
+      </div>
+      <div class="input-group">
+        <span class="input-group-text">AED</span>
+        <input class="form-control" id="inpatient_amount" placeholder="e.g. 100">
+      </div>
+    </div>
+
+    <div class="col-md-4">
+      <label class="form-label">Pharmacy</label>
+      <div class="input-group mb-1">
+        <span class="input-group-text">%</span>
+        <input class="form-control" id="pharmacy_percent" placeholder="e.g. 10">
+      </div>
+      <div class="input-group">
+        <span class="input-group-text">AED</span>
+        <input class="form-control" id="pharmacy_amount" placeholder="e.g. 20">
+      </div>
+    </div>
+
+    <div class="col-md-4">
+      <label class="form-label">Dental</label>
+      <div class="input-group mb-1">
+        <span class="input-group-text">%</span>
+        <input class="form-control" id="dental_percent" placeholder="e.g. 20">
+      </div>
+      <div class="input-group">
+        <span class="input-group-text">AED</span>
+        <input class="form-control" id="dental_amount" placeholder="e.g. 50">
+      </div>
+    </div>
   </div>
+
+  <div class="row g-2 mt-3">
+    <div class="col-md-6">
+      <label class="form-label fw-bold">Attachment (Eligibility / ID)</label>
+      <input type="file" class="form-control" name="eligibility_file">
+    </div>
+  </div>
+
+  <button class="btn btn-primary mt-3">Save & Create Visit</button>
 </form>
+
+<script>
+  (function () {
+    const form = document.getElementById("register-form");
+    if (!form) return;
+
+    form.addEventListener("submit", function () {
+      const get = function (id) {
+        const el = document.getElementById(id);
+        return el && el.value ? el.value.trim() : "";
+      };
+
+      const parts = [];
+      const add = function (label, id) {
+        const v = get(id);
+        if (v) { parts.push(label + ": " + v); }
+      };
+
+      add("Provider", "ins_provider");
+      add("Card", "ins_card_no");
+      add("DHA", "dha_member_id");
+      add("Plan", "ins_plan");
+      add("PolicyNo", "policy_no");
+      add("PolicyName", "policy_name");
+
+      const vFrom = get("valid_from");
+      const vTo   = get("valid_to");
+      if (vFrom || vTo) {
+        parts.push("Valid " + (vFrom || "?") + " → " + (vTo || "?"));
+      }
+
+      add("Consult%", "consult_deduct");
+
+      add("Lab%", "lab_percent");
+      add("LabAmt", "lab_amount");
+
+      add("Rad%", "radiology_percent");
+      add("RadAmt", "radiology_amount");
+
+      add("Inv%", "investigation_percent");
+      add("InvAmt", "investigation_amount");
+
+      add("Inp%", "inpatient_percent");
+      add("InpAmt", "inpatient_amount");
+
+      add("Pharm%", "pharmacy_percent");
+      add("PharmAmt", "pharmacy_amount");
+
+      add("Dent%", "dental_percent");
+      add("DentAmt", "dental_amount");
+
+      document.getElementById("payment_details").value = parts.join(" | ");
+    });
+  })();
+</script>
+
 {% endblock %}
 """,
 
-"clinic_board.html": """
-{% extends "base.html" %}
-{% block content %}
-<h4 class="mb-3">Clinic Board – {{ clinic.name }}</h4>
-
-{% with messages = get_flashed_messages(with_categories=true) %}
-  {% for category, msg in messages %}
-    <div class="alert alert-{{ category }}">{{ msg }}</div>
-  {% endfor %}
-{% endwith %}
-
-<div class="card bg-white">
-  <div class="card-body p-0">
-    <table class="table table-sm table-hover mb-0">
-      <thead class="table-light">
-        <tr>
-          <th>Visit ID</th>
-          <th>Created</th>
-          <th>User</th>
-          <th>Patient Name</th>
-          <th>ID Number</th>
-          <th>Age</th>
-          <th>Doctor</th>
-          <th>Payment</th>
-          <th>Status</th>
-          <th>Actions</th>
-        </tr>
-      </thead>
-      <tbody>
-      {% for v in rows %}
-        <tr>
-          <td>{{ v.visit_id }}</td>
-          <td>{{ v.created_at }}</td>
-          <td>{{ v.created_by }}</td>
-          <td>{{ v.name }}</td>
-          <td>{{ v.id_number }}</td>
-          <td>{{ v.age if v.age is not none else "-" }}</td>
-          <td>{{ v.doctor_name or "-" }}</td>
-          <td>{{ v.payment_details or "-" }}</td>
-          <td>
-            {% set st = v.status or 'OPEN' %}
-            {% if st == 'OPEN' %}
-              <span class="badge bg-secondary">Registered</span>
-            {% elif st == 'IN_PROGRESS' %}
-              <span class="badge bg-info text-dark">Visit in progress</span>
-            {% elif st == 'COMPLETED' %}
-              <span class="badge bg-success">Visit complete</span>
-            {% elif st == 'CANCELLED' %}
-              <span class="badge bg-danger">Cancelled</span>
-            {% else %}
-              {{ st }}
-            {% endif %}
-          </td>
-          <td class="d-flex gap-1 flex-wrap">
-            <a class="btn btn-sm btn-outline-dark" target="_blank"
-               href="{{ url_for('sticker_html', visit_id=v.visit_id) }}">Sticker</a>
-            {% if session.get('role') in ['nurse','doctor','admin'] %}
-            <a class="btn btn-sm btn-outline-success"
-               href="{{ url_for('triage', visit_id=v.visit_id) }}">Triage</a>
-
-            {# Status control buttons #}
-            {% set st = v.status or 'OPEN' %}
-            {% if st == 'OPEN' %}
-            <form method="post" action="{{ url_for('clinic_visit_status', visit_id=v.visit_id, new_status='IN_PROGRESS') }}" class="d-inline">
-              <button class="btn btn-sm btn-warning" type="submit">Start Visit</button>
-            </form>
-            {% elif st == 'IN_PROGRESS' %}
-            <form method="post" action="{{ url_for('clinic_visit_status', visit_id=v.visit_id, new_status='COMPLETED') }}" class="d-inline">
-              <button class="btn btn-sm btn-success" type="submit">Finish Visit</button>
-            </form>
-            {% endif %}
-
-            {% if st not in ['CANCELLED','COMPLETED'] %}
-            <form method="post" action="{{ url_for('clinic_visit_status', visit_id=v.visit_id, new_status='CANCELLED') }}" class="d-inline">
-              <button class="btn btn-sm btn-outline-danger" type="submit">Cancel</button>
-            </form>
-            {% endif %}
-            {% endif %}
-            {% if session.get('role') != 'reception' %}
-            <a class="btn btn-sm btn-outline-primary"
-               href="{{ url_for('clinical_orders_page', visit_id=v.visit_id) }}">Orders</a>
-            {% endif %}
-          </td>
-        </tr>
-      {% else %}
-        <tr>
-          <td colspan="10" class="text-center text-muted py-3">No clinic visits yet.</td>
-        </tr>
-      {% endfor %}
-      </tbody>
-    </table>
-  </div>
-</div>
-{% endblock %}
-""",
 "search.html": """
 {% extends "base.html" %}
 {% block content %}
@@ -3978,81 +3856,43 @@ TEMPLATES = {
   </div>
 </form>
 
-{% if q and not results %}
-  <div class="text-muted">No results</div>
-{% endif %}
 
-<div class="card bg-white">
-  <div class="card-body p-0">
-    <table class="table table-sm mb-0">
-      <thead>
-        <tr>
-          <th>Type</th>
-          <th>Visit</th>
-          <th>Queue</th>
-          <th>Name</th>
-          <th>ID</th>
-          <th>INS</th>
-          <th>INS No</th>
-          <th>Phone</th>
-          <th>Payment</th>
-          <th>Triage</th>
-          <th>CAT</th>
-          <th>Status</th>
-          <th>Actions</th>
-        </tr>
-      </thead>
-      <tbody>
-      {% for r in results %}
-        <tr>
-          <td>
-            {% if r.source == 'ED' %}
-              <span class="badge bg-danger">ED</span>
-            {% else %}
-              <span class="badge bg-info text-dark">Clinic</span>
-            {% endif %}
-          </td>
-          <td>{{ r.visit_id }}</td>
-          <td class="fw-bold">{{ r.queue_no or '-' }}</td>
-          <td>{{ r.name }}</td>
-          <td>{{ r.id_number }}</td>
-          <td>{{ r.insurance }}</td>
-          <td>{{ r.insurance_no }}</td>
-          <td>{{ r.phone }}</td>
-          <td>{{ r.payment_details or '-' }}</td>
-          <td>{{ r.triage_status }}</td>
-          <td>
-            {% set cat = (r.triage_cat or '').lower() %}
-            {% if cat == 'es1' %}<span class="badge cat-red">ES1</span>
-            {% elif cat == 'es2' %}<span class="badge cat-orange">ES2</span>
-            {% elif cat == 'es3' %}<span class="badge cat-yellow">ES3</span>
-            {% elif cat == 'es4' %}<span class="badge cat-green">ES4</span>
-            {% elif cat == 'es5' %}<span class="badge cat-none">ES5</span>
-            {% else %}<span class="badge cat-none">-</span>{% endif %}
-          </td>
-          <td>{{ r.status }}</td>
-          <td class="d-flex gap-1 flex-wrap">
-            {% if r.source == 'ED' %}
-            <a class="btn btn-sm btn-outline-primary" href="{{ url_for('patient_details', visit_id=r.visit_id) }}">Open</a>
-            {% endif %}
-            <a class="btn btn-sm btn-outline-dark" target="_blank" href="{{ url_for('sticker_html', visit_id=r.visit_id) }}">Sticker</a>
-            {% if session.get('role') in ['nurse','doctor','admin'] %}
-            <a class="btn btn-sm btn-outline-success" href="{{ url_for('triage', visit_id=r.visit_id) }}">Triage</a>
-            {% endif %}
-            {% if session.get('role') != 'reception' %}
-            <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('clinical_orders_page', visit_id=r.visit_id) }}">Orders</a>
-            {% endif %}
-          </td>
-        </tr>
-      {% else %}
-        <tr>
-          <td colspan="13" class="text-center text-muted py-3">No results</td>
-        </tr>
-      {% endfor %}
-      </tbody>
-    </table>
-  </div>
-</div>
+{% if q and not results %}<div class="text-muted">No results</div>{% endif %}
+
+<table class="table table-sm bg-white">
+  <thead>
+    <tr>
+      <th>Visit</th><th>Queue</th><th>Name</th><th>ID</th><th>INS</th><th>INS No</th>
+      <th>Phone</th><th>Payment</th><th>Triage</th><th>CAT</th><th>Status</th><th>Actions</th>
+    </tr>
+  </thead>
+  <tbody>
+  {% for r in results %}
+    <tr>
+      <td>{{ r.visit_id }}</td>
+      <td class="fw-bold">{{ r.queue_no }}</td>
+      <td>{{ r.name }}</td>
+      <td>{{ r.id_number }}</td>
+      <td>{{ r.insurance }}</td>
+      <td>{{ r.insurance_no }}</td>
+      <td>{{ r.phone }}</td>
+      <td>{{ r.payment_details or '-' }}</td>
+      <td>{{ r.triage_status }}</td>
+      <td>
+        {% set cat = (r.triage_cat or '').lower() %}
+        {% if cat == 'es1' %}<span class="badge cat-red">ES1</span>
+        {% elif cat == 'es2' %}<span class="badge cat-orange">ES2</span>
+        {% elif cat == 'es3' %}<span class="badge cat-yellow">ES3</span>
+        {% elif cat == 'es4' %}<span class="badge cat-green">ES4</span>
+        {% elif cat == 'es5' %}<span class="badge cat-none">ES5</span>
+        {% else %}<span class="badge cat-none">-</span>{% endif %}
+      </td>
+      <td>{{ r.status }}</td>
+      <td><a class="btn btn-sm btn-outline-primary" href="{{ url_for('patient_details', visit_id=r.visit_id) }}">Open</a></td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
 {% endblock %}
 
 <nav class="d-flex justify-content-between align-items-center mt-2">
@@ -4061,16 +3901,17 @@ TEMPLATES = {
   </div>
   <ul class="pagination pagination-sm mb-0">
     <li class="page-item {% if page<=1 %}disabled{% endif %}">
-      <a class="page-link" href="{{ url_for('search_patients', q=q, visit_id=visit_f, user=user_f, date_from=dfrom, date_to=dto, page=page-1) }}">Prev</a>
+      <a class="page-link" href="{{ url_for('ed_board', status=status_filter, cat=cat_filter, visit_id=visit_f, user=user_f, date_from=dfrom, date_to=dto, per_page=per_page, page=page-1) }}">Prev</a>
     </li>
     <li class="page-item {% if page>=pages %}disabled{% endif %}">
-      <a class="page-link" href="{{ url_for('search_patients', q=q, visit_id=visit_f, user=user_f, date_from=dfrom, date_to=dto, page=page+1) }}">Next</a>
+      <a class="page-link" href="{{ url_for('ed_board', status=status_filter, cat=cat_filter, visit_id=visit_f, user=user_f, date_from=dfrom, date_to=dto, per_page=per_page, page=page+1) }}">Next</a>
     </li>
   </ul>
   <button class="btn btn-sm btn-outline-secondary" onclick="location.reload()">🔄 Manual Refresh</button>
 </nav>
 
 """,
+
 "ed_board.html": """
 {% extends "base.html" %}
 {% block content %}
@@ -4140,8 +3981,7 @@ TEMPLATES = {
 <table class="table table-sm table-striped bg-white">
   <thead>
     <tr>
-      <th>Queue</th><th>Visit</th><th>Name</th><th>Age</th><th>ID</th><th>INS</th>
-      <th>Payment</th><th>Triage</th><th>ES</th><th>Status</th><th>Created</th><th>Actions</th>
+      <th>Queue</th><th>Visit</th><th>Name</th><th>Age</th><th>ID</th><th>INS</th><th>Payment</th><th>Triage</th><th>ES</th><th>Status</th><th>User</th><th>Created</th><th>Actions</th>
     </tr>
   </thead>
   <tbody>
@@ -4150,7 +3990,7 @@ TEMPLATES = {
       <td class="fw-bold">{{ v.queue_no }}</td>
       <td>{{ v.visit_id }}</td>
       <td>{{ v.name }}</td>
-      <td>{{ v.age or '' }}</td>
+      <td>{{ v.age or '-' }}</td>
       <td>{{ v.id_number }}</td>
       <td>{{ v.insurance }}</td>
       <td style="max-width:220px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">{{ v.payment_details or '-' }}</td>
@@ -4168,6 +4008,7 @@ TEMPLATES = {
         {% else %}<span class="badge cat-none">-</span>{% endif %}
       </td>
       <td>{{ v.status }}</td>
+      <td>{{ v.created_by }}</td>
       <td>{{ v.created_at }}</td>
     <td class="d-flex gap-1 flex-wrap">
     <a class="btn btn-sm btn-outline-primary"
@@ -4190,11 +4031,6 @@ TEMPLATES = {
     </a>
     {% endif %}
 
-    <a class="btn btn-sm btn-outline-secondary"
-       target="_blank"
-       href="{{ url_for('home_med_pdf', visit_id=v.visit_id) }}">
-       Print Home Med
-    </a>
 </td>
 
       </td>
@@ -4290,16 +4126,7 @@ TEMPLATES = {
         <ul class="small mb-0">
           {% for l in lab_reqs %}
             {% if l.status == 'REPORTED' %}
-              {% if l.result_text and l.result_text.startswith('File:') %}
-                {% set fname = l.result_text[5:].strip() %}
-                <li>{{ l.test_name }}:
-                  <a href="{{ url_for('uploaded_file', filename=fname) }}" target="_blank">
-                    Download result
-                  </a>
-                </li>
-              {% else %}
-                <li>{{ l.test_name }}: {{ l.result_text or '-' }}</li>
-              {% endif %}
+              <li>{{ l.test_name }}: {{ l.result_text or '-' }}</li>
             {% else %}
               <li>{{ l.test_name }} – {{ l.status }}</li>
             {% endif %}
@@ -4315,16 +4142,7 @@ TEMPLATES = {
         <ul class="small mb-0">
           {% for r in rad_reqs %}
             {% if r.status == 'REPORTED' %}
-              {% if r.report_text and r.report_text.startswith('File:') %}
-                {% set fname = r.report_text[5:].strip() %}
-                <li>{{ r.test_name }}:
-                  <a href="{{ url_for('uploaded_file', filename=fname) }}" target="_blank">
-                    Download report
-                  </a>
-                </li>
-              {% else %}
-                <li>{{ r.test_name }}: {{ r.report_text or '-' }}</li>
-              {% endif %}
+              <li>{{ r.test_name }}: {{ r.report_text or '-' }}</li>
             {% else %}
               <li>{{ r.test_name }} – {{ r.status }}</li>
             {% endif %}
@@ -4398,6 +4216,7 @@ TEMPLATES = {
         <option>LAMA</option>
         <option>EXPIRED</option>
         <option>IN_TREATMENT</option>
+        <option>CANCELLED</option>
       </select>
     </div>
     <div class="col-md-3">
@@ -4418,16 +4237,22 @@ TEMPLATES = {
     <hr>
     <ul>
       {% for a in attachments %}
+        {% set is_result = '_LAB_' in a.filename or '_RAD_' in a.filename %}
         <li>
-          <a href="{{ url_for('uploaded_file', filename=a.filename) }}" target="_blank">{{ a.filename }}</a>
-          ({{ a.uploaded_at }})
-          {% if session.get('role') in ['reception','admin'] %}
-            - {% if session.get('role') in ['reception','admin'] %}
-              <form method="POST" action="{{ url_for('delete_attachment', att_id=a.id) }}" style="display:inline"
+          {# Reception cannot open lab / radiology result files #}
+          {% if session.get('role') == 'reception' and is_result %}
+            {{ a.filename }} ({{ a.uploaded_at }}) – <span class="text-muted">restricted</span>
+          {% else %}
+            <a href="{{ url_for('uploaded_file', filename=a.filename) }}" target="_blank">{{ a.filename }}</a>
+            ({{ a.uploaded_at }})
+          {% endif %}
+
+          {# Delete: admin can always delete; reception only if NOT lab/rad result #}
+          {% if session.get('role') == 'admin' or (session.get('role') == 'reception' and not is_result) %}
+            - <form method="POST" action="{{ url_for('delete_attachment', att_id=a.id) }}" style="display:inline"
                     onsubmit="return confirm('Delete this attachment?');">
                 <button class="btn btn-sm btn-link text-danger p-0">Delete</button>
               </form>
-            {% endif %}
           {% endif %}
         </li>
       {% endfor %}
@@ -4449,7 +4274,7 @@ TEMPLATES = {
     <div class="col-md-4"><label class="form-label fw-bold">Phone</label><input class="form-control" name="phone" value="{{ r.phone }}"></div>
     <div class="col-md-4"><label class="form-label fw-bold">Insurance</label><input class="form-control" name="insurance" value="{{ r.insurance }}"></div>
     <div class="col-md-4"><label class="form-label fw-bold">Insurance No</label><input class="form-control" name="insurance_no" value="{{ r.insurance_no }}"></div>
-    <div class="col-md-4"><label class="form-label fw-bold">DOB</label><input class="form-control" name="dob" value="{{ dob_display }}" placeholder="DD.MM.YYYY"></div>
+    <div class="col-md-4"><label class="form-label fw-bold">DOB</label><input class="form-control" name="dob" value="{{ r.dob }}"></div>
     <div class="col-md-2"><label class="form-label fw-bold">Sex</label>
       <select class="form-select" name="sex">
         <option value="" {% if not r.sex %}selected{% endif %}></option>
@@ -4646,7 +4471,7 @@ document.addEventListener('DOMContentLoaded', function () {
       <th>Test</th>
       <th>Status</th>
       <th>Result</th>
-      <th style="width:260px;">Actions</th>
+      <th style="width:220px;">Actions</th>
     </tr>
   </thead>
   <tbody>
@@ -4676,15 +4501,7 @@ document.addEventListener('DOMContentLoaded', function () {
           {% endif %}
         </td>
         <td style="max-width:260px; white-space:pre-wrap; font-size:0.85rem;">
-          {% if r.result_text and r.result_text.startswith('File:') %}
-            {% set fname = r.result_text[5:].strip() %}
-            <a href="{{ url_for('uploaded_file', filename=fname) }}" class="btn btn-sm btn-primary" target="_blank" download>
-              Download result
-            </a>
-            <div class="small text-muted mt-1">{{ fname }}</div>
-          {% else %}
-            {{ r.result_text or '-' }}
-          {% endif %}
+          {{ r.result_text or '-' }}
         </td>
         <td>
           <div class="d-flex flex-column gap-1">
@@ -4721,28 +4538,6 @@ document.addEventListener('DOMContentLoaded', function () {
                 </form>
               </div>
 
-              <button class="btn btn-sm btn-outline-info w-100 mt-1"
-                      type="button"
-                      data-bs-toggle="collapse"
-                      data-bs-target="#upload{{ r.id }}">
-                📁 Upload Result File
-              </button>
-
-              <div class="collapse mt-1" id="upload{{ r.id }}">
-                <form method="POST" enctype="multipart/form-data"
-                      action="{{ url_for('lab_upload_result', rid=r.id) }}">
-                  <div class="input-group input-group-sm mb-1">
-                    <input type="file"
-                           name="result_file"
-                           class="form-control"
-                           accept=".png,.jpg,.jpeg,.pdf">
-                  </div>
-                  <button class="btn btn-sm btn-info w-100">
-                    📤 Upload & Report
-                  </button>
-                </form>
-              </div>
-
               {% if r.status == 'REPORTED' %}
                 <span class="small text-muted mt-1">
                   {{ r.reported_at or '' }} | {{ r.reported_by or '' }}
@@ -4750,6 +4545,18 @@ document.addEventListener('DOMContentLoaded', function () {
               {% endif %}
             {% else %}
               <span class="small text-muted">Read-only</span>
+            {% endif %}
+
+            {% if session.get('role') in ['lab','admin','doctor'] %}
+              <form method="POST"
+                    enctype="multipart/form-data"
+                    action="{{ url_for('lab_upload_result_file', rid=r.id) }}"
+                    class="d-flex gap-1 mt-1">
+                <input type="file" name="file" class="form-control form-control-sm">
+                <button class="btn btn-sm btn-outline-secondary w-100">
+                  📎 Upload Result File
+                </button>
+              </form>
             {% endif %}
           </div>
         </td>
@@ -4811,7 +4618,7 @@ document.addEventListener('DOMContentLoaded', function () {
       <th>Study</th>
       <th>Status</th>
       <th>Report</th>
-      <th style="width:300px;">Actions</th>
+      <th style="width:260px;">Actions</th>
     </tr>
   </thead>
   <tbody>
@@ -4841,15 +4648,7 @@ document.addEventListener('DOMContentLoaded', function () {
           {% endif %}
         </td>
         <td style="max-width:260px; white-space:pre-wrap; font-size:0.85rem;">
-          {% if r.report_text and r.report_text.startswith('File:') %}
-            {% set fname = r.report_text[5:].strip() %}
-            <a href="{{ url_for('uploaded_file', filename=fname) }}" class="btn btn-sm btn-primary" target="_blank" download>
-              Download report
-            </a>
-            <div class="small text-muted mt-1">{{ fname }}</div>
-          {% else %}
-            {{ r.report_text or '-' }}
-          {% endif %}
+          {{ r.report_text or '-' }}
         </td>
         <td>
           <div class="d-flex flex-column gap-1">
@@ -4885,28 +4684,6 @@ document.addEventListener('DOMContentLoaded', function () {
                 </form>
               </div>
 
-              <button class="btn btn-sm btn-outline-info w-100 mt-1"
-                      type="button"
-                      data-bs-toggle="collapse"
-                      data-bs-target="#upload{{ r.id }}">
-                📁 Upload Report File
-              </button>
-
-              <div class="collapse mt-1" id="upload{{ r.id }}">
-                <form method="POST" enctype="multipart/form-data"
-                      action="{{ url_for('radiology_upload_report', rid=r.id) }}">
-                  <div class="input-group input-group-sm mb-1">
-                    <input type="file"
-                           name="report_file"
-                           class="form-control"
-                           accept=".png,.jpg,.jpeg,.pdf">
-                  </div>
-                  <button class="btn btn-sm btn-info w-100">
-                    📤 Upload & Report
-                  </button>
-                </form>
-              </div>
-
               {% if r.status == 'REPORTED' %}
                 <span class="small text-muted mt-1">
                   {{ r.reported_at or '' }} | {{ r.reported_by or '' }}
@@ -4914,6 +4691,18 @@ document.addEventListener('DOMContentLoaded', function () {
               {% endif %}
             {% else %}
               <span class="small text-muted">Read-only</span>
+            {% endif %}
+
+            {% if session.get('role') in ['radiology','admin','doctor'] %}
+              <form method="POST"
+                    enctype="multipart/form-data"
+                    action="{{ url_for('radiology_upload_result_file', rid=r.id) }}"
+                    class="d-flex gap-1 mt-1">
+                <input type="file" name="file" class="form-control form-control-sm">
+                <button class="btn btn-sm btn-outline-secondary w-100">
+                  📎 Upload Result File
+                </button>
+              </form>
             {% endif %}
           </div>
         </td>
@@ -5195,15 +4984,7 @@ document.addEventListener('DOMContentLoaded', function () {
               {% endif %}
             </td>
             <td style="max-width:260px;white-space:pre-wrap;font-size:0.85rem;">
-              {% if l.result_text and l.result_text.startswith('File:') %}
-                {% set fname = l.result_text[5:].strip() %}
-                <a href="{{ url_for('uploaded_file', filename=fname) }}" class="btn btn-sm btn-primary" target="_blank" download>
-                  Download result
-                </a>
-                <div class="small text-muted mt-1">{{ fname }}</div>
-              {% else %}
-                {{ l.result_text or '-' }}
-              {% endif %}
+              {{ l.result_text or '-' }}
             </td>
             <td class="small text-muted">
               {{ l.requested_at or '-' }}<br>
@@ -5248,15 +5029,7 @@ document.addEventListener('DOMContentLoaded', function () {
               {% endif %}
             </td>
             <td style="max-width:260px;white-space:pre-wrap;font-size:0.85rem;">
-              {% if r.report_text and r.report_text.startswith('File:') %}
-                {% set fname = r.report_text[5:].strip() %}
-                <a href="{{ url_for('uploaded_file', filename=fname) }}" class="btn btn-sm btn-primary" target="_blank" download>
-                  Download report
-                </a>
-                <div class="small text-muted mt-1">{{ fname }}</div>
-              {% else %}
-                {{ r.report_text or '-' }}
-              {% endif %}
+              {{ r.report_text or '-' }}
             </td>
             <td class="small text-muted">
               {{ r.requested_at or '-' }}<br>
@@ -5455,11 +5228,16 @@ function applyBundle(name){
     body { margin:0; padding:0; font-family: Arial; }
     .label {
       width: 5cm; height: 3cm;
-      border:1px solid #000; padding:0.15cm;
+      border:1px solid #000; padding:0.12cm;
       box-sizing:border-box;
     }
-    .row { font-size:8pt; margin:0.03cm 0; }
-    .title { font-weight:bold; font-size:9pt; }
+    .row { font-size:7pt; margin:0.02cm 0; }
+    .title { font-weight:bold; font-size:8pt; }
+    .barcode {
+      width: 100%;
+      max-width: 3.5cm;
+      margin-top:0.1cm;
+    }
     #btnPrint { margin-top:10px; padding:6px 12px; font-size:12px; }
     @media print {
       body { margin:0; padding:0; }
@@ -5470,18 +5248,22 @@ function applyBundle(name){
 <body onload="window.print()">
   <div class="label">
     <div class="row title">NAME: {{ v.name }}</div>
+    <div class="row">AGE: {{ age or '-' }}</div>
     <div class="row">ID: {{ v.id_number or '-' }}</div>
     <div class="row">INS: {{ v.insurance or '-' }}</div>
     <div class="row">TIME: {{ time_only }}</div>
-    <div class="row">AGE: {{ age if age is not none else '-' }}</div>
-    {% if doctor_name %}
-    <div class="row">DR: {{ doctor_name }}</div>
-    {% endif %}
+    <div class="row">VISIT: {{ v.visit_id }}</div>
+    <div class="row">
+      <img class="barcode"
+           src="https://barcode.tec-it.com/barcode.ashx?data={{ (v.id_number or v.visit_id)|urlencode }}&code=Code128&dpi=96&imagetype=png"
+           alt="BARCODE">
+    </div>
   </div>
   <button id="btnPrint" onclick="window.print()">Print Again</button>
 </body>
 </html>
 """
+
 
 ,"chat.html": """
 {% extends "base.html" %}
@@ -5500,7 +5282,7 @@ function applyBundle(name){
           <button class="btn btn-primary" id="chat-send-btn">Send</button>
         </div>
         <div class="small text-muted mt-1">
-          القناة الحالية: كل الموظفين (Public ED Room)
+          Current channel: All staff (Public ED Room)
         </div>
       </div>
     </div>
@@ -5622,7 +5404,7 @@ function applyBundle(name){
 
 @app.context_processor
 def inject_footer():
-    return dict(footer_text=APP_FOOTER_TEXT, clinics=CLINICS, clinic_types=CLINIC_TYPES)
+    return dict(footer_text=APP_FOOTER_TEXT)
 
 app.jinja_loader = DictLoader(TEMPLATES)
 
@@ -5730,7 +5512,9 @@ def chat_messages():
         for r in rows
     ]
 
-    return jsonify({"ok": True, "messages": messages})
+    return jsonify({"ok": True, "messages": messages
+
+})
 
 # ============================================================
 # Run
