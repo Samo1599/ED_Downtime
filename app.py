@@ -40,17 +40,15 @@ from reportlab.lib.units import cm
 # ============================================================
 
 app = Flask(__name__)
-
-# Fixed secret key stored directly in the code (make sure this file stays private)
 app.config["SECRET_KEY"] = "9f4c0c51a7b3e4e1c2d9a8f73b0c1d2e3f4a5b6c7d8e9f0a1b2c3d4e5f6a7b"
 app.config["SESSION_COOKIE_HTTPONLY"] = True
 app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
-app.config["SESSION_COOKIE_SECURE"] = False  # Change to True if you serve over HTTPS only
+app.config["SESSION_COOKIE_SECURE"] = True
 
 # Session lifetime (2 hours default)
 app.config["PERMANENT_SESSION_LIFETIME"] = 7200
 
-# Idle auto-logout (minutes)
+# Idle auto-logout (minutes
 IDLE_TIMEOUT_SECONDS = 15 * 60
 
 DATABASE = "triage_ed.db"
@@ -4016,6 +4014,12 @@ TEMPLATES = {
     <a class="btn btn-sm btn-outline-primary"
        href="{{ url_for('patient_details', visit_id=v.visit_id) }}">
        Open
+    </a>
+
+    <a class="btn btn-sm btn-outline-secondary"
+       target="_blank"
+       href="{{ url_for('sticker_html', visit_id=v.visit_id) }}">
+       Print Sticker
     </a>
 
     {% if session.get('role') in ['nurse','doctor','admin'] %}
