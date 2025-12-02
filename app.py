@@ -40,15 +40,20 @@ from reportlab.lib.units import cm
 # ============================================================
 
 app = Flask(__name__)
-app.config["SECRET_KEY"] = "9f4c0c51a7b3e4e1c2d9a8f73b0c1d2e3f4a5b6c7d8e9f0a1b2c3d4e5f6a7b"
+app.config["SECRET_KEY"] = os.environ.get(
+    "SECRET_KEY",
+    "9f4c0c51a7b3e4e1c2d9a8f73b0c1d2e3f4a5b6c7d8e9f0a1b2c3d4e5f6a7b",
+)
 app.config["SESSION_COOKIE_HTTPONLY"] = True
 app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
-app.config["SESSION_COOKIE_SECURE"] = True
+app.config["REMEMBER_COOKIE_HTTPONLY"] = True
+SECURE_COOKIES = os.environ.get("SECURE_COOKIES", "0") == "1"
+app.config["SESSION_COOKIE_SECURE"] = SECURE_COOKIES
 
 # Session lifetime (2 hours default)
 app.config["PERMANENT_SESSION_LIFETIME"] = 7200
 
-# Idle auto-logout (minutes
+# Idle auto-logout (minutes)
 IDLE_TIMEOUT_SECONDS = 15 * 60
 
 DATABASE = "triage_ed.db"
@@ -60,6 +65,7 @@ app.config["UPLOAD_FOLDER"] = UPLOAD_FOLDER
 
 APP_FOOTER_TEXT = "Downtime Tool © 2025 — Developed by: Samy Aly | ID 20155"
 ALLOWED_EXTENSIONS = {"png", "jpg", "jpeg", "pdf"}
+app.config["MAX_CONTENT_LENGTH"] = 5 * 1024 * 1024  # 5 MB upload limit
 
 # Simple helper for wrapping long PDF lines so text doesn't get cut off.
 from reportlab.lib.units import cm as _cm_for_wrap
@@ -5234,15 +5240,15 @@ function applyBundle(name){
     body { margin:0; padding:0; font-family: Arial; }
     .label {
       width: 5cm; height: 3cm;
-      border:1px solid #000; padding:0.12cm;
+      border:1px solid #000; padding:0.06cm;
       box-sizing:border-box;
     }
-    .row { font-size:7pt; margin:0.02cm 0; }
-    .title { font-weight:bold; font-size:8pt; }
+    .row { font-size:6pt; margin:0.01cm 0; white-space: normal; word-wrap: break-word; }
+    .title { font-weight:bold; font-size:7pt; }
     .barcode {
       width: 100%;
       max-width: 3.5cm;
-      margin-top:0.1cm;
+      margin-top:0.05cm;
     }
     #btnPrint { margin-top:10px; padding:6px 12px; font-size:12px; }
     @media print {
@@ -5253,7 +5259,8 @@ function applyBundle(name){
 </head>
 <body onload="window.print()">
   <div class="label">
-    <div class="row title">NAME: {{ v.name }}</div>
+    {% set name_len = v.name|length %}
+    <div class="row title" style="font-size: {{ 7 if name_len <= 20 else 6 }}pt;">NAME: {{ v.name }}</div>
     <div class="row">AGE: {{ age or '-' }}</div>
     <div class="row">ID: {{ v.id_number or '-' }}</div>
     <div class="row">INS: {{ v.insurance or '-' }}</div>
@@ -5529,4 +5536,6 @@ def chat_messages():
 
 if __name__ == "__main__":
     bootstrap_once()
-    app.run(host="0.0.0.0", port=5000, debug=True)
+    debug_env = os.environ.get("FLASK_DEBUG", "1")
+    debug = debug_env == "1"
+    app.run(host="0.0.0.0", port=5000, debug=debug)
