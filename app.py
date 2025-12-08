@@ -1,6 +1,6 @@
 
 """
-ED Downtime – Cerner-like Board (V5 Full Single-File)
+ED Downtime - Cerner-like Board (V5 Full Single-File)
 Internal ED use only — Downtime Tool © 2025
 Developed by Samy Aly (ID 20155)
 
@@ -39,10 +39,19 @@ from reportlab.lib.units import cm
 # Application Setup
 # ============================================================
 
+import secrets
+
+try:
+    from config import APP_CONFIG
+except ImportError:
+    APP_CONFIG = {}
 app = Flask(__name__)
-app.config["SECRET_KEY"] = os.environ.get(
+app.config["SECRET_KEY"] = APP_CONFIG.get(
     "SECRET_KEY",
-    "9f4c0c51a7b3e4e1c2d9a8f73b0c1d2e3f4a5b6c7d8e9f0a1b2c3d4e5f6a7b",
+    os.environ.get(
+        "SECRET_KEY",
+        "9f4c0c51a7b3e4e1c2d9a8f73b0c1d2e3f4a5b6c7d8e9f0a1b2c3d4e5f6a7b",
+    ),
 )
 app.config["SESSION_COOKIE_HTTPONLY"] = True
 app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
@@ -50,22 +59,47 @@ app.config["REMEMBER_COOKIE_HTTPONLY"] = True
 SECURE_COOKIES = os.environ.get("SECURE_COOKIES", "0") == "1"
 app.config["SESSION_COOKIE_SECURE"] = SECURE_COOKIES
 
+
+# CSRF protection helpers
+def generate_csrf_token():
+    token = session.get("csrf_token")
+    if not token:
+        token = secrets.token_hex(16)
+        session["csrf_token"] = token
+    return token
+
+app.jinja_env.globals["csrf_token"] = generate_csrf_token
+
+# Endpoints that are exempt from CSRF checks (JSON APIs, etc.)
+CSRF_EXEMPT_ENDPOINTS = {"chat_send", "delete_clinical_order"}
+
+@app.before_request
+def csrf_protect():
+    if request.method == "POST":
+        endpoint = (request.endpoint or "").rsplit(".", 1)[-1]
+        if endpoint in CSRF_EXEMPT_ENDPOINTS:
+            return
+        session_token = session.get("csrf_token")
+        form_token = request.form.get("csrf_token") or request.headers.get("X-CSRFToken")
+        if not session_token or not form_token or session_token != form_token:
+            return "CSRF validation failed.", 400
+
 # Session lifetime (2 hours default)
 app.config["PERMANENT_SESSION_LIFETIME"] = 7200
 
 # Idle auto-logout (minutes)
 IDLE_TIMEOUT_SECONDS = 15 * 60
 
-DATABASE = "triage_ed.db"
-UPLOAD_FOLDER = "uploads"
-BACKUP_FOLDER = "backups"
+DATABASE = APP_CONFIG.get("DATABASE", "triage_ed.db")
+UPLOAD_FOLDER = APP_CONFIG.get("UPLOAD_FOLDER", "uploads")
+BACKUP_FOLDER = APP_CONFIG.get("BACKUP_FOLDER", "backups")
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 os.makedirs(BACKUP_FOLDER, exist_ok=True)
 app.config["UPLOAD_FOLDER"] = UPLOAD_FOLDER
 
 APP_FOOTER_TEXT = "Downtime Tool © 2025 — Developed by: Samy Aly | ID 20155"
 ALLOWED_EXTENSIONS = {"png", "jpg", "jpeg", "pdf"}
-app.config["MAX_CONTENT_LENGTH"] = 5 * 1024 * 1024  # 5 MB upload limit
+app.config["MAX_CONTENT_LENGTH"] = APP_CONFIG.get("MAX_CONTENT_LENGTH", 5 * 1024 * 1024)  # 5 MB upload limit
 
 # Simple helper for wrapping long PDF lines so text doesn't get cut off.
 from reportlab.lib.units import cm as _cm_for_wrap
@@ -185,9 +219,15 @@ def init_db():
             username TEXT UNIQUE NOT NULL,
             password_hash TEXT NOT NULL,
             role TEXT NOT NULL,
-            created_at TEXT NOT NULL
+            created_at TEXT NOT NULL,
+            is_active INTEGER NOT NULL DEFAULT 1
         )
     """)
+    # Ensure legacy DBs have is_active column
+    try:
+        cur.execute("ALTER TABLE users ADD COLUMN is_active INTEGER NOT NULL DEFAULT 1")
+    except sqlite3.OperationalError:
+        pass
 
     # Patients
     cur.execute("""
@@ -230,6 +270,13 @@ def init_db():
             pain_score TEXT,
             weight TEXT,
             height TEXT,
+            location TEXT,
+            bed_no TEXT,
+            bed_status TEXT,
+            task_reg TEXT,
+            task_ekg TEXT,
+            task_sepsis TEXT,
+            visit_type TEXT,
 
             status TEXT DEFAULT 'OPEN',
             closed_at TEXT,
@@ -336,7 +383,9 @@ def init_db():
         CREATE TABLE IF NOT EXISTS chat_messages (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             username TEXT NOT NULL,
-            message TEXT NOT NULL,
+            message  TEXT NOT NULL,
+            room     TEXT,
+            visit_id TEXT,
             created_at TEXT NOT NULL
         )
     """)
@@ -377,6 +426,16 @@ def init_db():
         ensure_column("visits", "weight", "TEXT")
         ensure_column("visits", "height", "TEXT")
         ensure_column("visits", "payment_details", "TEXT")
+        ensure_column("visits", "location", "TEXT")
+        ensure_column("visits", "bed_no", "TEXT")
+        ensure_column("visits", "bed_status", "TEXT")
+        ensure_column("visits", "task_reg", "TEXT")
+        ensure_column("visits", "task_ekg", "TEXT")
+        ensure_column("visits", "task_sepsis", "TEXT")
+        ensure_column("visits", "visit_type", "TEXT")
+        # Chat extra fields
+        ensure_column("chat_messages", "room", "TEXT")
+        ensure_column("chat_messages", "visit_id", "TEXT")
     except Exception:
         pass
 
@@ -478,6 +537,46 @@ def calc_age(dob_str):
         return ""
 
 
+def calc_minutes_between(start_str, end_str=None):
+    """Return integer minutes between two timestamps (start -> end/now)."""
+    if not start_str:
+        return None
+    try:
+        s = str(start_str).strip()
+        if not s:
+            return None
+        fmts = ("%Y-%m-%d %H:%M:%S", "%Y-%m-%dT%H:%M:%S", "%Y-%m-%d")
+        start_dt = None
+        for fmt in fmts:
+            try:
+                start_dt = datetime.strptime(s, fmt)
+                break
+            except Exception:
+                start_dt = None
+        if start_dt is None:
+            return None
+        if end_str:
+            es = str(end_str).strip()
+            end_dt = None
+            for fmt in fmts:
+                try:
+                    end_dt = datetime.strptime(es, fmt)
+                    break
+                except Exception:
+                    end_dt = None
+            if end_dt is None:
+                return None
+        else:
+            end_dt = datetime.now()
+        delta = end_dt - start_dt
+        minutes = int(delta.total_seconds() // 60)
+        if minutes < 0:
+            return None
+        return minutes
+    except Exception:
+        return None
+
+
 def get_page_args(default_per_page=25, max_per_page=100):
     try:
         page = int(request.args.get("page", 1))
@@ -548,7 +647,7 @@ def login():
         username = request.form.get("username","").strip()
         password = request.form.get("password","").strip()
         cur = get_db().cursor()
-        u = cur.execute("SELECT * FROM users WHERE username=?", (username,)).fetchone()
+        u = cur.execute("SELECT * FROM users WHERE username=? AND is_active=1", (username,)).fetchone()
         if u and check_password_hash(u["password_hash"], password):
             session["user_id"] = u["id"]
             session["username"] = u["username"]
@@ -592,8 +691,8 @@ def admin_users():
         else:
             try:
                 cur.execute("""
-                    INSERT INTO users (username, password_hash, role, created_at)
-                    VALUES (?,?,?,?)
+                    INSERT INTO users (username, password_hash, role, created_at, is_active)
+                    VALUES (?,?,?,?,1)
                 """, (
                     username,
                     generate_password_hash(password),
@@ -606,8 +705,28 @@ def admin_users():
             except sqlite3.IntegrityError:
                 flash("Username already exists.", "danger")
 
-    users = cur.execute("SELECT id, username, role, created_at FROM users ORDER BY id DESC").fetchall()
+    users = cur.execute("SELECT id, username, role, created_at, is_active FROM users ORDER BY id DESC").fetchall()
     return render_template("admin_users.html", users=users)
+
+
+@app.route("/admin/users/<int:user_id>/toggle", methods=["POST"])
+@login_required
+@role_required("admin")
+def admin_toggle_user(user_id):
+    db = get_db()
+    cur = db.cursor()
+    u = cur.execute("SELECT username, is_active FROM users WHERE id=?", (user_id,)).fetchone()
+    if not u:
+        flash("User not found.", "danger")
+        return redirect(url_for("admin_users"))
+    new_status = 0 if u["is_active"] else 1
+    db.execute("UPDATE users SET is_active=? WHERE id=?", (new_status, user_id))
+    db.commit()
+    action = "DEACTIVATE_USER" if new_status == 0 else "ACTIVATE_USER"
+    log_action(action, details=u["username"])
+    flash(f"User {u['username']} is now {'inactive' if new_status == 0 else 'active'}.", "success")
+    return redirect(url_for("admin_users"))
+
 
 @app.route("/admin/reset_password", methods=["GET","POST"])
 @login_required
@@ -912,6 +1031,7 @@ def register_patient():
         dob = request.form.get("dob","").strip()
         sex = request.form.get("sex","").strip()
         nationality = request.form.get("nationality","").strip()
+        visit_type = (request.form.get("visit_type","NEW") or "NEW").strip().upper()
         payment_details = request.form.get("payment_details","").strip()
         elig_file = request.files.get("eligibility_file")
 
@@ -937,11 +1057,12 @@ def register_patient():
         cur.execute("""
             INSERT INTO visits
             (visit_id, patient_id, queue_no, triage_status, status,
-             payment_details, created_at, created_by)
-            VALUES (?,?,?,?,?,?,?,?)
+             payment_details, visit_type, created_at, created_by)
+            VALUES (?,?,?,?,?,?,?,?,?)
         """,(
             visit_id, patient_id, queue_no, "NO", "OPEN",
             payment_details,
+            visit_type,
             datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
             session.get("username")
         ))
@@ -1036,37 +1157,65 @@ def search_patients():
 
 @app.route("/")
 @login_required
+
 def ed_board():
-    status_filter = request.args.get("status","ALL")
-    cat_filter = request.args.get("cat","ALL")
-    visit_f = request.args.get("visit_id","").strip()
-    user_f  = request.args.get("user","").strip()
-    dfrom   = request.args.get("date_from","").strip()
-    dto     = request.args.get("date_to","").strip()
+    """
+    ED Board: filterable/paged list of ED visits with simple triage coloring,
+    wait time/length-of-stay calculation, and small summary counters.
+    """
+    status_filter = request.args.get("status", "ALL")
+    cat_filter = request.args.get("cat", "ALL")
+    visit_f = (request.args.get("visit_id", "") or "").strip()
+    user_f = (request.args.get("user", "") or "").strip()
+    dfrom = (request.args.get("date_from", "") or "").strip()
+    dto = (request.args.get("date_to", "") or "").strip()
 
     sql = """
-        SELECT v.visit_id, v.queue_no, v.triage_status, v.triage_cat,
-               v.status, v.payment_details, v.created_at, v.created_by,
-               p.name, p.id_number, p.insurance, p.dob AS dob
+        SELECT v.visit_id,
+               v.queue_no,
+               v.triage_status,
+               v.triage_cat,
+               v.status,
+               v.payment_details,
+               v.created_at,
+               v.created_by,
+               v.closed_at,
+               v.location,
+               v.bed_no,
+               v.bed_status,
+               v.task_reg,
+               v.task_ekg,
+               v.task_sepsis,
+               v.visit_type,
+               v.allergy_status,
+               v.allergy_details,
+               p.name,
+               p.id_number,
+               p.insurance,
+               p.dob AS dob
         FROM visits v
         JOIN patients p ON p.id = v.patient_id
         WHERE 1=1
     """
     params = []
 
+    # Status / triage filters
     if status_filter != "ALL":
-        sql += " AND v.status=?"
+        sql += " AND v.status = ?"
         params.append(status_filter)
     if cat_filter != "ALL":
-        sql += " AND v.triage_cat=?"
+        sql += " AND v.triage_cat = ?"
         params.append(cat_filter)
 
+    # Text filters
     if visit_f:
         sql += " AND v.visit_id LIKE ?"
         params.append(f"%{visit_f}%")
     if user_f:
-        sql += " AND v.created_by=?"
+        sql += " AND v.created_by = ?"
         params.append(user_f)
+
+    # Date filters (based on created_at)
     if dfrom:
         sql += " AND date(v.created_at) >= date(?)"
         params.append(dfrom)
@@ -1075,40 +1224,135 @@ def ed_board():
         params.append(dto)
 
     page, per_page, offset = get_page_args(30)
+    db = get_db()
+    cur = db.cursor()
 
-    count_sql = "SELECT COUNT(*) FROM (" + sql + ")"
-    total = get_db().cursor().execute(count_sql, params).fetchone()[0]
-    pages = (total + per_page - 1) // per_page
+    base_sql = sql
+    base_params = list(params)
 
-    sql += """
+    # Summary counters (respect current filters)
+    status_counts = {}
+    triage_counts = {}
+    try:
+        for row in cur.execute(
+            "SELECT status, COUNT(*) AS c FROM (" + base_sql + ") GROUP BY status",
+            base_params,
+        ).fetchall():
+            key = row["status"] or "UNKNOWN"
+            status_counts[key] = row["c"]
+
+        for row in cur.execute(
+            "SELECT triage_cat, COUNT(*) AS c FROM (" + base_sql + ") GROUP BY triage_cat",
+            base_params,
+        ).fetchall():
+            key = row["triage_cat"] or "UNK"
+            triage_counts[key] = row["c"]
+    except Exception:
+        # In case SQLite or subquery fails for any reason, we just skip the summary.
+        status_counts = {}
+        triage_counts = {}
+
+    # Count for pagination
+    count_sql = "SELECT COUNT(*) FROM (" + base_sql + ")"
+    total_row = cur.execute(count_sql, base_params).fetchone()
+    try:
+        total = total_row[0]
+    except Exception:
+        total = 0
+    pages = (total + per_page - 1) // per_page if per_page else 1
+    if pages <= 0:
+        pages = 1
+
+    # Main query with ordering & pagination
+    sql = base_sql + """
         ORDER BY 
             CASE 
-                WHEN v.triage_cat='ES1' THEN 1
-                WHEN v.triage_cat='ES2' THEN 2
-                WHEN v.triage_cat='ES3' THEN 3
-                WHEN v.triage_cat='ES4' THEN 4
-                WHEN v.triage_cat='ES5' THEN 5
+                WHEN v.triage_cat = 'ES1' THEN 1
+                WHEN v.triage_cat = 'ES2' THEN 2
+                WHEN v.triage_cat = 'ES3' THEN 3
+                WHEN v.triage_cat = 'ES4' THEN 4
+                WHEN v.triage_cat = 'ES5' THEN 5
                 ELSE 6
             END,
             v.id DESC
         LIMIT ? OFFSET ?
     """
-    params2 = params + [per_page, offset]
-    rows = get_db().cursor().execute(sql, params2).fetchall()
+    params2 = base_params + [per_page, offset]
+    rows = cur.execute(sql, params2).fetchall()
 
     visits = []
     for r in rows:
         d = dict(r)
         d["age"] = calc_age(d.get("dob"))
+
+        # Wait time / LOS in minutes
+        created_at = d.get("created_at")
+        closed_at = d.get("closed_at")
+        status_val = (d.get("status") or "").upper()
+
+        # If closed and we have a closed_at timestamp, use LOS;
+        # otherwise, measure from created_at until now.
+        if status_val in ("DISCHARGED", "TRANSFERRED", "LAMA", "EXPIRED", "CANCELLED", "CLOSED") and closed_at:
+            mins = calc_minutes_between(created_at, closed_at)
+        else:
+            mins = calc_minutes_between(created_at)
+
+        d["waiting_minutes"] = mins
+        if mins is None:
+            d["waiting_text"] = "-"
+            d["waiting_level"] = "none"
+        else:
+            try:
+                mins_int = int(mins)
+            except Exception:
+                mins_int = mins
+            # Human-readable text
+            if isinstance(mins_int, int) and mins_int >= 60:
+                h = mins_int // 60
+                m = mins_int % 60
+                if h >= 24:
+                    days = h // 24
+                    rem_h = h % 24
+                    d["waiting_text"] = f"{days}d {rem_h}h"
+                else:
+                    d["waiting_text"] = f"{h}h {m:02d}m"
+            else:
+                d["waiting_text"] = f"{mins_int}m"
+
+            # Simple traffic-light levels
+            if mins_int is None:
+                level = "none"
+            elif mins_int < 30:
+                level = "short"
+            elif mins_int < 90:
+                level = "medium"
+            else:
+                level = "long"
+            d["waiting_level"] = level
+
         visits.append(d)
 
-    users = get_db().cursor().execute("SELECT DISTINCT created_by FROM visits ORDER BY created_by").fetchall()
+    users = cur.execute(
+        "SELECT DISTINCT created_by FROM visits WHERE created_by IS NOT NULL AND TRIM(created_by) <> '' ORDER BY created_by"
+    ).fetchall()
 
-    return render_template("ed_board.html", visits=visits,
-                           status_filter=status_filter, cat_filter=cat_filter,
-                           visit_f=visit_f, user_f=user_f, dfrom=dfrom, dto=dto, users=users,
-                           page=page, pages=pages, per_page=per_page, total=total)
-
+    return render_template(
+        "ed_board.html",
+        visits=visits,
+        status_filter=status_filter,
+        cat_filter=cat_filter,
+        visit_f=visit_f,
+        user_f=user_f,
+        dfrom=dfrom,
+        dto=dto,
+        users=users,
+        page=page,
+        pages=pages,
+        per_page=per_page,
+        total=total,
+        status_counts=status_counts,
+        triage_counts=triage_counts,
+    )
 @app.route("/export/ed_board.csv")
 @login_required
 def export_ed_board_csv():
@@ -1137,6 +1381,194 @@ def export_ed_board_csv():
         mimetype="text/csv",
         headers={"Content-Disposition": "attachment; filename=ed_board.csv"}
     )
+
+@app.route("/export/labs.csv")
+@login_required
+def export_labs_csv():
+    """
+    Export lab requests as CSV using the same filters as the Lab Board.
+    """
+    status_filter = request.args.get("status", "PENDING")
+    q = request.args.get("q", "").strip()
+    dfrom = request.args.get("date_from", "").strip()
+    dto = request.args.get("date_to", "").strip()
+
+    cur = get_db().cursor()
+    sql = """
+        SELECT lr.id,
+               v.visit_id,
+               p.name,
+               p.id_number,
+               lr.test_name,
+               lr.status,
+               lr.requested_at,
+               lr.received_at,
+               lr.reported_at,
+               lr.result_text,
+               lr.reported_by
+        FROM lab_requests lr
+        JOIN visits v ON v.visit_id = lr.visit_id
+        JOIN patients p ON p.id = v.patient_id
+        WHERE 1=1
+    """
+    params = []
+
+    # Status filter
+    if status_filter == "PENDING":
+        sql += " AND lr.status IN ('REQUESTED','RECEIVED')"
+    elif status_filter == "REPORTED":
+        sql += " AND lr.status='REPORTED'"
+    elif status_filter == "ALL":
+        pass
+    else:
+        status_filter = "PENDING"
+        sql += " AND lr.status IN ('REQUESTED','RECEIVED')"
+
+    # Date filters based on requested_at
+    if dfrom:
+        sql += " AND date(lr.requested_at) >= date(?)"
+        params.append(dfrom)
+    if dto:
+        sql += " AND date(lr.requested_at) <= date(?)"
+        params.append(dto)
+
+    # Text search
+    if q:
+        like = f"%{q}%"
+        sql += " AND (p.name LIKE ? OR p.id_number LIKE ? OR v.visit_id LIKE ? OR lr.test_name LIKE ?)"
+        params.extend([like, like, like, like])
+
+    # Oldest first within each group, but no hard LIMIT for export
+    sql += (
+        " ORDER BY "
+        " CASE WHEN lr.status IN ('REQUESTED','RECEIVED') THEN 0 ELSE 1 END, "
+        " datetime(lr.requested_at) ASC, lr.id ASC"
+    )
+
+    rows = cur.execute(sql, params).fetchall()
+
+    output = io.StringIO()
+    writer = csv.writer(output)
+    writer.writerow([
+        "ID","VisitID","Name","ID Number","Test",
+        "Status","RequestedAt","ReceivedAt","ReportedAt",
+        "ResultText","ReportedBy"
+    ])
+    for r in rows:
+        writer.writerow([
+            r["id"],
+            r["visit_id"],
+            r["name"],
+            r["id_number"],
+            r["test_name"],
+            r["status"],
+            r["requested_at"],
+            r["received_at"],
+            r["reported_at"],
+            (r["result_text"] or "").replace("\r"," ").replace("\n"," "),
+            r["reported_by"] or "",
+        ])
+
+    return Response(
+        output.getvalue().encode("utf-8-sig"),
+        mimetype="text/csv",
+        headers={"Content-Disposition": "attachment; filename=labs.csv"}
+    )
+
+@app.route("/export/radiology.csv")
+@login_required
+def export_radiology_csv():
+    """
+    Export radiology requests as CSV using the same filters as the Radiology Board.
+    """
+    status_filter = request.args.get("status", "PENDING")
+    q = request.args.get("q", "").strip()
+    dfrom = request.args.get("date_from", "").strip()
+    dto = request.args.get("date_to", "").strip()
+
+    cur = get_db().cursor()
+    sql = """
+        SELECT rr.id,
+               v.visit_id,
+               p.name,
+               p.id_number,
+               rr.test_name,
+               rr.status,
+               rr.requested_at,
+               rr.requested_by,
+               rr.done_at,
+               rr.done_by,
+               rr.reported_at,
+               rr.reported_by,
+               rr.report_text
+        FROM radiology_requests rr
+        JOIN visits v ON v.visit_id = rr.visit_id
+        JOIN patients p ON p.id = v.patient_id
+        WHERE 1=1
+    """
+    params = []
+
+    # Status filter
+    if status_filter == "PENDING":
+        sql += " AND rr.status IN ('REQUESTED','DONE')"
+    elif status_filter == "REPORTED":
+        sql += " AND rr.status='REPORTED'"
+    elif status_filter == "ALL":
+        pass
+    else:
+        status_filter = "PENDING"
+        sql += " AND rr.status IN ('REQUESTED','DONE')"
+
+    # Date filters based on requested_at
+    if dfrom:
+        sql += " AND date(rr.requested_at) >= date(?)"
+        params.append(dfrom)
+    if dto:
+        sql += " AND date(rr.requested_at) <= date(?)"
+        params.append(dto)
+
+    # Text search
+    if q:
+        like = f"%{q}%"
+        sql += " AND (p.name LIKE ? OR p.id_number LIKE ? OR v.visit_id LIKE ? OR rr.test_name LIKE ?)"
+        params.extend([like, like, like, like])
+
+    sql += " ORDER BY rr.id DESC"
+
+    rows = cur.execute(sql, params).fetchall()
+
+    output = io.StringIO()
+    writer = csv.writer(output)
+    writer.writerow([
+        "ID","VisitID","Name","ID Number","Study",
+        "Status","RequestedAt","RequestedBy",
+        "DoneAt","DoneBy",
+        "ReportedAt","ReportedBy",
+        "ReportText",
+    ])
+    for r in rows:
+        writer.writerow([
+            r["id"],
+            r["visit_id"],
+            r["name"],
+            r["id_number"],
+            r["test_name"],
+            r["status"],
+            r["requested_at"],
+            r["requested_by"],
+            r["done_at"],
+            r["done_by"],
+            r["reported_at"],
+            r["reported_by"],
+            (r["report_text"] or "").replace("\r", " ").replace("\n", " "),
+        ])
+
+    return Response(
+        output.getvalue().encode("utf-8-sig"),
+        mimetype="text/csv",
+        headers={"Content-Disposition": "attachment; filename=radiology.csv"}
+    )
+
 
 # ============================================================
 # Patient Details / Edit / Attachments / Close Visit
@@ -1381,6 +1813,41 @@ def patient_details(visit_id):
                            rad_reqs=rad_reqs,
                            orders_count=orders_count)
 
+
+@app.route("/visit/<visit_id>/location_bed", methods=["POST"])
+@login_required
+@role_required("reception","nurse","doctor","admin")
+def update_location_bed(visit_id):
+    """
+    Simple helper to update ED Location / Bed / Bed Status from patient_details or ED Board.
+    """
+    db = get_db()
+    cur = db.cursor()
+
+    location = (request.form.get("location") or "").strip()
+    bed_no = (request.form.get("bed_no") or "").strip()
+    bed_status = (request.form.get("bed_status") or "").strip().upper()
+    if bed_status not in ("EMPTY", "OCCUPIED", "DIRTY"):
+        bed_status = ""
+
+    cur.execute(
+        """
+        UPDATE visits
+           SET location=?,
+               bed_no=?,
+               bed_status=?
+         WHERE visit_id=?
+        """,
+        (location, bed_no, bed_status, visit_id),
+    )
+    db.commit()
+
+    log_action("UPDATE_LOC_BED", visit_id=visit_id,
+               details=f"{location}|{bed_no}|{bed_status}")
+    flash("Location / Bed updated.", "success")
+    return redirect(url_for("patient_details", visit_id=visit_id))
+
+
 @app.route("/patient/<visit_id>/edit", methods=["GET","POST"])
 @login_required
 @role_required("reception","admin")
@@ -1512,6 +1979,139 @@ def close_visit(visit_id):
     flash(f"Visit closed as {status}.", "success")
     return redirect(url_for("ed_board"))
 
+
+@app.route("/depart/<visit_id>", methods=["GET","POST"])
+@login_required
+@role_required("reception","nurse","doctor","admin")
+def depart_workflow(visit_id):
+    """
+    ED Depart / Discharge workflow page.
+    Shows a Cerner-like checklist (registration, sepsis, ECG)
+    and quick links to discharge PDFs and close-visit.
+    """
+    db = get_db()
+    cur = db.cursor()
+
+    visit = cur.execute("""
+        SELECT v.*,
+               p.name,
+               p.id_number,
+               p.phone,
+               p.insurance,
+               p.insurance_no,
+               p.dob,
+               p.sex,
+               p.nationality
+        FROM visits v
+        JOIN patients p ON p.id = v.patient_id
+        WHERE v.visit_id=?
+    """, (visit_id,)).fetchone()
+
+    if not visit:
+        flash("Visit not found.", "danger")
+        return redirect(url_for("ed_board"))
+
+    if request.method == "POST":
+        # Update simple checklist tasks
+        task_reg = "YES" if request.form.get("task_reg") else ""
+        task_ekg = "YES" if request.form.get("task_ekg") else ""
+        task_sepsis = "YES" if request.form.get("task_sepsis") else ""
+
+        cur.execute(
+            "UPDATE visits SET task_reg=?, task_ekg=?, task_sepsis=? WHERE visit_id=?",
+            (task_reg, task_ekg, task_sepsis, visit_id),
+        )
+        db.commit()
+
+        log_action(
+            "UPDATE_VISIT_TASKS",
+            visit_id=visit_id,
+            details=f"REG={task_reg or 'NO'},EKG={task_ekg or 'NO'},SEP={task_sepsis or 'NO'}",
+        )
+        flash("Checklist tasks updated.", "success")
+        return redirect(url_for("depart_workflow", visit_id=visit_id))
+
+    # Orders count
+    try:
+        row = cur.execute(
+            "SELECT COUNT(*) AS c FROM clinical_orders WHERE visit_id=?",
+            (visit_id,),
+        ).fetchone()
+        orders_count = row["c"] if row is not None else 0
+    except Exception:
+        orders_count = 0
+
+    # Lab counts
+    labs_total = labs_pending = labs_reported = 0
+    try:
+        lab_rows = cur.execute(
+            "SELECT status, COUNT(*) AS c FROM lab_requests WHERE visit_id=? GROUP BY status",
+            (visit_id,),
+        ).fetchall()
+        for r in lab_rows:
+            st = (r["status"] or "").upper()
+            c = r["c"] or 0
+            labs_total += c
+            if st in ("REQUESTED", "RECEIVED"):
+                labs_pending += c
+            elif st == "REPORTED":
+                labs_reported += c
+    except Exception:
+        pass
+
+    # Radiology counts
+    rads_total = rads_pending = rads_reported = 0
+    try:
+        rad_rows = cur.execute(
+            "SELECT status, COUNT(*) AS c FROM radiology_requests WHERE visit_id=? GROUP BY status",
+            (visit_id,),
+        ).fetchall()
+        for r in rad_rows:
+            st = (r["status"] or "").upper()
+            c = r["c"] or 0
+            rads_total += c
+            if st in ("REQUESTED", "DONE"):
+                rads_pending += c
+            elif st == "REPORTED":
+                rads_reported += c
+    except Exception:
+        pass
+
+    # Discharge summary presence
+    try:
+        discharge = cur.execute(
+            "SELECT diagnosis_cc, summary_text FROM discharge_summaries WHERE visit_id=?",
+            (visit_id,),
+        ).fetchone()
+    except Exception:
+        discharge = None
+
+    discharge_exists = discharge is not None
+    discharge_diag = ""
+    if discharge:
+        discharge_diag = (discharge["diagnosis_cc"] or "").strip() or ""
+
+    # Log view
+    try:
+        log_action("DEPART_VIEW", visit_id=visit_id)
+    except Exception:
+        pass
+
+    return render_template(
+        "depart_workflow.html",
+        visit=visit,
+        orders_count=orders_count,
+        labs_total=labs_total,
+        labs_pending=labs_pending,
+        labs_reported=labs_reported,
+        rads_total=rads_total,
+        rads_pending=rads_pending,
+        rads_reported=rads_reported,
+        discharge_exists=discharge_exists,
+        discharge_diag=discharge_diag,
+    )
+
+
 @app.route("/visit/<visit_id>/cancel", methods=["POST"])
 @login_required
 @role_required("reception","admin")
@@ -1523,7 +2123,7 @@ def cancel_visit(visit_id):
     - There must be no clinical orders for this visit.
     - A text reason is mandatory.
     """
-    reason = (request.form.get("cancel_reason") or "").strip()
+    reason = ((request.form.get("cancel_reason") or request.form.get("reason")) or "").strip()
     if not reason:
         flash("Please enter a reason for cancellation.", "danger")
         return redirect(url_for("patient_details", visit_id=visit_id))
@@ -2190,6 +2790,23 @@ def clinical_order_pdf(visit_id, oid):
     width, height = A4
     y = height - 2*cm
 
+    # Optional patient ID image (from reception attachment) at top-right
+    if id_image_path:
+        try:
+            img_w = 4*cm
+            img_h = 3*cm
+            c.drawImage(
+                id_image_path,
+                width - img_w - 2*cm,
+                height - img_h - 2*cm,
+                width=img_w,
+                height=img_h,
+                preserveAspectRatio=True,
+                mask='auto',
+            )
+        except Exception:
+            pass
+
     c.setFont("Helvetica-Bold", 16)
     c.drawString(2*cm, y, "Clinical Order")
     y -= 1*cm
@@ -2412,6 +3029,8 @@ def lab_board():
     """
     status_filter = request.args.get("status", "PENDING")
     q = request.args.get("q", "").strip()
+    dfrom = request.args.get("date_from", "").strip()
+    dto = request.args.get("date_to", "").strip()
 
     cur = get_db().cursor()
     sql = """
@@ -2437,20 +3056,79 @@ def lab_board():
         status_filter = "PENDING"
         sql += " AND lr.status IN ('REQUESTED','RECEIVED')"
 
+    # Date filters based on requested_at
+    if dfrom:
+        sql += " AND date(lr.requested_at) >= date(?)"
+        params.append(dfrom)
+    if dto:
+        sql += " AND date(lr.requested_at) <= date(?)"
+        params.append(dto)
+
     # Text search
     if q:
         like = f"%{q}%"
         sql += " AND (p.name LIKE ? OR p.id_number LIKE ? OR v.visit_id LIKE ? OR lr.test_name LIKE ?)"
         params.extend([like, like, like, like])
 
-    sql += " ORDER BY lr.id DESC LIMIT 500"
-    rows = cur.execute(sql, params).fetchall()
+    # Order: pending first, oldest requested_at first within each group
+    sql += (
+        " ORDER BY "
+        " CASE WHEN lr.status IN ('REQUESTED','RECEIVED') THEN 0 ELSE 1 END, "
+        " datetime(lr.requested_at) ASC, lr.id ASC"
+        " LIMIT 500"
+    )
+    rows_raw = cur.execute(sql, params).fetchall()
+
+    # Build enriched rows (age/TAT + delay flag + status counts)
+    rows = []
+    status_counts = {}
+    for r in rows_raw:
+        d = dict(r)
+        st = d.get("status") or ""
+        status_counts[st] = status_counts.get(st, 0) + 1
+
+        req_ts = d.get("requested_at")
+        rep_ts = d.get("reported_at")
+        if st == "REPORTED" and rep_ts:
+            mins = calc_minutes_between(req_ts, rep_ts)
+        else:
+            mins = calc_minutes_between(req_ts, None)
+        d["age_minutes"] = mins
+        if mins is None:
+            d["age_text"] = ""
+            d["age_level"] = ""
+        else:
+            hours = mins // 60
+            mm = mins % 60
+            if hours:
+                d["age_text"] = f"{hours}h {mm:02d}m"
+            else:
+                d["age_text"] = f"{mm}m"
+            # classify delay for pending only
+            if st in ("REQUESTED", "RECEIVED"):
+                if mins >= 120:
+                    d["age_level"] = "long"
+                elif mins >= 60:
+                    d["age_level"] = "medium"
+                else:
+                    d["age_level"] = "short"
+            else:
+                d["age_level"] = ""
+        rows.append(d)
+
+    pending_count = status_counts.get("REQUESTED", 0) + status_counts.get("RECEIVED", 0)
+    reported_count = status_counts.get("REPORTED", 0)
 
     return render_template(
         "lab_board.html",
         rows=rows,
         status_filter=status_filter,
-        q=q
+        q=q,
+        date_from=dfrom,
+        date_to=dto,
+        status_counts=status_counts,
+        pending_count=pending_count,
+        reported_count=reported_count,
     )
 
 
@@ -2630,13 +3308,17 @@ def radiology_upload_result_file(rid):
 @app.route("/radiology_board")
 @login_required
 @role_required("radiology", "admin", "doctor", "nurse")
+
 def radiology_board():
     """
     Radiology board for viewing and updating radiology requests.
     Supports simple search by patient, ID, visit or study.
+    Adds simple ageing (minutes since requested) and small summary counters.
     """
     status_filter = request.args.get("status", "PENDING")
     q = request.args.get("q", "").strip()
+    dfrom = request.args.get("date_from", "").strip()
+    dto = request.args.get("date_to", "").strip()
 
     cur = get_db().cursor()
     sql = """
@@ -2662,21 +3344,118 @@ def radiology_board():
         status_filter = "PENDING"
         sql += " AND rr.status IN ('REQUESTED','DONE')"
 
+    # Date filters based on requested_at
+    if dfrom:
+        sql += " AND date(rr.requested_at) >= date(?)"
+        params.append(dfrom)
+    if dto:
+        sql += " AND date(rr.requested_at) <= date(?)"
+        params.append(dto)
+
     # Text search
     if q:
         like = f"%{q}%"
         sql += " AND (p.name LIKE ? OR p.id_number LIKE ? OR v.visit_id LIKE ? OR rr.test_name LIKE ?)"
         params.extend([like, like, like, like])
 
-    sql += " ORDER BY rr.id DESC LIMIT 500"
-    rows = cur.execute(sql, params).fetchall()
+    # Order: pending first, oldest requested_at first within each group
+    sql += (
+        " ORDER BY "
+        " CASE WHEN rr.status IN ('REQUESTED','DONE') THEN 0 ELSE 1 END, "
+        " datetime(rr.requested_at) ASC, rr.id ASC"
+        " LIMIT 500"
+    )
+    rows_raw = cur.execute(sql, params).fetchall()
+
+    rows = []
+    status_counts = {}
+    modality_counts = {}
+    pending_count = 0
+    reported_count = 0
+
+    for r in rows_raw:
+        d = dict(r)
+        st = (d.get("status") or "").upper().strip()
+        status_counts[st] = status_counts.get(st, 0) + 1
+
+        if st in ("REQUESTED", "DONE"):
+            pending_count += 1
+        elif st == "REPORTED":
+            reported_count += 1
+
+        # Age / TAT in minutes
+        req_ts = d.get("requested_at")
+        rep_ts = d.get("reported_at")
+        if st == "REPORTED" and rep_ts:
+            mins = calc_minutes_between(req_ts, rep_ts)
+        else:
+            mins = calc_minutes_between(req_ts, None)
+        d["age_minutes"] = mins
+
+        if mins is None:
+            d["age_text"] = "-"
+            d["age_level"] = "none"
+        else:
+            try:
+                mins_int = int(mins)
+            except Exception:
+                mins_int = mins
+
+            # Human readable
+            if isinstance(mins_int, int) and mins_int >= 60:
+                h = mins_int // 60
+                m = mins_int % 60
+                if h >= 24:
+                    days = h // 24
+                    rem_h = h % 24
+                    d["age_text"] = f"{days}d {rem_h}h"
+                else:
+                    d["age_text"] = f"{h}h {m:02d}m"
+            else:
+                d["age_text"] = f"{mins_int}m"
+
+            # Age level for simple coloring
+            if mins_int is None:
+                level = "none"
+            elif mins_int < 30:
+                level = "short"
+            elif mins_int < 60:
+                level = "medium"
+            elif mins_int < 120:
+                level = "long"
+            else:
+                level = "verylong"
+            d["age_level"] = level
+
+        # Simple modality grouping from test_name
+        tname = (d.get("test_name") or "").lower()
+        modality = "Other"
+        if "mri" in tname:
+            modality = "MRI"
+        elif "ct" in tname:
+            modality = "CT"
+        elif "ultrasound" in tname or " u/s" in tname or "u/s " in tname or " us " in tname:
+            modality = "US"
+        elif "xray" in tname or "x-ray" in tname or " xray" in tname or " cxr" in tname or " chest x" in tname:
+            modality = "XR"
+        d["modality"] = modality
+        modality_counts[modality] = modality_counts.get(modality, 0) + 1
+
+        rows.append(d)
 
     return render_template(
         "radiology_board.html",
         rows=rows,
         status_filter=status_filter,
-        q=q
+        q=q,
+        date_from=dfrom,
+        date_to=dto,
+        status_counts=status_counts,
+        modality_counts=modality_counts,
+        pending_count=pending_count,
+        reported_count=reported_count,
     )
+
 
 
 @app.route("/radiology_request/<int:rid>/done", methods=["POST"])
@@ -2908,6 +3687,141 @@ def patient_summary_pdf(visit_id):
         mimetype="application/pdf",
         headers={"Content-Disposition": "inline; filename=patient_short_summary.pdf"}
     )
+
+@app.route("/triage/<visit_id>/pdf")
+@login_required
+@role_required("nurse","doctor","admin")
+def triage_pdf(visit_id):
+    db = get_db()
+    cur = db.cursor()
+
+    visit = cur.execute("""
+        SELECT v.*,
+               p.name, p.id_number, p.phone,
+               p.insurance, p.insurance_no,
+               p.dob, p.sex, p.nationality
+        FROM visits v
+        JOIN patients p ON p.id=v.patient_id
+        WHERE v.visit_id=?
+    """, (visit_id,)).fetchone()
+
+    if not visit:
+        return "Not found", 404
+
+    # Try to fetch an ID/eligibility attachment for this visit (non-lab/rad)
+    id_image_path = None
+    try:
+        att = cur.execute(
+            """
+            SELECT filename
+              FROM attachments
+             WHERE visit_id=?
+               AND filename NOT LIKE '%_LAB_%'
+               AND filename NOT LIKE '%_RAD_%'
+             ORDER BY uploaded_at ASC
+             LIMIT 1
+            """,
+            (visit_id,),
+        ).fetchone()
+        if att and att["filename"]:
+            candidate = os.path.join(UPLOAD_FOLDER, att["filename"])
+            if os.path.exists(candidate):
+                id_image_path = candidate
+    except Exception:
+        id_image_path = None
+
+    buffer = io.BytesIO()
+    c = canvas.Canvas(buffer, pagesize=A4)
+    width, height = A4
+    y = height - 2*cm
+
+    c.setFont("Helvetica-Bold", 16)
+    c.drawString(2*cm, y, "ED Triage Sheet")
+    y -= 1.0*cm
+
+    c.setFont("Helvetica", 11)
+    c.drawString(2*cm, y, f"Visit: {visit['visit_id']}")
+    y -= 0.6*cm
+    c.drawString(2*cm, y, f"Patient: {visit['name']}   ID: {visit['id_number'] or '-'}")
+    y -= 0.6*cm
+    c.drawString(2*cm, y, f"Phone: {visit['phone'] or '-'}   Insurance: {visit['insurance'] or '-'}")
+    y -= 0.6*cm
+    c.drawString(2*cm, y, f"DOB: {visit['dob'] or '-'}   Sex: {visit['sex'] or '-'}   Nationality: {visit['nationality'] or '-'}")
+    y -= 1.0*cm
+
+    c.setFont("Helvetica-Bold", 11)
+    c.drawString(2*cm, y, f"Triage Category: {visit['triage_cat'] or '-'}")
+    y -= 0.8*cm
+
+    c.setFont("Helvetica-Bold", 10)
+    c.drawString(2*cm, y, "Patient's Complaint:")
+    y -= 0.4*cm
+    y = draw_wrapped_lines(
+        c,
+        visit["comment"] or "-",
+        x=2*cm,
+        y=y,
+        max_chars=100,
+        line_height=0.4*cm,
+        page_height=height,
+        font_name="Helvetica",
+        font_size=9,
+    )
+    y -= 0.6*cm
+
+    c.setFont("Helvetica-Bold", 10)
+    c.drawString(2*cm, y, "Allergy:")
+    y -= 0.4*cm
+    c.setFont("Helvetica", 9)
+    allergy_status = visit["allergy_status"] or "-"
+    c.drawString(2*cm, y, f"Status: {allergy_status}")
+    y -= 0.4*cm
+    if visit["allergy_details"]:
+        y = draw_wrapped_lines(
+            c,
+            visit["allergy_details"],
+            x=2*cm,
+            y=y,
+            max_chars=100,
+            line_height=0.4*cm,
+            page_height=height,
+            font_name="Helvetica",
+            font_size=9,
+        )
+        y -= 0.4*cm
+    y -= 0.2*cm
+
+    c.setFont("Helvetica-Bold", 10)
+    c.drawString(2*cm, y, "Vital Signs:")
+    y -= 0.5*cm
+    c.setFont("Helvetica", 9)
+
+    lines = [
+        f"Pulse: {visit['pulse_rate'] or '-'} bpm   Resp: {visit['resp_rate'] or '-'} /min   Temp: {visit['temperature'] or '-'} °C",
+        f"BP: {visit['bp_systolic'] or '-'} / {visit['bp_diastolic'] or '-'} mmHg   SpO₂: {visit['spo2'] or '-'} %",
+        f"Pain Score: {visit['pain_score'] or '-'} /10   Weight: {visit['weight'] or '-'} kg   Height: {visit['height'] or '-'} cm",
+        f"Level of Consciousness: {visit['consciousness_level'] or '-'}",
+    ]
+
+    for line in lines:
+        c.drawString(2*cm, y, line[:130])
+        y -= 0.4*cm
+        if y < 2*cm:
+            c.showPage()
+            y = height - 2*cm
+
+    c.setFont("Helvetica-Oblique", 8)
+    c.drawString(2*cm, 1.2*cm, APP_FOOTER_TEXT)
+    c.showPage()
+    c.save()
+    buffer.seek(0)
+
+    return Response(
+        buffer.getvalue(),
+        mimetype="application/pdf",
+        headers={"Content-Disposition": "inline; filename=triage.pdf"}
+    )
+
 @app.route("/lab_results/<visit_id>/pdf")
 @login_required
 @role_required("nurse","doctor","admin","lab","radiology")
@@ -3059,12 +3973,26 @@ def radiology_results_pdf(visit_id):
                 y -= 0.35*cm
 
             if r["report_text"]:
-                for line in (r["report_text"] or "-").splitlines():
-                    c.drawString(2*cm, y, ("Report: " + line)[:130])
+                report_lines = (r["report_text"] or "").splitlines()
+                if report_lines:
+                    c.setFont("Helvetica-Bold", 9)
+                    c.drawString(2*cm, y, "Report:")
                     y -= 0.35*cm
-                    if y < 2*cm:
-                        c.showPage()
-                        y = height - 2*cm
+                    c.setFont("Helvetica", 9)
+                    first = True
+                    for line in report_lines:
+                        line = line.rstrip()
+                        if not line:
+                            y -= 0.3*cm
+                        else:
+                            prefix = "" if first else "• "
+                            c.drawString(2.3*cm, y, (prefix + line)[:120])
+                            first = False
+                            y -= 0.3*cm
+                        if y < 2*cm:
+                            c.showPage()
+                            y = height - 2*cm
+                            c.setFont("Helvetica", 9)
 
             y -= 0.2*cm
             if y < 2*cm:
@@ -3233,2191 +4161,59 @@ def sticker_zpl(visit_id):
 # Templates (Single-file)
 # ============================================================
 
-TEMPLATES = {
-"base.html": """
-<!doctype html>
-<html>
-<head>
-  <meta charset="utf-8">
-  <title>ED Downtime</title>
-  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
-  <meta http-equiv="refresh" content="2700">
-  <style>
-    body { background:#f7f7f7; }
-    .nav-link { font-weight:600; }
-    .badge-triage-no { background:#999; }
-    .badge-triage-yes { background:#198754; }
-    .cat-red { background:#dc3545; }
-    .cat-yellow { background:#ffc107; color:#000; }
-    .cat-green { background:#198754; }
-    .cat-orange { background:#fd7e14; }
-    .cat-none { background:#6c757d; }
-  </style>
-</head>
-<body>
-<nav class="navbar navbar-light bg-white border-bottom px-3">
-  <span class="navbar-brand fw-bold">ED Downtime</span>
+TEMPLATES = {'base.html': '\n<!doctype html>\n<html>\n<head>\n  <meta charset="utf-8">\n  <title>ED Downtime</title>\n  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">\n  <meta http-equiv="refresh" content="2700">\n  <style>\n    body { background:#f7f7f7; }\n    .nav-link { font-weight:600; }\n    .badge-triage-no { background:#999; }\n    .badge-triage-yes { background:#198754; }\n    .cat-red { background:#dc3545; }\n    .cat-yellow { background:#ffc107; color:#000; }\n    .cat-green { background:#198754; }\n    .cat-orange { background:#fd7e14; }\n    .cat-none { background:#6c757d; }\n\n    .wait-cell { font-weight:600; text-align:center; }\n    .wait-short { background:#d1e7dd; }\n    .wait-medium { background:#fff3cd; }\n    .wait-long { background:#f8d7da; }\n    .wait-none { background:#e9ecef; }\n\n    .loc-pill {\n      display:inline-block;\n      padding:2px 8px;\n      border-radius:999px;\n      background:#e7f1ff;\n      color:#0d6efd;\n      border:1px solid #cfe2ff;\n      font-size:0.75rem;\n    }\n    .bed-empty { background:#e9ecef; }\n    .bed-occupied { background:#d1e7dd; }\n    .bed-dirty { background:#f8d7da; }\n\n    .allergy-pill {\n      font-size:0.7rem;\n      border-radius:999px;\n      padding:1px 6px;\n    }\n    .allergy-yes { background:#f8d7da; color:#842029; }\n    .allergy-nkda { background:#d1e7dd; color:#0f5132; }\n    .allergy-unknown { background:#e9ecef; color:#495057; }\n\n    .banner-allergy {\n      border-left:4px solid #dc3545;\n      background:#f8d7da;\n    }\n    .banner-no-allergy {\n      border-left:4px solid #6c757d;\n      background:#f1f3f5;\n    }\n\n    .task-pill {\n      font-size:0.7rem;\n      border-radius:999px;\n    }\n    .task-done {\n      background:#198754;\n      color:#fff;\n    }\n    .task-pending {\n      background:#e9ecef;\n      color:#495057;\n    }\n\n    /* ED Board layout tuning */\n    .ed-board-card {\n      border-radius: 0.75rem;\n      border: 1px solid #dee2e6;\n    }\n    .ed-board-table thead th {\n      font-size: 0.75rem;\n      text-transform: uppercase;\n      letter-spacing: 0.03em;\n      background-color: #f8f9fa;\n      position: sticky;\n      top: 0;\n      z-index: 1;\n    }\n    .ed-board-table tbody td {\n      font-size: 0.82rem;\n      vertical-align: middle;\n    }\n    .ed-board-table tbody tr:hover {\n      background-color: #f1f3f5;\n    }\n    .ed-board-table td.col-queue,\n    .ed-board-table td.col-age,\n    .ed-board-table td.col-es,\n    .ed-board-table td.col-status,\n    .ed-board-table td.col-user {\n      text-align: center;\n      white-space: nowrap;\n    }\n    .ed-board-table td.col-visit,\n    .ed-board-table td.col-id,\n    .ed-board-table td.col-insurance {\n      white-space: nowrap;\n    }\n    .ed-board-table td.col-payment {\n      max-width: 220px;\n      white-space: nowrap;\n      overflow: hidden;\n      text-overflow: ellipsis;\n    }\n    .wait-cell {\n      text-align: center;\n    }\n    .wait-pill {\n      display: inline-block;\n      padding: 2px 10px;\n      border-radius: 999px;\n      font-size: 0.78rem;\n      font-weight: 600;\n    }\n    .wait-pill.wait-short {\n      background:#d1e7dd;\n      color:#0f5132;\n    }\n    .wait-pill.wait-medium {\n      background:#fff3cd;\n      color:#664d03;\n    }\n    .wait-pill.wait-long {\n      background:#f8d7da;\n      color:#842029;\n    }\n    .wait-pill.wait-none {\n      background:#e9ecef;\n      color:#495057;\n    }\n\n    .ed-actions {\n      display: flex;\n      flex-direction: column;\n      gap: 2px;\n    }\n    .ed-actions-row {\n      display: flex;\n      flex-wrap: wrap;\n      gap: 4px;\n    }\n    .ed-actions-row .btn {\n      font-size: 0.72rem;\n      padding: 1px 8px;\n    }\n    .ed-actions-row .btn-outline-primary,\n    .ed-actions-row .btn-outline-success,\n    .ed-actions-row .btn-outline-secondary {\n      border-radius: 999px;\n    }\n    \n  </style>\n</head>\n<body>\n<nav class="navbar navbar-light bg-white border-bottom px-3">\n  <span class="navbar-brand fw-bold">ED Downtime</span>\n\n  <div class="d-flex gap-3 align-items-center">\n    <a class="nav-link" href="{{ url_for(\'ed_board\') }}">ED Board</a>\n    <a class="nav-link" href="{{ url_for(\'search_patients\') }}">Search</a>\n    <a class="nav-link position-relative" href="{{ url_for(\'chat_page\') }}">Live Chat{% if nav_chat_recent %}<span class="badge rounded-pill bg-info text-dark ms-1">{{ nav_chat_recent }}</span>{% endif %}</a>\n    {% if session.get(\'role\') in [\'admin\',\'doctor\',\'nurse\'] %}\n      <a class="nav-link" href="{{ url_for(\'reports\') }}">Reports</a>\n    {% endif %}\n    {% if session.get(\'role\') in [\'lab\',\'admin\',\'doctor\',\'nurse\'] %}\n      <a class="nav-link position-relative" href="{{ url_for(\'lab_board\') }}">Lab Board{% if nav_lab_pending %}<span class="badge rounded-pill bg-danger ms-1">{{ nav_lab_pending }}</span>{% endif %}</a>\n    {% endif %}\n    {% if session.get(\'role\') in [\'radiology\',\'admin\',\'doctor\',\'nurse\'] %}\n      <a class="nav-link position-relative" href="{{ url_for(\'radiology_board\') }}">Radiology Board{% if nav_rad_pending %}<span class="badge rounded-pill bg-warning text-dark ms-1">{{ nav_rad_pending }}</span>{% endif %}</a>\n    {% endif %}\n    {% if session.get(\'role\') in [\'reception\',\'admin\'] %}\n      <a class="nav-link" href="{{ url_for(\'register_patient\') }}">Register</a>\n    {% endif %}\n    {% if session.get(\'role\')==\'admin\' %}\n      <a class="nav-link" href="{{ url_for(\'admin_users\') }}">Users</a>\n      <a class="nav-link" href="{{ url_for(\'admin_reset_password\') }}">Reset Password</a>\n      <a class="nav-link" href="{{ url_for(\'admin_logs\') }}">Logs</a>\n      <a class="nav-link" href="{{ url_for(\'admin_backup\') }}">Backup DB</a>\n      <a class="nav-link text-primary" href="{{ url_for(\'admin_backup_now\') }}">Backup Now</a>\n      <a class="nav-link text-danger" href="{{ url_for(\'admin_restore\') }}">Restore DB</a>\n    {% endif %}\n    <span class="text-muted">User: {{ session.get(\'username\') }} ({{ session.get(\'role\') }})</span>\n    <a class="text-danger nav-link" href="{{ url_for(\'logout\') }}">Logout</a>\n  </div>\n  <button class="btn btn-sm btn-outline-secondary" onclick="location.reload()">🔄 Manual Refresh</button>\n</nav>\n\n<div class="container-fluid py-3 px-3">\n  {% block content %}{% endblock %}\n</div>\n\n<footer class="text-center text-muted small py-3">\n  {{ footer_text }}\n</footer>\n\n<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>\n</body>\n</html>\n', 'login.html': '\n{% extends "base.html" %}\n{% block content %}\n<div class="row justify-content-center mt-5">\n  <div class="col-md-4">\n    <h4 class="mb-3 text-center">Login</h4>\n    {% with messages = get_flashed_messages(with_categories=true) %}\n      {% for category, msg in messages %}\n        <div class="alert alert-{{ category }}">{{ msg }}</div>\n      {% endfor %}\n    {% endwith %}\n    <form method="POST">\n  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">\n      <input class="form-control mb-2" name="username" placeholder="username">\n      <input class="form-control mb-2" name="password" placeholder="password" type="password">\n      <button class="btn btn-primary w-100">Login</button>\n    </form>\n    <div class="text-muted small mt-2">\n    </div>\n  </div>\n</div>\n{% endblock %}\n', 'admin_users.html': '\n{% extends "base.html" %}\n{% block content %}\n<h4 class="mb-3">Users Management</h4>\n\n{% with messages = get_flashed_messages(with_categories=true) %}\n  {% for category, msg in messages %}\n    <div class="alert alert-{{ category }}">{{ msg }}</div>\n  {% endfor %}\n{% endwith %}\n\n<form method="POST" class="card p-3 mb-3">\n  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">\n  <div class="row g-2">\n    <div class="col-md-4"><input class="form-control" name="username" placeholder="Username"></div>\n    <div class="col-md-4"><input class="form-control" name="password" placeholder="Password"></div>\n    <div class="col-md-3">\n      <select class="form-select" name="role">\n        <option value="reception">reception</option>\n        <option value="nurse">nurse</option>\n        <option value="doctor">doctor</option>\n        <option value="lab">lab</option>\n        <option value="radiology">radiology</option>\n        <option value="admin">admin</option>\n      </select>\n    </div>\n    <div class="col-md-1 d-grid"><button class="btn btn-primary">Add</button></div>\n  </div>\n</form>\n\n<table class="table table-sm table-striped bg-white align-middle">\n  <thead>\n    <tr>\n      <th>ID</th>\n      <th>Username</th>\n      <th>Role</th>\n      <th>Created</th>\n      <th>Status</th>\n      <th style="width:180px;">Actions</th>\n    </tr>\n  </thead>\n  <tbody>\n    {% for u in users %}\n      <tr>\n        <td>{{ u.id }}</td>\n        <td>{{ u.username }}</td>\n        <td>{{ u.role }}</td>\n        <td>{{ u.created_at }}</td>\n        <td>\n          {% if u.is_active %}\n            <span class="badge bg-success">Active</span>\n          {% else %}\n            <span class="badge bg-secondary">Inactive</span>\n          {% endif %}\n        </td>\n        <td>\n          <div class="d-flex gap-1">\n            <form method="POST"\n                  action="{{ url_for(\'admin_toggle_user\', user_id=u.id) }}"\n                  onsubmit="return confirm(\'Are you sure you want to change this user\'s active status?\');">\n              <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">\n              {% if u.is_active %}\n                <button class="btn btn-sm btn-outline-danger">Deactivate</button>\n              {% else %}\n                <button class="btn btn-sm btn-outline-success">Activate</button>\n              {% endif %}\n            </form>\n          </div>\n        </td>\n      </tr>\n    {% endfor %}\n  </tbody>\n</table>\n{% endblock %}\n', 'admin_reset_password.html': '\n{% extends "base.html" %}\n{% block content %}\n<h4 class="mb-3">Admin Password Reset</h4>\n\n{% with messages = get_flashed_messages(with_categories=true) %}\n  {% for category, msg in messages %}\n    <div class="alert alert-{{ category }}">{{ msg }}</div>\n  {% endfor %}\n{% endwith %}\n\n<form method="POST" class="card p-3 bg-white mb-3">\n  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">\n  <div class="row g-2 align-items-end">\n    <div class="col-md-5">\n      <label class="form-label fw-bold">Select User</label>\n      <select class="form-select" name="user_id" required>\n        <option value="">-- choose --</option>\n        {% for u in users %}\n          <option value="{{ u.id }}">{{ u.username }} ({{ u.role }})</option>\n        {% endfor %}\n      </select>\n    </div>\n    <div class="col-md-5">\n      <label class="form-label fw-bold">New Password</label>\n      <input class="form-control" name="new_password" type="text" required>\n    </div>\n    <div class="col-md-2 d-grid">\n      <button class="btn btn-primary">Reset</button>\n    </div>\n  </div>\n</form>\n\n<a class="btn btn-outline-danger btn-sm" href="{{ url_for(\'admin_reset_admin_default\') }}">\n  Reset admin to default (admin12)\n</a>\n{% endblock %}\n', 'admin_logs.html': '\n{% extends "base.html" %}\n{% block content %}\n<h4 class="mb-3">Activity Logs (Last 1000)</h4>\n\n<form method="GET" class="card p-3 mb-3 bg-white">\n  <div class="row g-2 align-items-end">\n    <div class="col-md-3">\n      <label class="form-label fw-bold">Visit ID</label>\n      <input class="form-control" name="visit_id" value="{{ visit_f or \'\' }}" placeholder="visit id">\n    </div>\n    <div class="col-md-3">\n      <label class="form-label fw-bold">User</label>\n      <select class="form-select" name="user">\n        <option value="">ALL</option>\n        {% for u in users %}\n          <option value="{{u.username}}" {% if user_f==u.username %}selected{% endif %}>{{u.username}}</option>\n        {% endfor %}\n      </select>\n    </div>\n    <div class="col-md-2">\n      <label class="form-label fw-bold">From</label>\n      <input class="form-control" type="date" name="date_from" value="{{ dfrom or \'\' }}">\n    </div>\n    <div class="col-md-2">\n      <label class="form-label fw-bold">To</label>\n      <input class="form-control" type="date" name="date_to" value="{{ dto or \'\' }}">\n    </div>\n    <div class="col-md-2 d-grid">\n      <button class="btn btn-primary">Filter</button>\n    </div>\n  </div>\n\n  <div class="mt-2 d-flex gap-2">\n    <a class="btn btn-outline-success btn-sm"\n       href="{{ url_for(\'export_logs_csv\', visit_id=visit_f, user=user_f, date_from=dfrom, date_to=dto) }}">Export CSV</a>\n    <a class="btn btn-outline-danger btn-sm"\n       href="{{ url_for(\'export_logs_pdf\', visit_id=visit_f, user=user_f, date_from=dfrom, date_to=dto) }}">Export PDF</a>\n  </div>\n</form>\n\n<table class="table table-sm table-striped bg-white">\n  <thead><tr><th>Time</th><th>User</th><th>Action</th><th>Visit</th><th>Details</th></tr></thead>\n  <tbody>\n  {% for l in logs %}\n    <tr>\n      <td>{{ l.created_at }}</td>\n      <td>{{ l.username }}</td>\n      <td>{{ l.action }}</td>\n      <td>{{ l.visit_id or \'-\' }}</td>\n      <td>{{ l.details or \'-\' }}</td>\n    </tr>\n  {% endfor %}\n  </tbody>\n</table>\n{% endblock %}\n', 'admin_restore.html': '\n{% extends "base.html" %}\n{% block content %}\n<h4 class="mb-3">Restore Database from Backup</h4>\n\n{% with messages = get_flashed_messages(with_categories=true) %}\n  {% for category, msg in messages %}\n    <div class="alert alert-{{ category }}">{{ msg }}</div>\n  {% endfor %}\n{% endwith %}\n\n<div class="card p-3 bg-white">\n  <p class="text-danger small mb-2">\n    ⚠️ Warning: restoring a backup will overwrite the current database file.\n    A safety copy (*.before_restore.bak) will be created automatically.\n  </p>\n\n  <h6 class="fw-bold mt-2">Available backup files</h6>\n  {% if backups %}\n    <div class="table-responsive mb-3">\n      <table class="table table-sm table-hover align-middle mb-0">\n        <thead>\n          <tr>\n            <th>#</th>\n            <th>File name</th>\n            <th>Created / Modified</th>\n            <th>Size (KB)</th>\n            <th>Download</th>\n            <th>Restore</th>\n          </tr>\n        </thead>\n        <tbody>\n          {% for b in backups %}\n          <tr>\n            <td>{{ loop.index }}</td>\n            <td>\n              <a href="{{ url_for(\'admin_backup_file\', filename=b.name) }}">\n                {{ b.name }}\n              </a>\n            </td>\n            <td>{{ b.mtime }}</td>\n            <td>{{ "%.1f"|format(b.size_kb) }}</td>\n            <td>\n              <a class="btn btn-sm btn-outline-primary"\n                 href="{{ url_for(\'admin_backup_file\', filename=b.name) }}">\n                Download\n              </a>\n            </td>\n            <td>\n              <a class="btn btn-sm btn-outline-danger"\n                 href="{{ url_for(\'admin_restore_file\', filename=b.name) }}">\n                Restore this backup\n              </a>\n            </td>\n          </tr>\n          {% endfor %}\n        </tbody>\n      </table>\n    </div>\n  {% else %}\n    <p class="text-muted small">No backup .db files found in the backups folder yet.</p>\n  {% endif %}\n\n  <form method="POST" enctype="multipart/form-data" class="mt-2">\n  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">\n    <div class="mb-2">\n      <label class="form-label fw-bold">Select backup .db file</label>\n      <input type="file" name="file" class="form-control" required>\n    </div>\n    <button class="btn btn-danger mt-2">Restore Now</button>\n    <a class="btn btn-secondary mt-2" href="{{ url_for(\'ed_board\') }}">Cancel</a>\n  </form>\n</div>\n{% endblock %}\n', 'admin_restore_confirm.html': '\n{% extends "base.html" %}\n{% block content %}\n<h4 class="mb-3">Confirm Restore from Backup</h4>\n\n{% with messages = get_flashed_messages(with_categories=true) %}\n  {% for category, msg in messages %}\n    <div class="alert alert-{{ category }}">{{ msg }}</div>\n  {% endfor %}\n{% endwith %}\n\n<div class="card p-3 bg-white">\n  <p class="text-danger small mb-2">\n    ⚠️ You are about to restore the database from backup file:\n    <strong>{{ backup_name }}</strong>\n  </p>\n  <p class="text-muted small mb-2">\n    This will overwrite the current database. A safety copy (*.before_restore.bak) will be created automatically.\n  </p>\n\n  <form method="POST">\n  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">\n    <div class="mb-2">\n      <label class="form-label fw-bold">Re-enter your password to confirm</label>\n      <input type="password" name="password" class="form-control" required autofocus>\n    </div>\n    <button class="btn btn-danger mt-2">Confirm Restore</button>\n    <a class="btn btn-secondary mt-2" href="{{ url_for(\'admin_restore\') }}">Cancel</a>\n  </form>\n</div>\n{% endblock %}\n', 'register.html': '\n{% extends "base.html" %}\n{% block content %}\n<h4 class="mb-3">Register Patient</h4>\n\n{% with messages = get_flashed_messages(with_categories=true) %}\n  {% for category, msg in messages %}\n    <div class="alert alert-{{ category }}">{{ msg }}</div>\n  {% endfor %}\n{% endwith %}\n\n<form method="POST" enctype="multipart/form-data" class="card p-3 bg-white" id="register-form">\n  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">\n  <div class="row g-2">\n    <div class="col-md-6">\n      <label class="form-label fw-bold">Name</label>\n      <input class="form-control" name="name" required>\n    </div>\n\n    <div class="col-md-6">\n      <label class="form-label fw-bold">ID Number</label>\n      <input class="form-control" name="id_number">\n    </div>\n\n    <div class="col-md-4">\n      <label class="form-label fw-bold">Phone</label>\n      <input class="form-control" name="phone">\n    </div>\n\n    <div class="col-md-4">\n      <label class="form-label fw-bold">Insurance</label>\n      <input class="form-control" name="insurance">\n    </div>\n\n    <div class="col-md-4">\n      <label class="form-label fw-bold">Insurance No</label>\n      <input class="form-control" name="insurance_no">\n    </div>\n\n    <div class="col-md-4">\n      <label class="form-label fw-bold">DOB</label>\n      <input class="form-control" name="dob" placeholder="YYYY-MM-DD">\n    </div>\n\n    <div class="col-md-2">\n      <label class="form-label fw-bold">Sex</label>\n      <select class="form-select" name="sex">\n        <option value=""></option>\n        <option>M</option>\n        <option>F</option>\n      </select>\n    </div>\n\n    <div class="col-md-6">\n      <label class="form-label fw-bold">Nationality</label>\n      <input class="form-control" name="nationality">\n    </div>\n\n    <div class="col-md-4">\n      <label class="form-label fw-bold">Visit type</label>\n      <select class="form-select" name="visit_type">\n        <option value="NEW">New visit</option>\n        <option value="TREATMENT">Treatment</option>\n        <option value="FOLLOW_UP">Follow-up</option>\n        <option value="PROCEDURE">Procedure / Dressing</option>\n      </select>\n    </div>\n\n    {# hidden field that will be filled automatically from insurance block #}\n    <input type="hidden" name="payment_details" id="payment_details">\n  </div>\n\n  <hr class="mt-3 mb-2">\n\n  <h5 class="mb-2">Insurance / Contract Scheme (optional)</h5>\n\n  <div class="row g-2">\n    <div class="col-md-4">\n      <label class="form-label fw-bold">Ins. Provider</label>\n      <input class="form-control" id="ins_provider">\n    </div>\n\n    <div class="col-md-4">\n      <label class="form-label fw-bold">Insur. Card No</label>\n      <input class="form-control" id="ins_card_no">\n    </div>\n\n    <div class="col-md-4">\n      <label class="form-label fw-bold">DHA Member ID</label>\n      <input class="form-control" id="dha_member_id">\n    </div>\n\n    <div class="col-md-4">\n      <label class="form-label fw-bold">Ins. Plan</label>\n      <input class="form-control" id="ins_plan">\n    </div>\n\n    <div class="col-md-4">\n      <label class="form-label fw-bold">Policy No</label>\n      <input class="form-control" id="policy_no">\n    </div>\n\n    <div class="col-md-4">\n      <label class="form-label fw-bold">Policy Name</label>\n      <input class="form-control" id="policy_name">\n    </div>\n\n    <div class="col-md-3">\n      <label class="form-label fw-bold">Valid From</label>\n      <input type="date" class="form-control" id="valid_from">\n    </div>\n\n    <div class="col-md-3">\n      <label class="form-label fw-bold">Valid To</label>\n      <input type="date" class="form-control" id="valid_to">\n    </div>\n\n    <div class="col-md-6">\n      <label class="form-label fw-bold">Consultation Deductible %</label>\n      <input class="form-control" id="consult_deduct" placeholder="e.g. 20%">\n    </div>\n\n    <div class="col-md-12">\n      <label class="form-label fw-bold d-block">Contract Scheme Details</label>\n      <div class="small text-muted">Enter percentage or fixed amount (AED) for each service - you may leave any field blank.</div>\n    </div>\n\n    <div class="col-md-4">\n      <label class="form-label">Laboratory</label>\n      <div class="input-group mb-1">\n        <span class="input-group-text">%</span>\n        <input class="form-control" id="lab_percent" placeholder="e.g. 20">\n      </div>\n      <div class="input-group">\n        <span class="input-group-text">AED</span>\n        <input class="form-control" id="lab_amount" placeholder="e.g. 50">\n      </div>\n    </div>\n\n    <div class="col-md-4">\n      <label class="form-label">Radiology</label>\n      <div class="input-group mb-1">\n        <span class="input-group-text">%</span>\n        <input class="form-control" id="radiology_percent" placeholder="e.g. 20">\n      </div>\n      <div class="input-group">\n        <span class="input-group-text">AED</span>\n        <input class="form-control" id="radiology_amount" placeholder="e.g. 50">\n      </div>\n    </div>\n\n    <div class="col-md-4">\n      <label class="form-label">Investigation</label>\n      <div class="input-group mb-1">\n        <span class="input-group-text">%</span>\n        <input class="form-control" id="investigation_percent" placeholder="e.g. 20">\n      </div>\n      <div class="input-group">\n        <span class="input-group-text">AED</span>\n        <input class="form-control" id="investigation_amount" placeholder="e.g. 50">\n      </div>\n    </div>\n\n    <div class="col-md-4">\n      <label class="form-label">Inpatient</label>\n      <div class="input-group mb-1">\n        <span class="input-group-text">%</span>\n        <input class="form-control" id="inpatient_percent" placeholder="e.g. 10">\n      </div>\n      <div class="input-group">\n        <span class="input-group-text">AED</span>\n        <input class="form-control" id="inpatient_amount" placeholder="e.g. 100">\n      </div>\n    </div>\n\n    <div class="col-md-4">\n      <label class="form-label">Pharmacy</label>\n      <div class="input-group mb-1">\n        <span class="input-group-text">%</span>\n        <input class="form-control" id="pharmacy_percent" placeholder="e.g. 10">\n      </div>\n      <div class="input-group">\n        <span class="input-group-text">AED</span>\n        <input class="form-control" id="pharmacy_amount" placeholder="e.g. 20">\n      </div>\n    </div>\n\n    <div class="col-md-4">\n      <label class="form-label">Dental</label>\n      <div class="input-group mb-1">\n        <span class="input-group-text">%</span>\n        <input class="form-control" id="dental_percent" placeholder="e.g. 20">\n      </div>\n      <div class="input-group">\n        <span class="input-group-text">AED</span>\n        <input class="form-control" id="dental_amount" placeholder="e.g. 50">\n      </div>\n    </div>\n  </div>\n\n  <div class="row g-2 mt-3">\n    <div class="col-md-6">\n      <label class="form-label fw-bold">Attachment (Eligibility / ID)</label>\n      <input type="file" class="form-control" name="eligibility_file">\n    </div>\n  </div>\n\n  <button class="btn btn-primary mt-3">Save & Create Visit</button>\n</form>\n\n<script>\n  (function () {\n    const form = document.getElementById("register-form");\n    if (!form) return;\n\n    form.addEventListener("submit", function () {\n      const get = function (id) {\n        const el = document.getElementById(id);\n        return el && el.value ? el.value.trim() : "";\n      };\n\n      const parts = [];\n      const add = function (label, id) {\n        const v = get(id);\n        if (v) { parts.push(label + ": " + v); }\n      };\n\n      add("Provider", "ins_provider");\n      add("Card", "ins_card_no");\n      add("DHA", "dha_member_id");\n      add("Plan", "ins_plan");\n      add("PolicyNo", "policy_no");\n      add("PolicyName", "policy_name");\n\n      const vFrom = get("valid_from");\n      const vTo   = get("valid_to");\n      if (vFrom || vTo) {\n        parts.push("Valid " + (vFrom || "?") + " → " + (vTo || "?"));\n      }\n\n      add("Consult%", "consult_deduct");\n\n      add("Lab%", "lab_percent");\n      add("LabAmt", "lab_amount");\n\n      add("Rad%", "radiology_percent");\n      add("RadAmt", "radiology_amount");\n\n      add("Inv%", "investigation_percent");\n      add("InvAmt", "investigation_amount");\n\n      add("Inp%", "inpatient_percent");\n      add("InpAmt", "inpatient_amount");\n\n      add("Pharm%", "pharmacy_percent");\n      add("PharmAmt", "pharmacy_amount");\n\n      add("Dent%", "dental_percent");\n      add("DentAmt", "dental_amount");\n\n      document.getElementById("payment_details").value = parts.join(" | ");\n    });\n  })();\n</script>\n\n{% endblock %}\n', 'search.html': '\n{% extends "base.html" %}\n{% block content %}\n<h4 class="mb-3">Search Patients</h4>\n\n<form class="card p-3 mb-3 bg-white" method="GET">\n  <div class="row g-2 align-items-end">\n    <div class="col-md-4">\n      <label class="form-label fw-bold">Free Search</label>\n      <input class="form-control" name="q" placeholder="Search by name / visit / ID / insurance no" value="{{ q }}">\n    </div>\n    <div class="col-md-2">\n      <label class="form-label fw-bold">Visit ID</label>\n      <input class="form-control" name="visit_id" value="{{ visit_f or \'\' }}">\n    </div>\n    <div class="col-md-2">\n      <label class="form-label fw-bold">User</label>\n      <select class="form-select" name="user">\n        <option value="">ALL</option>\n        {% for u in users %}\n          <option value="{{u.created_by}}" {% if user_f==u.created_by %}selected{% endif %}>{{u.created_by}}</option>\n        {% endfor %}\n      </select>\n    </div>\n    <div class="col-md-2">\n      <label class="form-label fw-bold">From</label>\n      <input class="form-control" type="date" name="date_from" value="{{ dfrom or \'\' }}">\n    </div>\n    <div class="col-md-2">\n      <label class="form-label fw-bold">To</label>\n      <input class="form-control" type="date" name="date_to" value="{{ dto or \'\' }}">\n    </div>\n    <div class="col-md-12 mt-2 d-grid">\n      <button class="btn btn-primary btn-sm">Filter</button>\n    </div>\n  </div>\n</form>\n\n\n{% if q and not results %}<div class="text-muted">No results</div>{% endif %}\n\n<table class="table table-sm bg-white">\n  <thead>\n    <tr>\n      <th>Visit</th><th>Queue</th><th>Name</th><th>ID</th><th>INS</th><th>INS No</th>\n      <th>Phone</th><th>Payment</th><th>Triage</th><th>CAT</th><th>Status</th><th>Actions</th>\n    </tr>\n  </thead>\n  <tbody>\n  {% for r in results %}\n    <tr>\n      <td>{{ r.visit_id }}</td>\n      <td class="fw-bold">{{ r.queue_no }}</td>\n      <td>{{ r.name }}</td>\n      <td>{{ r.id_number }}</td>\n      <td>{{ r.insurance }}</td>\n      <td>{{ r.insurance_no }}</td>\n      <td>{{ r.phone }}</td>\n      <td>{{ r.payment_details or \'-\' }}</td>\n      <td>{{ r.triage_status }}</td>\n      <td>\n        {% set cat = (r.triage_cat or \'\').lower() %}\n        {% if cat == \'es1\' %}<span class="badge cat-red">ES1</span>\n        {% elif cat == \'es2\' %}<span class="badge cat-orange">ES2</span>\n        {% elif cat == \'es3\' %}<span class="badge cat-yellow">ES3</span>\n        {% elif cat == \'es4\' %}<span class="badge cat-green">ES4</span>\n        {% elif cat == \'es5\' %}<span class="badge cat-none">ES5</span>\n        {% else %}<span class="badge cat-none">-</span>{% endif %}\n      </td>\n      <td>{{ r.status }}</td>\n      <td><a class="btn btn-sm btn-outline-primary" href="{{ url_for(\'patient_details\', visit_id=r.visit_id) }}">Open</a></td>\n    </tr>\n  {% endfor %}\n  </tbody>\n</table>\n{% endblock %}\n\n<nav class="d-flex justify-content-between align-items-center mt-2">\n  <div class="small text-muted">\n    Page {{page}} / {{pages}} - Total: {{total}}\n  </div>\n  <ul class="pagination pagination-sm mb-0">\n    <li class="page-item {% if page<=1 %}disabled{% endif %}">\n      <a class="page-link" href="{{ url_for(\'ed_board\', status=status_filter, cat=cat_filter, visit_id=visit_f, user=user_f, date_from=dfrom, date_to=dto, per_page=per_page, page=page-1) }}">Prev</a>\n    </li>\n    <li class="page-item {% if page>=pages %}disabled{% endif %}">\n      <a class="page-link" href="{{ url_for(\'ed_board\', status=status_filter, cat=cat_filter, visit_id=visit_f, user=user_f, date_from=dfrom, date_to=dto, per_page=per_page, page=page+1) }}">Next</a>\n    </li>\n  </ul>\n  <button class="btn btn-sm btn-outline-secondary" onclick="location.reload()">🔄 Manual Refresh</button>\n</nav>\n\n', 'ed_board.html': '\n{% extends "base.html" %}\n{% block content %}\n<div class="card shadow-sm mb-3 ed-board-card w-100">\n  <div class="card-header d-flex flex-wrap justify-content-between align-items-center py-2">\n    <div>\n      <h5 class="mb-0">ED Board</h5>\n      <div class="small text-muted">\n        Realtime overview for active ED visits with triage colors &amp; wait times.\n      </div>\n    </div>\n    <div class="d-flex gap-2 align-items-center mt-2 mt-md-0">\n      {% if total %}\n        <span class="badge bg-light text-dark border small">\n          Total: <span class="fw-bold">{{ total }}</span>\n        </span>\n      {% endif %}\n      <a class="btn btn-sm btn-outline-primary" href="{{ url_for(\'export_ed_board_csv\') }}">\n        ⬇︎ Export CSV\n      </a>\n    </div>\n  </div>\n\n  <div class="card-body pb-2">\n\n    {% if status_counts or triage_counts %}\n    <div class="row g-2 mb-3">\n      <div class="col-lg-5 col-md-6">\n        <div class="border rounded-3 px-2 py-2 bg-light">\n          <div class="small fw-bold text-muted mb-1">By status</div>\n          {% set sc = status_counts or {} %}\n          <div class="d-flex flex-wrap gap-1">\n            <span class="badge rounded-pill bg-success-subtle text-success border border-success">\n              OPEN: <span class="fw-bold">{{ sc.get(\'OPEN\', 0) }}</span>\n            </span>\n            <span class="badge rounded-pill bg-primary-subtle text-primary border border-primary">\n              IN_TREATMENT: <span class="fw-bold">{{ sc.get(\'IN_TREATMENT\', 0) }}</span>\n            </span>\n            <span class="badge rounded-pill bg-info-subtle text-info border border-info">\n              ADMITTED: <span class="fw-bold">{{ sc.get(\'ADMITTED\', 0) }}</span>\n            </span>\n            <span class="badge rounded-pill bg-secondary-subtle text-secondary border border-secondary">\n              DISCHARGED: <span class="fw-bold">{{ sc.get(\'DISCHARGED\', 0) }}</span>\n            </span>\n            <span class="badge rounded-pill bg-warning-subtle text-warning border border-warning">\n              TRANSFERRED: <span class="fw-bold">{{ sc.get(\'TRANSFERRED\', 0) }}</span>\n            </span>\n            <span class="badge rounded-pill bg-dark-subtle text-dark border border-dark">\n              LAMA: <span class="fw-bold">{{ sc.get(\'LAMA\', 0) }}</span>\n            </span>\n            <span class="badge rounded-pill bg-danger-subtle text-danger border border-danger">\n              EXPIRED: <span class="fw-bold">{{ sc.get(\'EXPIRED\', 0) }}</span>\n            </span>\n            <span class="badge rounded-pill bg-light text-muted border">\n              CANCELLED: <span class="fw-bold">{{ sc.get(\'CANCELLED\', 0) }}</span>\n            </span>\n          </div>\n        </div>\n      </div>\n      <div class="col-lg-7 col-md-6">\n        <div class="border rounded-3 px-2 py-2 bg-light">\n          <div class="small fw-bold text-muted mb-1">By triage (ES)</div>\n          {% set tc = triage_counts or {} %}\n          <div class="d-flex flex-wrap gap-1">\n            <span class="badge cat-red">ES1: <span class="fw-bold">{{ tc.get(\'ES1\', 0) }}</span></span>\n            <span class="badge cat-orange">ES2: <span class="fw-bold">{{ tc.get(\'ES2\', 0) }}</span></span>\n            <span class="badge cat-yellow">ES3: <span class="fw-bold">{{ tc.get(\'ES3\', 0) }}</span></span>\n            <span class="badge cat-green">ES4: <span class="fw-bold">{{ tc.get(\'ES4\', 0) }}</span></span>\n            <span class="badge cat-none">ES5: <span class="fw-bold">{{ tc.get(\'ES5\', 0) }}</span></span>\n          </div>\n        </div>\n      </div>\n    </div>\n    {% endif %}\n\n    <form class="mb-3" method="GET">\n      <div class="row g-2 align-items-end">\n        <div class="col-md-2 col-sm-6">\n          <label class="form-label fw-bold small">Status</label>\n          <select name="status" class="form-select form-select-sm" onchange="this.form.submit()">\n            <option value="ALL" {% if status_filter==\'ALL\' %}selected{% endif %}>ALL</option>\n            <option value="OPEN" {% if status_filter==\'OPEN\' %}selected{% endif %}>OPEN</option>\n            <option value="IN_TREATMENT" {% if status_filter==\'IN_TREATMENT\' %}selected{% endif %}>IN_TREATMENT</option>\n            <option value="ADMITTED" {% if status_filter==\'ADMITTED\' %}selected{% endif %}>ADMITTED</option>\n            <option value="DISCHARGED" {% if status_filter==\'DISCHARGED\' %}selected{% endif %}>DISCHARGED</option>\n            <option value="TRANSFERRED" {% if status_filter==\'TRANSFERRED\' %}selected{% endif %}>TRANSFERRED</option>\n            <option value="LAMA" {% if status_filter==\'LAMA\' %}selected{% endif %}>LAMA</option>\n            <option value="EXPIRED" {% if status_filter==\'EXPIRED\' %}selected{% endif %}>EXPIRED</option>\n            <option value="CANCELLED" {% if status_filter==\'CANCELLED\' %}selected{% endif %}>CANCELLED</option>\n          </select>\n        </div>\n\n        <div class="col-md-2 col-sm-6">\n          <label class="form-label fw-bold small">Triage ES</label>\n          <select name="cat" class="form-select form-select-sm" onchange="this.form.submit()">\n            <option value="ALL" {% if cat_filter==\'ALL\' %}selected{% endif %}>All ES</option>\n            <option value="ES1" {% if cat_filter==\'ES1\' %}selected{% endif %}>ES1</option>\n            <option value="ES2" {% if cat_filter==\'ES2\' %}selected{% endif %}>ES2</option>\n            <option value="ES3" {% if cat_filter==\'ES3\' %}selected{% endif %}>ES3</option>\n            <option value="ES4" {% if cat_filter==\'ES4\' %}selected{% endif %}>ES4</option>\n            <option value="ES5" {% if cat_filter==\'ES5\' %}selected{% endif %}>ES5</option>\n          </select>\n        </div>\n\n        <div class="col-md-2 col-sm-6">\n          <label class="form-label fw-bold small">Visit ID</label>\n          <input class="form-control form-control-sm"\n                 name="visit_id"\n                 value="{{ visit_f or \'\' }}"\n                 placeholder="ED-...">\n        </div>\n\n        <div class="col-md-2 col-sm-6">\n          <label class="form-label fw-bold small">User</label>\n          <select class="form-select form-select-sm" name="user" onchange="this.form.submit()">\n            <option value="">ALL</option>\n            {% for u in users %}\n              <option value="{{ u.created_by }}" {% if user_f==u.created_by %}selected{% endif %}>{{ u.created_by }}</option>\n            {% endfor %}\n          </select>\n        </div>\n\n        <div class="col-md-2 col-sm-6">\n          <label class="form-label fw-bold small">From</label>\n          <input class="form-control form-control-sm"\n                 type="date"\n                 name="date_from"\n                 value="{{ dfrom or \'\' }}">\n        </div>\n\n        <div class="col-md-2 col-sm-6">\n          <label class="form-label fw-bold small">To</label>\n          <div class="d-flex gap-1">\n            <input class="form-control form-control-sm"\n                   type="date"\n                   name="date_to"\n                   value="{{ dto or \'\' }}">\n            <button class="btn btn-sm btn-outline-secondary">Go</button>\n          </div>\n        </div>\n      </div>\n    </form>\n\n    <div class="table-responsive">\n      <div class="table-responsive">\n        <table class="table table-sm table-hover align-middle mb-1 ed-board-table">\n        <thead class="table-light">\n          <tr>\n            <th>Queue</th>\n            <th>Visit</th>\n            <th>Patient</th>\n            <th>Age</th>\n            <th>ID</th>\n            <th>Insurance</th>\n            <th>Payment</th>\n            <th>Triage</th>\n            <th>ES</th>\n            <th>Wait / LOS</th>\n            <th>Status</th>\n            <th>User</th>\n            <th>Created</th>\n            <th style="width:260px;">Actions</th>\n          </tr>\n        </thead>\n        <tbody>\n          {% if not visits %}\n            <tr>\n              <td colspan="14" class="text-center text-muted small py-3">\n                No visits found for current filters.\n              </td>\n            </tr>\n          {% else %}\n            {% for v in visits %}\n            <tr class="{% if v.triage_cat==\'ES1\' %}table-danger{% elif v.triage_cat==\'ES2\' %}table-warning{% elif v.triage_cat==\'ES3\' %}table-light{% elif v.triage_cat==\'ES4\' %}table-primary{% elif v.triage_cat==\'ES5\' %}table-success{% endif %}">\n              <td class="fw-bold text-center small col-queue">{{ v.queue_no }}</td>\n              <td class="fw-bold small text-nowrap col-visit">{{ v.visit_id }}</td>\n              <td>\n                <div class="fw-bold">{{ v.name }}</div>\n                <div class="small text-muted">\n                  {% set vt = (v.visit_type or \'NEW\') %}\n                  {% if vt == \'NEW\' %}\n                    New visit\n                  {% elif vt == \'TREATMENT\' %}\n                    Treatment\n                  {% elif vt in [\'FOLLOW_UP\',\'FOLLOW-UP\',\'FOLLOWUP\'] %}\n                    Follow-up\n                  {% elif vt == \'PROCEDURE\' %}\n                    Procedure / Dressing\n                  {% else %}\n                    {{ vt }}\n                  {% endif %}\n                </div>\n              </td>\n              <td class="text-center small col-age">{{ v.age or \'-\' }}</td>\n              <td class="text-nowrap small col-id">{{ v.id_number }}</td>\n              <td class="text-nowrap small col-insurance">{{ v.insurance }}</td>\n              <td class="col-payment">\n                {% if v.payment_details %}\n                  <span class="text-muted">Recorded</span>\n                {% else %}\n                  -\n                {% endif %}\n              </td>\n              <td>\n                {% if v.triage_status==\'YES\' %}\n                  <span class="badge badge-triage-yes">YES</span>\n                {% else %}\n                  <span class="badge badge-triage-no">NO</span>\n                {% endif %}\n              </td>\n              <td>\n                {% set cat = (v.triage_cat or \'\').lower() %}\n                {% if cat == \'es1\' %}<span class="badge cat-red">ES1</span>\n                {% elif cat == \'es2\' %}<span class="badge cat-orange">ES2</span>\n                {% elif cat == \'es3\' %}<span class="badge cat-yellow">ES3</span>\n                {% elif cat == \'es4\' %}<span class="badge cat-green">ES4</span>\n                {% elif cat == \'es5\' %}<span class="badge cat-none">ES5</span>\n                {% else %}<span class="badge cat-none">-</span>{% endif %}\n              </td>\n              <td class="wait-cell">\n                {% if v.waiting_text %}\n                  {% set wl = v.waiting_level or \'none\' %}\n                  <span class="wait-pill {% if wl == \'short\' %}wait-short{% elif wl == \'medium\' %}wait-medium{% elif wl == \'long\' %}wait-long{% else %}wait-none{% endif %}">\n                    {{ v.waiting_text }}\n                  </span>\n                {% else %}\n                  <span class="text-muted">-</span>\n                {% endif %}\n              </td>\n              <td class="text-center small col-status">{{ v.status }}</td>\n              <td class="text-center small col-user">{{ v.created_by }}</td>\n              <td class="text-nowrap small text-muted col-created">{{ v.created_at }}</td>\n              <td>\n                <div class="ed-actions">\n                  <div class="ed-actions-row">\n                    <a class="btn btn-sm btn-outline-primary"\n                       href="{{ url_for(\'patient_details\', visit_id=v.visit_id) }}">\n                       Open\n                    </a>\n                    <a class="btn btn-sm btn-outline-secondary"\n                       target="_blank"\n                       href="{{ url_for(\'sticker_html\', visit_id=v.visit_id) }}">\n                       Sticker\n                    </a>\n                  </div>\n                  <div class="ed-actions-row">\n                    {% if session.get(\'role\') in [\'nurse\',\'doctor\',\'admin\'] %}\n                      <a class="btn btn-sm btn-outline-success"\n                         href="{{ url_for(\'triage\', visit_id=v.visit_id) }}">\n                         Triage\n                      </a>\n                    {% endif %}\n                    {% if session.get(\'role\') != \'reception\' %}\n                      <a class="btn btn-sm btn-outline-primary"\n                         target="_blank"\n                         href="{{ url_for(\'patient_summary_pdf\', visit_id=v.visit_id) }}">\n                         Summary PDF\n                      </a>\n                    {% endif %}\n                  </div>\n                </div>\n              </td>\n            </tr>\n            {% endfor %}\n          {% endif %}\n        </tbody>\n      </table>\n      </div>\n    </div>\n\n  </div> <!-- /card-body -->\n\n  <div class="card-footer d-flex justify-content-between align-items-center py-2">\n    <div class="small text-muted">\n      Page {{ page }} / {{ pages }} - Total: {{ total }}\n    </div>\n    <div class="d-flex align-items-center gap-2">\n      <ul class="pagination pagination-sm mb-0">\n        <li class="page-item {% if page <= 1 %}disabled{% endif %}">\n          <a class="page-link"\n             href="{{ url_for(\'ed_board\',\n                              status=status_filter,\n                              cat=cat_filter,\n                              visit_id=visit_f,\n                              user=user_f,\n                              date_from=dfrom,\n                              date_to=dto,\n                              page=page-1) }}">\n            Prev\n          </a>\n        </li>\n        <li class="page-item {% if page >= pages %}disabled{% endif %}">\n          <a class="page-link"\n             href="{{ url_for(\'ed_board\',\n                              status=status_filter,\n                              cat=cat_filter,\n                              visit_id=visit_f,\n                              user=user_f,\n                              date_from=dfrom,\n                              date_to=dto,\n                              page=page+1) }}">\n            Next\n          </a>\n        </li>\n      </ul>\n      <button class="btn btn-sm btn-outline-secondary" onclick="location.reload()">🔄 Manual Refresh</button>\n    </div>\n  </div>\n</div>\n{% endblock %}\n', 'patient_details.html': '\n{% extends "base.html" %}\n{% block content %}\n\n<div class="d-flex justify-content-between align-items-start mb-3 flex-wrap gap-2">\n  <div>\n    <h4 class="mb-0">Patient Details</h4>\n    <div class="text-muted small">Visit {{ visit.visit_id }}</div>\n  </div>\n  <div class="text-end">\n    <div class="mb-1">\n      {% set cat = (visit.triage_cat or \'\').lower() %}\n      {% if cat == \'es1\' %}<span class="badge bg-danger">ES1</span>\n      {% elif cat == \'es2\' %}<span class="badge bg-warning text-dark">ES2</span>\n      {% elif cat == \'es3\' %}<span class="badge bg-info text-dark">ES3</span>\n      {% elif cat == \'es4\' %}<span class="badge bg-primary">ES4</span>\n      {% elif cat == \'es5\' %}<span class="badge bg-success">ES5</span>\n      {% else %}<span class="badge bg-secondary">No ES</span>\n      {% endif %}\n    </div>\n    <div>\n      {% set st = (visit.status or \'\').upper() %}\n      {% set st_class = \'secondary\' %}\n      {% if st == \'OPEN\' %}{% set st_class = \'success\' %}{% endif %}\n      {% if st in [\'DISCHARGED\',\'TRANSFERRED\',\'LAMA\',\'EXPIRED\',\'CANCELLED\'] %}{% set st_class = \'danger\' %}{% endif %}\n      <span class="badge bg-{{ st_class }}">{{ visit.status or \'-\' }}</span>\n    </div>\n  </div>\n\n</div>\n\n<div class="alert d-flex justify-content-between align-items-center px-3 py-2 mb-3 {% if (visit.allergy_status or \'\').upper() == \'YES\' %}banner-allergy{% else %}banner-no-allergy{% endif %}">\n  <div class="d-flex align-items-center gap-2">\n    <span class="badge {% if (visit.allergy_status or \'\').upper() == \'YES\' %}bg-danger{% else %}bg-secondary{% endif %}">\n      ALLERGY\n    </span>\n    <div class="small">\n      {% set alg_status = (visit.allergy_status or \'\').upper() %}\n      {% if alg_status == \'YES\' %}\n        <strong>{{ visit.allergy_details or \'Allergy documented\' }}</strong>\n      {% elif alg_status == \'NKDA\' %}\n        NKDA (No known drug allergy)\n      {% elif alg_status %}\n        {{ alg_status }}\n      {% else %}\n        No allergy info recorded.\n      {% endif %}\n    </div>\n  </div>\n  <div class="small text-muted text-end">\n    Loc: {{ visit.location or \'-\' }}\n    {% if visit.bed_no %}\n      · Bed: {{ visit.bed_no }} ({{ visit.bed_status or \'EMPTY\' }})\n    {% endif %}\n  </div>\n</div>\n\n{% with messages = get_flashed_messages(with_categories=true) %}\n\n  {% for category, msg in messages %}\n    <div class="alert alert-{{ category }}">{{ msg }}</div>\n  {% endfor %}\n{% endwith %}\n\n<div class="card mb-3">\n  <div class="card-body">\n    <div class="row g-3">\n      <div class="col-md-6">\n        <h6 class="fw-bold text-muted mb-2">Patient &amp; Contact</h6>\n        <dl class="row mb-0 small">\n          <dt class="col-4">Name</dt>\n          <dd class="col-8 fw-semibold">{{ visit.name }}</dd>\n\n          <dt class="col-4">ID</dt>\n          <dd class="col-8">{{ visit.id_number or \'-\' }}</dd>\n\n          <dt class="col-4">Phone</dt>\n          <dd class="col-8">{{ visit.phone or \'-\' }}</dd>\n\n          <dt class="col-4">Nationality</dt>\n          <dd class="col-8">{{ visit.nationality or \'-\' }}</dd>\n\n          <dt class="col-4">Visit type</dt>\n          <dd class="col-8">\n            {% set vt = (visit.visit_type or \'NEW\') %}\n            {% if vt == \'NEW\' %}\n              New visit\n            {% elif vt == \'TREATMENT\' %}\n              Treatment\n            {% elif vt in [\'FOLLOW_UP\',\'FOLLOW-UP\',\'FOLLOWUP\'] %}\n              Follow-up\n            {% elif vt == \'PROCEDURE\' %}\n              Procedure / Dressing\n            {% else %}\n              {{ vt }}\n            {% endif %}\n          </dd>\n        </dl>\n      </div>\n      <div class="col-md-6">\n        <h6 class="fw-bold text-muted mb-2">Insurance &amp; Financial</h6>\n        <dl class="row mb-0 small">\n          <dt class="col-4">Insurance</dt>\n          <dd class="col-8">{{ visit.insurance or \'-\' }}</dd>\n\n          <dt class="col-4">Insurance No</dt>\n          <dd class="col-8">{{ visit.insurance_no or \'-\' }}</dd>\n\n          <dt class="col-4">Payment</dt>\n          <dd class="col-8">{{ visit.payment_details or \'-\' }}</dd>\n        </dl>\n      </div>\n    </div>\n\n    <hr class="my-3">\n\n    <div class="row g-3">\n      <div class="col-md-6">\n        <h6 class="fw-bold text-muted mb-2">Clinical Information</h6>\n        <div class="small mb-2">\n          <span class="fw-semibold">Patient Complaint:</span>\n          <div>{{ visit.comment or \'-\' }}</div>\n        </div>\n        <div class="small mb-2">\n          <span class="fw-semibold">Allergy:</span>\n          <div>\n            {{ visit.allergy_status or \'-\' }}\n            {% if visit.allergy_details %}\n              - {{ visit.allergy_details }}\n            {% endif %}\n          </div>\n        </div>\n        <div class="small mb-2">\n          <span class="fw-semibold">Triage Status:</span>\n          <span class="ms-1">{{ visit.triage_status }}</span>\n        </div>\n      </div>\n      <div class="col-md-6">\n        <h6 class="fw-bold text-muted mb-2">Vital Signs</h6>\n        <div class="d-flex flex-wrap gap-1 small">\n          <span class="badge text-bg-light">PR: {{ visit.pulse_rate or \'-\' }} bpm</span>\n          <span class="badge text-bg-light">RR: {{ visit.resp_rate or \'-\' }}/min</span>\n          <span class="badge text-bg-light">BP: {{ visit.bp_systolic or \'-\' }}/{{ visit.bp_diastolic or \'-\' }}</span>\n          <span class="badge text-bg-light">Temp: {{ visit.temperature or \'-\' }} °C</span>\n          <span class="badge text-bg-light">SpO2: {{ visit.spo2 or \'-\' }}%</span>\n          <span class="badge text-bg-light">Pain: {{ visit.pain_score or \'-\' }}/10</span>\n          <span class="badge text-bg-light">Consciousness: {{ visit.consciousness_level or \'-\' }}</span>\n          <span class="badge text-bg-light">Wt: {{ visit.weight or \'-\' }} kg</span>\n          <span class="badge text-bg-light">Ht: {{ visit.height or \'-\' }} cm</span>\n        </div>\n      </div>\n    </div>\n\n    {% if visit.status == \'CANCELLED\' %}\n    <hr class="my-3">\n    <div class="row g-2 small">\n      <div class="col-md-6">\n        <span class="fw-semibold">Cancel Reason:</span>\n        <span class="ms-1">{{ visit.cancel_reason or \'-\' }}</span>\n      </div>\n      <div class="col-md-6">\n        <span class="fw-semibold">Cancelled By:</span>\n        <span class="ms-1">{{ visit.cancelled_by or \'-\' }}</span>\n      </div>\n    </div>\n    {% endif %}\n  </div>\n</div>\n\n<div class="card p-3 bg-white mb-3">\n  <div class="d-flex justify-content-between align-items-center mb-2">\n    <h6 class="fw-bold mb-0">Location / Bed</h6>\n    <div class="small text-muted">Greaseboard-style slot</div>\n  </div>\n  <div class="row g-2 align-items-end small">\n    <div class="col-md-3 col-4">\n      <label class="form-label mb-1">Location</label>\n      <div>{{ visit.location or \'-\' }}</div>\n    </div>\n    <div class="col-md-2 col-4">\n      <label class="form-label mb-1">Bed</label>\n      <div>{{ visit.bed_no or \'-\' }}</div>\n    </div>\n    <div class="col-md-3 col-4">\n      <label class="form-label mb-1">Bed Status</label>\n      <div>{{ visit.bed_status or \'-\' }}</div>\n    </div>\n    <div class="col-md-4">\n      {% if session.get(\'role\') in [\'reception\',\'nurse\',\'doctor\',\'admin\'] %}\n      <form class="row g-1 align-items-end" method="POST" action="{{ url_for(\'update_location_bed\', visit_id=visit.visit_id) }}">\n        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">\n        <div class="col-4">\n          <label class="form-label mb-1 small">Loc</label>\n          <input type="text" class="form-control form-control-sm" name="location" value="{{ visit.location or \'\' }}" placeholder="WR / R1 / FT">\n        </div>\n        <div class="col-3">\n          <label class="form-label mb-1 small">Bed</label>\n          <input type="text" class="form-control form-control-sm" name="bed_no" value="{{ visit.bed_no or \'\' }}">\n        </div>\n        <div class="col-3">\n          <label class="form-label mb-1 small">Status</label>\n          {% set bs = (visit.bed_status or \'\').upper() %}\n          <select class="form-select form-select-sm" name="bed_status">\n            <option value="" {% if not bs %}selected{% endif %}>-</option>\n            <option value="EMPTY" {% if bs == \'EMPTY\' %}selected{% endif %}>EMPTY</option>\n            <option value="OCCUPIED" {% if bs == \'OCCUPIED\' %}selected{% endif %}>OCCUPIED</option>\n            <option value="DIRTY" {% if bs == \'DIRTY\' %}selected{% endif %}>DIRTY</option>\n          </select>\n        </div>\n        <div class="col-2">\n          <button class="btn btn-sm btn-primary w-100">Save</button>\n        </div>\n      </form>\n      {% endif %}\n    </div>\n  </div>\n</div>\n\n{% if session.get(\'role\') == \'reception\' %}\n<div class="card p-3 bg-white mb-3">\n  <h6 class="fw-bold mb-2">Investigations (Read-only for Reception)</h6>\n  <div class="row">\n    <div class="col-md-6 mb-2">\n      <strong>Lab Results:</strong>\n      {% if lab_reqs %}\n        <ul class="small mb-0">\n          {% for l in lab_reqs %}\n            {% if l.status == \'REPORTED\' %}\n              <li>{{ l.test_name }}: {{ l.result_text or \'-\' }}</li>\n            {% else %}\n              <li>{{ l.test_name }} - {{ l.status }}</li>\n            {% endif %}\n          {% endfor %}\n        </ul>\n      {% else %}\n        <div class="small text-muted">No lab requests for this visit.</div>\n      {% endif %}\n    </div>\n    <div class="col-md-6 mb-2">\n      <strong>Radiology Reports:</strong>\n      {% if rad_reqs %}\n        <ul class="small mb-0">\n          {% for r in rad_reqs %}\n            {% if r.status == \'REPORTED\' %}\n              <li>{{ r.test_name }}: {{ r.report_text or \'-\' }}</li>\n            {% else %}\n              <li>{{ r.test_name }} - {{ r.status }}</li>\n            {% endif %}\n          {% endfor %}\n        </ul>\n      {% else %}\n        <div class="small text-muted">No radiology requests for this visit.</div>\n      {% endif %}\n    </div>\n  </div>\n  <div class="small text-muted mt-1">\n    * View only - reception cannot edit results.\n  </div>\n</div>\n{% endif %}\n\n<div class="card p-3 bg-white mb-3">\n  <h6 class="fw-bold mb-2">Quick Actions</h6>\n  <div class="d-flex gap-2 flex-wrap">\n    <a class="btn btn-sm btn-outline-danger"\n       href="{{ url_for(\'depart_workflow\', visit_id=visit.visit_id) }}">\n      Depart / Discharge\n    </a>\n    {% if session.get(\'role\') in [\'reception\',\'admin\'] %}\n      <a class="btn btn-sm btn-outline-warning" href="{{ url_for(\'edit_patient\', visit_id=visit.visit_id) }}">Edit Patient</a>\n    {% endif %}\n\n    <a class="btn btn-sm btn-outline-secondary"\n       target="_blank"\n       href="{{ url_for(\'triage_pdf\', visit_id=visit.visit_id) }}">\n      Print Triage PDF\n    </a>\n    <a class="btn btn-sm btn-outline-secondary"\n       target="_blank"\n       href="{{ url_for(\'lab_results_pdf\', visit_id=visit.visit_id) }}">\n      Print Lab Results PDF\n    </a>\n    <a class="btn btn-sm btn-outline-secondary"\n       target="_blank"\n       href="{{ url_for(\'radiology_results_pdf\', visit_id=visit.visit_id) }}">\n      Print Radiology PDF\n    </a>\n    <a class="btn btn-sm btn-outline-secondary"\n       target="_blank"\n       href="{{ url_for(\'auto_summary_pdf\', visit_id=visit.visit_id) }}">\n      Auto-Summary PDF\n    </a>\n\n    {% if session.get(\'role\') in [\'nurse\',\'doctor\',\'admin\'] %}\n      <a class="btn btn-sm btn-success" href="{{ url_for(\'triage\', visit_id=visit.visit_id) }}">Triage</a>\n    {% endif %}\n\n    {% if session.get(\'role\') != \'reception\' %}\n      <a class="btn btn-sm btn-primary" href="{{ url_for(\'clinical_orders_page\', visit_id=visit.visit_id) }}">Clinical Orders</a>\n    {% endif %}\n\n    {% if session.get(\'role\') in [\'nurse\',\'doctor\',\'admin\'] %}\n      <a class="btn btn-sm btn-outline-dark" target="_blank" href="{{ url_for(\'auto_summary_pdf\', visit_id=visit.visit_id) }}">Auto Summary</a>\n      <a class="btn btn-sm btn-outline-primary" target="_blank" href="{{ url_for(\'patient_summary_pdf\', visit_id=visit.visit_id) }}"\n>ED Visit Summary - Patient Copy</a>\n    {% endif %}\n\n    {% if session.get(\'role\') in [\'reception\',\'nurse\',\'doctor\',\'admin\'] %}\n      <a class="btn btn-sm btn-outline-secondary" target="_blank" href="{{ url_for(\'home_med_pdf\', visit_id=visit.visit_id) }}">Home Medication</a>\n    {% endif %}\n\n    <a class="btn btn-sm btn-outline-dark" target="_blank" href="{{ url_for(\'sticker_html\', visit_id=visit.visit_id) }}">Sticker</a>\n    <a class="btn btn-sm btn-outline-secondary" target="_blank" href="{{ url_for(\'sticker_zpl\', visit_id=visit.visit_id) }}">ZPL</a>\n  </div>\n</div>\n\n{% if session.get(\'role\') in [\'reception\',\'admin\'] and visit.status == \'OPEN\' and orders_count == 0 %}\n<div class="card p-3 bg-white mb-3">\n  <h6 class="fw-bold mb-2">Cancel Visit</h6>\n  <p class="small text-muted mb-2">You can cancel an OPEN visit with no clinical orders.</p>\n  <form method="POST" action="{{ url_for(\'cancel_visit\', visit_id=visit.visit_id) }}">\n    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">\n    <div class="row g-2 align-items-end">\n      <div class="col-md-6">\n        <label class="form-label fw-bold small mb-1">Reason</label>\n        <input class="form-control" name="reason" required>\n      </div>\n      <div class="col-md-3">\n        <button class="btn btn-outline-danger w-100"\n                onclick="return confirm(\'Are you sure you want to cancel this visit?\');">\n          Cancel Visit\n        </button>\n      </div>\n    </div>\n  </form>\n</div>\n{% endif %}\n\n{% if session.get(\'role\') in [\'doctor\',\'admin\'] %}\n<form method="POST" action="{{ url_for(\'close_visit\', visit_id=visit.visit_id) }}" class="card p-3 bg-white mb-3">\n  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">\n  <h6 class="fw-bold">Update Status</h6>\n  <div class="row g-2 align-items-end">\n    <div class="col-md-4">\n      <label class="form-label fw-bold small mb-1">New Status</label>\n      <select class="form-select" name="status">\n        <option>DISCHARGED</option>\n        <option>ADMITTED</option>\n        <option>TRANSFERRED</option>\n        <option>LAMA</option>\n        <option>EXPIRED</option>\n        <option>IN_TREATMENT</option>\n        <option>CANCELLED</option>\n      </select>\n    </div>\n    <div class="col-md-3">\n      <button class="btn btn-danger w-100"\n              onclick="return confirm(\'Are you sure you want to update visit status?\');">\n        Update Status\n      </button>\n    </div>\n  </div>\n</form>\n{% endif %}\n\n<div class="card p-3 bg-white mb-3">\n  <h6 class="fw-bold mb-2">Attach Patient ID</h6>\n  <form method="POST" enctype="multipart/form-data" action="{{ url_for(\'upload_id\', visit_id=visit.visit_id) }}">\n    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">\n    <div class="row g-2 align-items-end">\n      <div class="col-md-6">\n        <input type="file" name="file" class="form-control">\n      </div>\n      <div class="col-md-3">\n        <button class="btn btn-primary btn-sm w-100">Upload</button>\n      </div>\n    </div>\n  </form>\n</div>\n\n{% endblock %}\n', 'edit_patient.html': '\n{% extends "base.html" %}\n{% block content %}\n<h4 class="mb-3">Edit Patient - Visit {{ r.visit_id }}</h4>\n\n<form method="POST" class="card p-3 bg-white">\n  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">\n  <div class="row g-2">\n    <div class="col-md-6"><label class="form-label fw-bold">Name</label><input class="form-control" name="name" value="{{ r.name }}" required></div>\n    <div class="col-md-6"><label class="form-label fw-bold">ID Number</label><input class="form-control" name="id_number" value="{{ r.id_number }}"></div>\n    <div class="col-md-4"><label class="form-label fw-bold">Phone</label><input class="form-control" name="phone" value="{{ r.phone }}"></div>\n    <div class="col-md-4"><label class="form-label fw-bold">Insurance</label><input class="form-control" name="insurance" value="{{ r.insurance }}"></div>\n    <div class="col-md-4"><label class="form-label fw-bold">Insurance No</label><input class="form-control" name="insurance_no" value="{{ r.insurance_no }}"></div>\n    <div class="col-md-4"><label class="form-label fw-bold">DOB</label><input class="form-control" name="dob" value="{{ r.dob }}"></div>\n    <div class="col-md-2"><label class="form-label fw-bold">Sex</label>\n      <select class="form-select" name="sex">\n        <option value="" {% if not r.sex %}selected{% endif %}></option>\n        <option value="M" {% if r.sex==\'M\' %}selected{% endif %}>M</option>\n        <option value="F" {% if r.sex==\'F\' %}selected{% endif %}>F</option>\n      </select>\n    </div>\n    <div class="col-md-6"><label class="form-label fw-bold">Nationality</label><input class="form-control" name="nationality" value="{{ r.nationality }}"></div>\n    <div class="col-md-12"><label class="form-label fw-bold">Payment Details</label><input class="form-control" name="payment_details" value="{{ r.payment_details }}"></div>\n  </div>\n  <div class="mt-3 d-flex gap-2">\n    <button class="btn btn-success">Save Changes</button>\n    <a class="btn btn-secondary" href="{{ url_for(\'patient_details\', visit_id=r.visit_id) }}">Cancel</a>\n  </div>\n</form>\n{% endblock %}\n', 'triage.html': '\n{% extends "base.html" %}\n{% block content %}\n<h4 class="mb-3">Triage - Visit {{ visit.visit_id }}\n  {% if visit.triage_cat %}\n    {% set es = visit.triage_cat %}\n    {% set es_class = \'danger\' if es==\'ES1\' else \'warning\' if es==\'ES2\' else \'info\' if es==\'ES3\' else \'primary\' if es==\'ES4\' else \'success\' %}\n    <span class="badge bg-{{ es_class }} ms-2">{{ es }}</span>\n  {% endif %}\n</h4>\n\n{% with messages = get_flashed_messages(with_categories=true) %}\n  {% for category, msg in messages %}\n    <div class="alert alert-{{ category }}">{{ msg }}</div>\n  {% endfor %}\n{% endwith %}\n\n<form method="POST" class="card p-3 bg-white">\n  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">\n  <div class="mb-2"><strong>Patient:</strong> {{ visit.name }} | ID: {{ visit.id_number }} | INS: {{ visit.insurance }}</div>\n\n  <label class="form-label fw-bold mt-2">Patient\'s Complaint</label>\n  <input class="form-control" name="comment" value="{{ visit.comment or \'\' }}" required>\n\n  <label class="form-label fw-bold mt-2">Allergy</label>\n  <div class="row g-2">\n    <div class="col-md-4">\n      <select class="form-select" name="allergy_status" id="allergy_status">\n        {% set al = visit.allergy_status or \'\' %}\n        <option value="" {% if al==\'\' %}selected{% endif %}>-- Select --</option>\n        <option value="No" {% if al==\'No\' %}selected{% endif %}>No</option>\n        <option value="Yes" {% if al==\'Yes\' %}selected{% endif %}>Yes</option>\n      </select>\n    </div>\n    <div class="col-md-8"\n         id="allergy_details_group"\n         style="display: {% if (visit.allergy_status or \'\') == \'Yes\' %}block{% else %}none{% endif %};">\n      <input class="form-control"\n             name="allergy_details"\n             placeholder="Cause of allergy (drug / food / other)"\n             value="{{ visit.allergy_details or \'\' }}">\n    </div>\n  </div>\n\n  <hr class="my-3">\n\n  <h6 class="fw-bold">Vital Signs</h6>\n  <div class="row g-2">\n    <div class="col-md-4">\n      <label class="form-label">Pulse Rate (bpm)</label>\n      <input class="form-control" name="pulse_rate" value="{{ visit.pulse_rate or \'\' }}">\n    </div>\n    <div class="col-md-4">\n      <label class="form-label">Resp Rate (/min)</label>\n      <input class="form-control" name="resp_rate" value="{{ visit.resp_rate or \'\' }}">\n    </div>\n    <div class="col-md-4">\n      <label class="form-label">Temp (°C)</label>\n      <input class="form-control" name="temperature" value="{{ visit.temperature or \'\' }}">\n    </div>\n    <div class="col-md-4">\n      <label class="form-label">BP Systolic</label>\n      <input class="form-control" name="bp_systolic" value="{{ visit.bp_systolic or \'\' }}">\n    </div>\n    <div class="col-md-4">\n      <label class="form-label">BP Diastolic</label>\n      <input class="form-control" name="bp_diastolic" value="{{ visit.bp_diastolic or \'\' }}">\n    </div>\n    <div class="col-md-4">\n      <label class="form-label">SpO₂ (%)</label>\n      <input class="form-control" name="spo2" value="{{ visit.spo2 or \'\' }}">  <!-- may be required based on complaint -->\n    </div>\n    <div class="col-md-4">\n      <label class="form-label">Weight (kg)</label>\n      <input class="form-control" name="weight" value="{{ visit.weight or \'\' }}">\n    </div>\n    <div class="col-md-4">\n      <label class="form-label">Height (cm)</label>\n      <input class="form-control" name="height" value="{{ visit.height or \'\' }}">\n    </div>\n    <div class="col-md-6">\n      <label class="form-label">Level of Consciousness</label>\n      <select class="form-select" name="consciousness_level">\n        {% set cl = visit.consciousness_level or \'\' %}\n        <option value="" {% if cl==\'\' %}selected{% endif %}>-- Select --</option>\n        <option value="Alert" {% if cl==\'Alert\' %}selected{% endif %}>Alert</option>\n        <option value="Verbal" {% if cl==\'Verbal\' %}selected{% endif %}>Verbal</option>\n        <option value="Pain" {% if cl==\'Pain\' %}selected{% endif %}>Pain</option>\n        <option value="Unresponsive" {% if cl==\'Unresponsive\' %}selected{% endif %}>Unresponsive</option>\n      </select>\n      <div class="form-text">AVPU scale</div>\n    </div>\n    <div class="col-md-6">\n      <label class="form-label">Pain Score (0-10)</label>\n      <input class="form-control" name="pain_score" value="{{ visit.pain_score or \'\' }}" required>\n    </div>\n  </div>\n\n  <hr class="my-3">\n\n  <label class="form-label fw-bold mt-2">Triage Category (ES)</label>\n  <select class="form-select" name="triage_cat" required>\n    <option value="">-- Select --</option>\n    <option value="ES1" {% if visit.triage_cat==\'ES1\' %}selected{% endif %}>ES1</option>\n    <option value="ES2" {% if visit.triage_cat==\'ES2\' %}selected{% endif %}>ES2</option>\n    <option value="ES3" {% if visit.triage_cat==\'ES3\' %}selected{% endif %}>ES3</option>\n    <option value="ES4" {% if visit.triage_cat==\'ES4\' %}selected{% endif %}>ES4</option>\n    <option value="ES5" {% if visit.triage_cat==\'ES5\' %}selected{% endif %}>ES5</option>\n  </select>\n\n  <div class="mt-3 d-flex gap-2">\n    <button class="btn btn-success">Save Triage</button>\n    <a class="btn btn-outline-secondary"\n       target="_blank"\n       href="{{ url_for(\'triage_pdf\', visit_id=visit.visit_id) }}">\n      Print Triage PDF\n    </a>\n  </div>\n</form>\n\n<script>\ndocument.addEventListener(\'DOMContentLoaded\', function () {\n  const allergySelect = document.getElementById(\'allergy_status\');\n  const detailsGroup = document.getElementById(\'allergy_details_group\');\n  if (!allergySelect || !detailsGroup) return;\n\n  function toggleDetails() {\n    if (allergySelect.value === \'Yes\') {\n      detailsGroup.style.display = \'block\';\n    } else {\n      detailsGroup.style.display = \'none\';\n    }\n  }\n\n  allergySelect.addEventListener(\'change\', toggleDetails);\n  toggleDetails();\n});\n</script>\n{% endblock %}\n', 'lab_board.html': '\n{% extends "base.html" %}\n{% block content %}\n<h4 class="mb-3">Lab Board</h4>\n\n{% with messages = get_flashed_messages(with_categories=true) %}\n  {% for category, msg in messages %}\n    <div class="alert alert-{{ category }}">{{ msg }}</div>\n  {% endfor %}\n{% endwith %}\n\n<form method="GET" class="card p-2 mb-3 bg-white">\n  <div class="row g-2 align-items-end">\n    <div class="col-md-3 col-sm-4">\n      <label class="form-label fw-bold small mb-1">Status</label>\n      <select name="status" class="form-select form-select-sm">\n        <option value="PENDING" {% if status_filter==\'PENDING\' %}selected{% endif %}>Pending / Received</option>\n        <option value="REPORTED" {% if status_filter==\'REPORTED\' %}selected{% endif %}>Reported</option>\n        <option value="ALL" {% if status_filter==\'ALL\' %}selected{% endif %}>All</option>\n      </select>\n    </div>\n    <div class="col-md-3 col-sm-8">\n      <label class="form-label fw-bold small mb-1">Search</label>\n      <input type="text"\n             name="q"\n             value="{{ q or \'\' }}"\n             class="form-control form-control-sm"\n             placeholder="Name / ID / Visit / Test">\n    </div>\n    <div class="col-md-2 col-sm-6">\n      <label class="form-label fw-bold small mb-1">From (requested)</label>\n      <input type="date" name="date_from" value="{{ date_from or \'\' }}"\n             class="form-control form-control-sm">\n    </div>\n    <div class="col-md-2 col-sm-6">\n      <label class="form-label fw-bold small mb-1">To (requested)</label>\n      <input type="date" name="date_to" value="{{ date_to or \'\' }}"\n             class="form-control form-control-sm">\n    </div>\n    <div class="col-md-2 col-sm-6">\n      <label class="form-label fw-bold small mb-1">&nbsp;</label>\n      <div class="d-flex gap-1">\n        <button class="btn btn-sm btn-primary flex-fill">Search / Filter</button>\n        <a class="btn btn-sm btn-outline-secondary"\n           href="{{ url_for(\'export_labs_csv\', status=status_filter, q=q, date_from=date_from, date_to=date_to) }}">\n          ⬇︎ CSV\n        </a>\n      </div>\n    </div>\n  </div>\n</form>\n\n{% if status_counts is defined %}\n<div class="card p-2 mb-2">\n  <div class="small d-flex flex-wrap align-items-center gap-3">\n    <span class="text-muted">Summary:</span>\n    <span>\n      Pending: {{ pending_count }}\n      <span class="text-muted">(\n        Requested: {{ status_counts.get(\'REQUESTED\', 0) }},\n        Received: {{ status_counts.get(\'RECEIVED\', 0) }}\n      )</span>\n    </span>\n    <span>\n      Reported: {{ status_counts.get(\'REPORTED\', 0) }}\n    </span>\n  </div>\n</div>\n{% endif %}\n\n<table class="table table-sm table-striped table-hover bg-white align-middle">\n  <thead class="table-light">\n    <tr>\n      <th style="width:60px;">#</th>\n      <th>Visit</th>\n      <th>Patient</th>\n      <th>ID</th>\n      <th>Test</th>\n      <th>Status</th>\n      <th>Age / TAT</th>\n      <th>Result</th>\n      <th style="width:220px;">Actions</th>\n    </tr>\n  </thead>\n  <tbody>\n  {% if not rows %}\n    <tr>\n      <td colspan="9" class="text-center text-muted small py-3">\n        No lab requests found for current filter.\n      </td>\n    </tr>\n  {% else %}\n    {% for r in rows %}\n      <tr>\n        <td>{{ r.id }}</td>\n        <td class="fw-bold">{{ r.visit_id }}</td>\n        <td>{{ r.name }}</td>\n        <td>{{ r.id_number or \'-\' }}</td>\n        <td>{{ r.test_name }}</td>\n        <td>\n          {% if r.status == \'REQUESTED\' %}\n            <span class="badge bg-secondary">Waiting sample</span>\n          {% elif r.status == \'RECEIVED\' %}\n            <span class="badge bg-warning text-dark">Sample received</span>\n          {% elif r.status == \'REPORTED\' %}\n            <span class="badge bg-success">Reported</span>\n          {% else %}\n            <span class="badge bg-light text-muted">{{ r.status }}</span>\n          {% endif %}\n        </td>\n        <td>\n          {% if r.age_minutes is not none %}\n            {% if r.age_level == \'long\' %}\n              <span class="badge text-bg-danger">{{ r.age_text }}</span>\n            {% elif r.age_level == \'medium\' %}\n              <span class="badge text-bg-warning text-dark">{{ r.age_text }}</span>\n            {% elif r.age_level == \'short\' %}\n              <span class="badge text-bg-light text-muted">{{ r.age_text }}</span>\n            {% else %}\n              <span class="badge text-bg-light text-muted">{{ r.age_text }}</span>\n            {% endif %}\n          {% else %}\n            <span class="text-muted">-</span>\n          {% endif %}\n        </td>\n        <td style="max-width:260px; white-space:pre-wrap; font-size:0.85rem;">\n          {{ r.result_text or \'-\' }}\n        </td>\n        <td>\n          <div class="d-flex flex-column gap-1">\n            {% if session.get(\'role\') in [\'lab\',\'admin\'] %}\n              {% if r.status == \'REQUESTED\' %}\n                <form method="POST"\n                      action="{{ url_for(\'lab_receive_sample\', rid=r.id) }}">\n                  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">\n                  <button class="btn btn-sm btn-outline-primary w-100">\n                    ✅ Receive Sample\n                  </button>\n                </form>\n              {% endif %}\n\n              <button class="btn btn-sm btn-outline-secondary w-100 mt-1"\n                      type="button"\n                      data-bs-toggle="modal"\n                      data-bs-target="#labResultModal"\n                      data-rid="{{ r.id }}"\n                      data-visit="{{ r.visit_id }}"\n                      data-patient="{{ r.name }}"\n                      data-test="{{ r.test_name }}"\n                      data-result="{{ (r.result_text or \'\')|e }}"\n                      data-url="{{ url_for(\'lab_report_result\', rid=r.id) }}">\n                ✏️ Edit / Add Result\n              </button>\n\n              {% if r.status == \'REPORTED\' %}\n                <span class="small text-muted mt-1">\n                  {{ r.reported_at or \'\' }} | {{ r.reported_by or \'\' }}\n                </span>\n              {% endif %}\n            {% else %}\n              <span class="small text-muted">Read-only</span>\n            {% endif %}\n\n            {% if session.get(\'role\') in [\'lab\',\'admin\',\'doctor\'] %}\n              <form method="POST"\n                    enctype="multipart/form-data"\n                    action="{{ url_for(\'lab_upload_result_file\', rid=r.id) }}"\n                    class="d-flex gap-1 mt-1">\n                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">\n                <input type="file" name="file" class="form-control form-control-sm">\n                <button class="btn btn-sm btn-outline-secondary">Upload</button>\n              </form>\n            {% endif %}\n          </div>\n        </td>\n      </tr>\n    {% endfor %}\n  {% endif %}\n  </tbody>\n</table>\n\n<div class="small text-muted mt-2">Showing latest 500 requests (before filters & limits).</div>\n\n<!-- Lab Result Modal -->\n<div class="modal fade" id="labResultModal" tabindex="-1" aria-hidden="true">\n  <div class="modal-dialog modal-lg modal-dialog-scrollable">\n    <div class="modal-content">\n      <form method="POST" id="labResultForm">\n        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">\n        <div class="modal-header">\n          <h5 class="modal-title">Lab Result</h5>\n          <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>\n        </div>\n        <div class="modal-body">\n          <div class="small text-muted mb-2" id="labResultMeta"></div>\n          <div class="mb-2">\n            <label class="form-label small">Result</label>\n            <textarea class="form-control" name="result_text" id="labResultText" rows="5"\n                      placeholder="Enter result..."></textarea>\n          </div>\n        </div>\n        <div class="modal-footer">\n          <button type="button" class="btn btn-sm btn-outline-secondary" data-bs-dismiss="modal">Close</button>\n          <button type="submit" class="btn btn-sm btn-primary">Save Result</button>\n        </div>\n      </form>\n    </div>\n  </div>\n</div>\n\n<script>\n  document.addEventListener(\'DOMContentLoaded\', function () {\n    var labModal = document.getElementById(\'labResultModal\');\n    if (!labModal) return;\n    labModal.addEventListener(\'show.bs.modal\', function (event) {\n      var button = event.relatedTarget;\n      if (!button) return;\n      var visit = button.getAttribute(\'data-visit\') || \'\';\n      var patient = button.getAttribute(\'data-patient\') || \'\';\n      var test = button.getAttribute(\'data-test\') || \'\';\n      var result = button.getAttribute(\'data-result\') || \'\';\n      var url = button.getAttribute(\'data-url\') || \'\';\n\n      var form = document.getElementById(\'labResultForm\');\n      var textArea = document.getElementById(\'labResultText\');\n      var meta = document.getElementById(\'labResultMeta\');\n\n      form.action = url;\n      textArea.value = result;\n      meta.textContent = \'Visit \' + visit + \' - \' + patient + \' - \' + test;\n    });\n  });\n</script>\n\n{% endblock %}\n', 'radiology_board.html': '\n{% extends "base.html" %}\n{% block content %}\n<div class="d-flex justify-content-between align-items-center mb-2">\n  <div>\n    <h4 class="mb-0">Radiology Board</h4>\n    <div class="small text-muted">Imaging requests, status and reports.</div>\n  </div>\n  <div class="text-end small">\n    <div>\n      Pending / Done:\n      <span class="badge bg-warning-subtle text-warning border border-warning">\n        {{ pending_count or 0 }}\n      </span>\n    </div>\n    <div>\n      Reported:\n      <span class="badge bg-success-subtle text-success border border-success">\n        {{ reported_count or 0 }}\n      </span>\n    </div>\n  </div>\n</div>\n\n{% with messages = get_flashed_messages(with_categories=true) %}\n  {% for category, msg in messages %}\n    <div class="alert alert-{{ category }}">{{ msg }}</div>\n  {% endfor %}\n{% endwith %}\n\n{% if status_counts or modality_counts %}\n<div class="row g-2 mb-2">\n  <div class="col-lg-5 col-md-6">\n    <div class="card card-body py-2">\n      <div class="small fw-bold text-muted mb-1">By status</div>\n      {% set sc = status_counts or {} %}\n      <div class="d-flex flex-wrap gap-1">\n        <span class="badge rounded-pill bg-secondary-subtle text-secondary border border-secondary">\n          REQUESTED: <span class="fw-bold">{{ sc.get(\'REQUESTED\', 0) }}</span>\n        </span>\n        <span class="badge rounded-pill bg-warning-subtle text-warning border border-warning">\n          DONE: <span class="fw-bold">{{ sc.get(\'DONE\', 0) }}</span>\n        </span>\n        <span class="badge rounded-pill bg-success-subtle text-success border border-success">\n          REPORTED: <span class="fw-bold">{{ sc.get(\'REPORTED\', 0) }}</span>\n        </span>\n      </div>\n    </div>\n  </div>\n  <div class="col-lg-7 col-md-6">\n    <div class="card card-body py-2">\n      <div class="small fw-bold text-muted mb-1">By modality (simple)</div>\n      {% set mc = modality_counts or {} %}\n      <div class="d-flex flex-wrap gap-1">\n        <span class="badge rounded-pill bg-primary-subtle text-primary border border-primary">\n          XR: <span class="fw-bold">{{ mc.get(\'XR\', 0) }}</span>\n        </span>\n        <span class="badge rounded-pill bg-success-subtle text-success border border-success">\n          US: <span class="fw-bold">{{ mc.get(\'US\', 0) }}</span>\n        </span>\n        <span class="badge rounded-pill bg-warning-subtle text-warning border border-warning">\n          CT: <span class="fw-bold">{{ mc.get(\'CT\', 0) }}</span>\n        </span>\n        <span class="badge rounded-pill bg-info-subtle text-info border border-info">\n          MRI: <span class="fw-bold">{{ mc.get(\'MRI\', 0) }}</span>\n        </span>\n        <span class="badge rounded-pill bg-light text-muted border">\n          Other: <span class="fw-bold">{{ mc.get(\'Other\', 0) }}</span>\n        </span>\n      </div>\n    </div>\n  </div>\n</div>\n{% endif %}\n\n<form method="GET" class="card p-2 mb-3 bg-white">\n  <div class="row g-2 align-items-end">\n    <div class="col-md-3 col-sm-4">\n      <label class="form-label fw-bold small mb-1">Status</label>\n      <select name="status" class="form-select form-select-sm">\n        <option value="PENDING" {% if status_filter==\'PENDING\' %}selected{% endif %}>Pending / Done</option>\n        <option value="REPORTED" {% if status_filter==\'REPORTED\' %}selected{% endif %}>Reported</option>\n        <option value="ALL" {% if status_filter==\'ALL\' %}selected{% endif %}>All</option>\n      </select>\n    </div>\n    <div class="col-md-3 col-sm-6">\n      <label class="form-label fw-bold small mb-1">Search</label>\n      <input type="text"\n             name="q"\n             value="{{ q or \'\' }}"\n             class="form-control form-control-sm"\n             placeholder="Name / ID / Visit / Study">\n    </div>\n    <div class="col-md-2 col-sm-6">\n      <label class="form-label fw-bold small mb-1">From (requested)</label>\n      <input type="date" name="date_from" value="{{ date_from or \'\' }}"\n             class="form-control form-control-sm">\n    </div>\n    <div class="col-md-2 col-sm-6">\n      <label class="form-label fw-bold small mb-1">To (requested)</label>\n      <input type="date" name="date_to" value="{{ date_to or \'\' }}"\n             class="form-control form-control-sm">\n    </div>\n    <div class="col-md-2 col-sm-6">\n      <label class="form-label fw-bold small mb-1">&nbsp;</label>\n      <div class="d-flex gap-1">\n        <button class="btn btn-sm btn-primary flex-fill">Search / Filter</button>\n        <a class="btn btn-sm btn-outline-secondary"\n           href="{{ url_for(\'export_radiology_csv\', status=status_filter, q=q, date_from=date_from, date_to=date_to) }}">\n          ⬇︎ CSV\n        </a>\n      </div>\n    </div>\n  </div>\n</form>\n\n<div class="table-responsive">\n<table class="table table-sm table-striped table-hover bg-white align-middle">\n  <thead class="table-light">\n    <tr>\n      <th style="width:60px;">#</th>\n      <th>Visit</th>\n      <th>Patient</th>\n      <th>ID</th>\n      <th>Study</th>\n      <th>Modality</th>\n      <th>Requested</th>\n      <th>Age / TAT</th>\n      <th>Status</th>\n      <th>Report</th>\n      <th style="width:260px;">Actions</th>\n    </tr>\n  </thead>\n  <tbody>\n  {% if not rows %}\n    <tr>\n      <td colspan="11" class="text-center text-muted small py-3">\n        No radiology requests found for current filter.\n      </td>\n    </tr>\n  {% else %}\n    {% for r in rows %}\n      <tr class="{% if r.status == \'REQUESTED\' %}table-warning{% elif r.status == \'DONE\' %}table-light{% endif %}">\n        <td>{{ r.id }}</td>\n        <td class="fw-bold">{{ r.visit_id }}</td>\n        <td>{{ r.name }}</td>\n        <td>{{ r.id_number or \'-\' }}</td>\n        <td>{{ r.test_name }}</td>\n        <td>{{ r.modality or \'-\' }}</td>\n        <td class="small text-muted">{{ r.requested_at or \'\' }}</td>\n        <td>\n          {% if r.age_text %}\n            {% if r.age_level == \'short\' %}\n              <span class="fw-bold text-success">{{ r.age_text }}</span>\n            {% elif r.age_level == \'medium\' %}\n              <span class="fw-bold text-warning">{{ r.age_text }}</span>\n            {% elif r.age_level == \'long\' %}\n              <span class="fw-bold text-danger">{{ r.age_text }}</span>\n            {% elif r.age_level == \'verylong\' %}\n              <span class="fw-bold text-danger">{{ r.age_text }} &#9888;</span>\n            {% else %}\n              <span class="text-muted">{{ r.age_text }}</span>\n            {% endif %}\n          {% else %}\n            <span class="text-muted">-</span>\n          {% endif %}\n        </td>\n        <td>\n          {% if r.status == \'REQUESTED\' %}\n            <span class="badge bg-secondary">Waiting</span>\n          {% elif r.status == \'DONE\' %}\n            <span class="badge bg-warning text-dark">Done</span>\n          {% elif r.status == \'REPORTED\' %}\n            <span class="badge bg-success">Reported</span>\n          {% else %}\n            <span class="badge bg-light text-muted">{{ r.status }}</span>\n          {% endif %}\n        </td>\n        <td style="max-width:260px; white-space:pre-wrap; font-size:0.85rem;">\n          {% if r.report_text %}<span class="text-muted small">See below</span>{% else %}-{% endif %}\n        </td>\n        <td>\n          <div class="d-flex flex-column gap-1">\n            {% if session.get(\'role\') in [\'radiology\',\'admin\'] %}\n              {% if r.status == \'REQUESTED\' %}\n                <form method="POST"\n                      action="{{ url_for(\'radiology_mark_done\', rid=r.id) }}">\n                  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">\n                  <button class="btn btn-sm btn-outline-primary w-100">\n                    ✅ Mark as Done\n                  </button>\n                </form>\n              {% endif %}\n\n              <button class="btn btn-sm btn-outline-secondary w-100 mt-1"\n                      type="button"\n                      data-bs-toggle="modal"\n                      data-bs-target="#radReportModal"\n                      data-rid="{{ r.id }}"\n                      data-visit="{{ r.visit_id }}"\n                      data-patient="{{ r.name }}"\n                      data-test="{{ r.test_name }}"\n                      data-report="{{ (r.report_text or \'\')|e }}"\n                      data-url="{{ url_for(\'radiology_report_result\', rid=r.id) }}">\n                ✏️ Edit / Add Report\n              </button>\n\n              {% if r.status == \'REPORTED\' %}\n                <span class="small text-muted mt-1">\n                  {{ r.reported_at or \'\' }} | {{ r.reported_by or \'\' }}\n                </span>\n              {% endif %}\n            {% else %}\n              <span class="small text-muted">Read-only</span>\n            {% endif %}\n          </div>\n        </td>\n      </tr>\n    {% endfor %}\n  {% endif %}\n  </tbody>\n</table>\n</div>\n\n<div class="small text-muted mt-2">\n  Showing latest 500 radiology requests (before filters & limits).\n</div>\n\n<!-- Radiology Report Modal -->\n<div class="modal fade" id="radReportModal" tabindex="-1" aria-hidden="true">\n  <div class="modal-dialog modal-lg modal-dialog-scrollable">\n    <div class="modal-content">\n      <form method="POST" id="radReportForm">\n        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">\n        <div class="modal-header">\n          <h5 class="modal-title">Radiology Report</h5>\n          <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>\n        </div>\n        <div class="modal-body">\n          <div class="small text-muted mb-2" id="radReportMeta"></div>\n          <div class="mb-2">\n            <label class="form-label small">Report Text</label>\n            <textarea\n              name="report_text"\n              id="radReportText"\n              rows="12"\n              class="form-control form-control-sm"\n              placeholder="Type or paste the radiology report here..."></textarea>\n          </div>\n          <div class="alert alert-info small">\n            <ul class="mb-0 ps-3">\n              <li>Keep structured (Findings / Impression) where possible.</li>\n              <li>Patient &amp; visit details appear above for double-checking.</li>\n            </ul>\n          </div>\n        </div>\n        <div class="modal-footer">\n          <button type="button" class="btn btn-sm btn-outline-secondary" data-bs-dismiss="modal">Close</button>\n          <button type="submit" class="btn btn-sm btn-primary">Save Report</button>\n        </div>\n      </form>\n    </div>\n  </div>\n</div>\n\n<script>\ndocument.addEventListener(\'DOMContentLoaded\', function () {\n  var radModal = document.getElementById(\'radReportModal\');\n  if (!radModal) return;\n  radModal.addEventListener(\'show.bs.modal\', function (event) {\n    var button = event.relatedTarget;\n    if (!button) return;\n\n    var rid = button.getAttribute(\'data-rid\') || \'\';\n    var visit = button.getAttribute(\'data-visit\') || \'\';\n    var patient = button.getAttribute(\'data-patient\') || \'\';\n    var test = button.getAttribute(\'data-test\') || \'\';\n    var report = button.getAttribute(\'data-report\') || \'\';\n    var url = button.getAttribute(\'data-url\') || \'\';\n\n    var form = document.getElementById(\'radReportForm\');\n    var textArea = document.getElementById(\'radReportText\');\n    var meta = document.getElementById(\'radReportMeta\');\n\n    form.action = url;\n    textArea.value = report;\n    meta.textContent = \'Visit \' + visit + \' - \' + patient + \' - \' + test;\n  });\n});\n</script>\n\n{% endblock %}\n', 'clinical_orders.html': '\n{% extends "base.html" %}\n{% block content %}\n<h4 class="mb-2">Clinical Orders - Visit {{ visit.visit_id }}</h4>\n<div class="mb-3 text-muted">\n  Patient: {{ visit.name }} | ID: {{ visit.id_number }} | Insurance: {{ visit.insurance }}\n</div>\n\n{% with messages = get_flashed_messages(with_categories=true) %}\n  {% for category, msg in messages %}\n    <div class="alert alert-{{ category }}">{{ msg }}</div>\n  {% endfor %}\n{% endwith %}\n\n<div class="mb-3 d-flex flex-wrap gap-2">\n  <a class="btn btn-sm btn-outline-secondary"\n     target="_blank"\n     href="{{ url_for(\'lab_results_pdf\', visit_id=visit.visit_id) }}">\n    Print Lab Results PDF\n  </a>\n\n  <a class="btn btn-sm btn-outline-secondary"\n     target="_blank"\n     href="{{ url_for(\'radiology_results_pdf\', visit_id=visit.visit_id) }}">\n    Print Radiology Reports PDF\n  </a>\n\n  <a class="btn btn-sm btn-outline-dark"\n     target="_blank"\n     href="{{ url_for(\'auto_summary_pdf\', visit_id=visit.visit_id) }}">\n    Auto ED Course Summary PDF\n  </a>\n</div>\n\n<div class="row g-3">\n  <div class="col-lg-7">\n    <div class="card p-3 bg-white">\n      <h6 class="fw-bold mb-2">Add New Clinical Order</h6>\n\n      <div class="mb-3 d-flex flex-wrap gap-2">\n        <button type="button" class="btn btn-sm btn-outline-primary" onclick="applyBundle(\'chest_pain\')">Chest Pain Bundle</button>\n        <button type="button" class="btn btn-sm btn-outline-danger" onclick="applyBundle(\'stroke\')">Stroke Bundle</button>\n        <button type="button" class="btn btn-sm btn-outline-dark" onclick="applyBundle(\'trauma\')">Trauma Bundle</button>\n        \n        <button type="button" class="btn btn-sm btn-outline-success" onclick="applyBundle(\'abdominal_pain\')">Abdominal Pain Bundle</button>\n        <button type="button" class="btn btn-sm btn-outline-info" onclick="applyBundle(\'sob\')">SOB Bundle</button>\n        <button type="button" class="btn btn-sm btn-outline-warning" onclick="applyBundle(\'sepsis\')">Sepsis Bundle</button>\n        <button type="button" class="btn btn-sm btn-outline-primary" onclick="applyBundle(\'fever\')">Fever Bundle</button>\n        <button type="button" class="btn btn-sm btn-outline-dark" onclick="applyBundle(\'gi_bleed\')">GI Bleed Bundle</button>\n        <button type="button" class="btn btn-sm btn-outline-danger" onclick="applyBundle(\'anaphylaxis\')">Anaphylaxis Bundle</button>\n<button type="button" class="btn btn-sm btn-outline-secondary" onclick="clearAllBundles()">Clear Selections</button>\n      </div>\n\n      {% if session.get(\'role\') not in [\'reception\'] %}\n      <form method="POST" action="{{ url_for(\'add_clinical_order\', visit_id=visit.visit_id) }}">\n  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">\n        <label class="form-label fw-bold">Diagnosis / Chief Complaint</label>\n        <textarea class="form-control mb-3" name="diagnosis" rows="2" placeholder="Write diagnosis or chief complaint..."></textarea>\n\n        <label class="form-label fw-bold">Radiology Orders</label>\n        <div class="border rounded p-2 mb-2" style="max-height:180px; overflow:auto;">\n          {% set rad_list = [\n            "X-Ray Chest","X-Ray Pelvis","X-Ray C-Spine","X-Ray L-Spine",\n            "CT Brain Without Contrast","CT Brain With Contrast","CT C-Spine","CT Chest","CT Abdomen/Pelvis",\n            "CT Angio Brain/Neck","CT Trauma Pan-Scan",\n            "MRI Brain","MRI Spine",\n            "US Abdomen","US Pelvis","US DVT Lower Limb","FAST Ultrasound"\n          ] %}\n          {% for item in rad_list %}\n            <div class="form-check">\n              <input class="form-check-input rad-item" type="checkbox" value="{{ item }}" id="rad_{{ loop.index }}">\n              <label class="form-check-label" for="rad_{{ loop.index }}">{{ item }}</label>\n            </div>\n          {% endfor %}\n        </div>\n\n        <div class="input-group input-group-sm mb-2">\n          <input type="text" class="form-control" id="rad_other" placeholder="Add other radiology (optional)">\n          <button class="btn btn-outline-secondary" type="button" onclick="addOther(\'rad\')">Add</button>\n        </div>\n\n        <textarea class="form-control mb-3" id="radiology_text" name="radiology_orders" rows="2"\n                  placeholder="Selected radiology appear here..." readonly></textarea>\n\n        <label class="form-label fw-bold">Lab Orders</label>\n        <div class="border rounded p-2 mb-2" style="max-height:180px; overflow:auto;">\n          {% set lab_list = [\n            "CBC","CMP (Kidney/Liver)","Electrolytes","CRP","ESR",\n            "Troponin","CK-MB","PT/PTT/INR","RBS (Random Blood Sugar)","ABG",\n            "Urine Analysis","Blood Culture","Lactate","D-Dimer","Lipase","BHCG (Pregnancy Test)",\n            "Type & Screen / Crossmatch"\n          ] %}\n          {% for item in lab_list %}\n            <div class="form-check">\n              <input class="form-check-input lab-item" type="checkbox" value="{{ item }}" id="lab_{{ loop.index }}">\n              <label class="form-check-label" for="lab_{{ loop.index }}">{{ item }}</label>\n            </div>\n          {% endfor %}\n        </div>\n\n        <div class="input-group input-group-sm mb-2">\n          <input type="text" class="form-control" id="lab_other" placeholder="Add other lab (optional)">\n          <button class="btn btn-outline-secondary" type="button" onclick="addOther(\'lab\')">Add</button>\n        </div>\n\n        <textarea class="form-control mb-3" id="lab_text" name="lab_orders" rows="2"\n                  placeholder="Selected labs appear here..." readonly></textarea>\n\n        <label class="form-label fw-bold">Medications</label>\n        <div class="border rounded p-2 mb-2" style="max-height:200px; overflow:auto;">\n          {% set med_list = [\n            "Paracetamol IV","Diclofenac IM","Tramadol IV","Morphine IV",\n            "Ondansetron IV","Metoclopramide IV",\n            "Ceftriaxone IV","Piperacillin/Tazobactam (Tazocin)","Cefazolin IV",\n            "Salbutamol Neb","Duolin Neb","Hydrocortisone IV","Pantoprazole IV",\n            "Aspirin PO 300mg","Nitroglycerin SL","Heparin SC/IV",\n            "Labetalol IV",\n            "Tetanus Toxoid IM",\n            "Normal Saline 0.9%","Ringer Lactate","D5W"\n          ] %}\n          {% for item in med_list %}\n            <div class="form-check d-flex align-items-center mb-1">\n              <input class="form-check-input med-item me-2" type="checkbox" value="{{ item }}" id="med_{{ loop.index }}">\n              <label class="form-check-label flex-grow-1" for="med_{{ loop.index }}">{{ item }}</label>\n              <input type="text"\n                     class="form-control form-control-sm ms-2 med-dose"\n                     data-med="{{ item }}"\n                     placeholder="Dose">\n            </div>\n          {% endfor %}\n        </div>\n\n        <div class="input-group input-group-sm mb-2">\n          <input type="text" class="form-control" id="med_other" placeholder="Add other medication (optional)">\n          <button class="btn btn-outline-secondary" type="button" onclick="addOther(\'med\')">Add</button>\n        </div>\n\n        <textarea class="form-control mb-3" id="med_text" name="medications" rows="2"\n                  placeholder="Selected medications appear here..." readonly></textarea>\n\n        <div class="d-flex gap-2 mt-2">\n          <button class="btn btn-primary">Save Clinical Order</button>\n          <a class="btn btn-secondary" href="{{ url_for(\'patient_details\', visit_id=visit.visit_id) }}">Back</a>\n        </div>\n      </form>\n      {% else %}\n        <div class="alert alert-warning mb-0">\n          Reception role has no access to create clinical orders.\n        </div>\n      {% endif %}\n    </div>\n  </div>\n\n  <div class="col-lg-5">\n    <div class="card p-3 bg-white mb-3">\n      <div class="d-flex justify-content-between align-items-center">\n        <h6 class="fw-bold mb-2">Nursing Notes</h6>\n        <a class="btn btn-sm btn-outline-primary"\n           target="_blank"\n           href="{{ url_for(\'nursing_notes_pdf\', visit_id=visit.visit_id) }}">Print Notes PDF</a>\n      </div>\n\n      {% if session.get(\'role\') in [\'nurse\',\'doctor\',\'admin\'] %}\n      <form method="POST" action="{{ url_for(\'add_nursing_note\', visit_id=visit.visit_id) }}">\n  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">\n        <textarea class="form-control mb-2" name="note_text" rows="3" placeholder="Write nursing note..."></textarea>\n        <button class="btn btn-sm btn-primary">Save Note</button>\n      </form>\n      {% else %}\n        <div class="text-muted small">Nursing notes are read-only for this role.</div>\n      {% endif %}\n\n      <hr>\n      {% if notes %}\n        <div style="max-height:220px; overflow:auto;">\n          {% for n in notes %}\n            <div class="border rounded p-2 mb-2">\n              <div class="small fw-bold">{{ n.created_at }} | {{ n.created_by }}</div>\n              <div class="small">{{ n.note_text }}</div>\n            </div>\n          {% endfor %}\n        </div>\n      {% else %}\n        <div class="text-muted small">No nursing notes yet.</div>\n      {% endif %}\n    </div>\n\n    {% if session.get(\'role\') != \'nurse\' %}\n    <div class="card p-3 bg-white">\n      <div class="d-flex justify-content-between align-items-center">\n        <h6 class="fw-bold mb-2">Discharge Summary V5</h6>\n        <a class="btn btn-sm btn-outline-secondary"\n           target="_blank"\n           href="{{ url_for(\'discharge_summary_pdf\', visit_id=visit.visit_id) }}">Auto-Summary PDF</a>\n      </div>\n\n      <form method="POST" action="{{ url_for(\'discharge_save\', visit_id=visit.visit_id) }}">\n  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">\n        <label class="form-label fw-bold small mt-2">Diagnosis / Chief Complaint</label>\n        <textarea class="form-control mb-2" name="diagnosis_cc" rows="2"\n          placeholder="Diagnosis / chief complaint...">{{ summary.diagnosis_cc if summary else \'\' }}</textarea>\n\n        <label class="form-label fw-bold small">Referral to Clinic</label>\n        <input class="form-control mb-2"\n               name="referral_clinic"\n               list="clinic_list"\n               placeholder="Select / type clinic"\n               value="{{ summary.referral_clinic if summary else \'\' }}">\n        <datalist id="clinic_list">\n          <option value="ED / Emergency">\n          <option value="General Medicine OPD">\n          <option value="General Surgery OPD">\n          <option value="Pediatrics OPD">\n          <option value="Obstetrics & Gynecology OPD">\n          <option value="Orthopedics OPD">\n          <option value="Cardiology OPD">\n          <option value="Neurology OPD">\n          <option value="ENT OPD">\n          <option value="Ophthalmology OPD">\n          <option value="Urology OPD">\n          <option value="Dermatology OPD">\n          <option value="Psychiatry OPD">\n          <option value="Dental OPD">\n          <option value="Oncology OPD">\n          <option value="Endocrinology OPD">\n          <option value="Nephrology OPD">\n          <option value="Pulmonology OPD">\n          <option value="ICU">\n          <option value="LDR">\n        </datalist>\n\n        <label class="form-label fw-bold small">Home Medication</label>\n        <textarea class="form-control mb-2" name="home_medication" rows="2"\n          placeholder="Home discharge meds...">{{ summary.home_medication if summary else \'\' }}</textarea>\n\n        <label class="form-label fw-bold small">Doctor Examination / History</label>\n        <textarea class="form-control mb-2" name="summary_text" rows="4"\n                  placeholder="Write doctor examination / patient history...">{{ summary.summary_text if summary else \'\' }}</textarea>\n\n        <button class="btn btn-sm btn-success">Save Summary</button>\n      </form>\n    </div>\n    {% endif %}\n  </div>\n</div>\n\n<div class="card p-3 bg-white mt-3">\n  <h6 class="fw-bold mb-2">Lab Requests / Results</h6>\n  {% if not lab_reqs %}\n    <div class="text-muted small">No lab requests for this visit.</div>\n  {% else %}\n    <table class="table table-sm mb-0">\n      <thead>\n        <tr>\n          <th style="width:60px;">#</th>\n          <th>Test</th>\n          <th>Status</th>\n          <th>Result</th>\n          <th class="small">Requested</th>\n        </tr>\n      </thead>\n      <tbody>\n        {% for l in lab_reqs %}\n          <tr>\n            <td>{{ l.id }}</td>\n            <td>{{ l.test_name }}</td>\n            <td>\n              {% if l.status == \'REQUESTED\' %}\n                <span class="badge bg-secondary">Waiting Sample</span>\n              {% elif l.status == \'RECEIVED\' %}\n                <span class="badge bg-warning text-dark">Sample Received</span>\n              {% elif l.status == \'REPORTED\' %}\n                <span class="badge bg-success">Result Ready</span>\n              {% else %}\n                <span class="badge bg-light text-muted">{{ l.status }}</span>\n              {% endif %}\n            </td>\n            <td style="max-width:260px;white-space:pre-wrap;font-size:0.85rem;">\n              {{ l.result_text or \'-\' }}\n            </td>\n            <td class="small text-muted">\n              {{ l.requested_at or \'-\' }}<br>\n              by {{ l.requested_by or \'-\' }}\n            </td>\n          </tr>\n        {% endfor %}\n      </tbody>\n    </table>\n  {% endif %}\n</div>\n\n<div class="card p-3 bg-white mt-3">\n  <h6 class="fw-bold mb-2">Radiology Requests / Reports</h6>\n  {% if not rad_reqs %}\n    <div class="text-muted small">No radiology requests for this visit.</div>\n  {% else %}\n    <table class="table table-sm mb-0">\n      <thead>\n        <tr>\n          <th style="width:60px;">#</th>\n          <th>Study</th>\n          <th>Status</th>\n          <th>Report</th>\n          <th class="small">Requested</th>\n        </tr>\n      </thead>\n      <tbody>\n        {% for r in rad_reqs %}\n          <tr>\n            <td>{{ r.id }}</td>\n            <td>{{ r.test_name }}</td>\n            <td>\n              {% if r.status == \'REQUESTED\' %}\n                <span class="badge bg-secondary">Waiting</span>\n              {% elif r.status == \'DONE\' %}\n                <span class="badge bg-warning text-dark">Done</span>\n              {% elif r.status == \'REPORTED\' %}\n                <span class="badge bg-success">Report Ready</span>\n              {% else %}\n                <span class="badge bg-light text-muted">{{ r.status }}</span>\n              {% endif %}\n            </td>\n            <td style="max-width:260px;white-space:pre-wrap;font-size:0.85rem;">\n              {{ r.report_text or \'-\' }}\n            </td>\n            <td class="small text-muted">\n              {{ r.requested_at or \'-\' }}<br>\n              by {{ r.requested_by or \'-\' }}\n            </td>\n          </tr>\n        {% endfor %}\n      </tbody>\n    </table>\n  {% endif %}\n</div>\n\n<div class="card p-3 bg-white mt-3">\n  <h6 class="fw-bold mb-2">Previous Clinical Orders</h6>\n\n  {% if not orders %}\n    <div class="text-muted small">No clinical orders yet.</div>\n  {% else %}\n    {% for o in orders %}\n      <div class="border rounded p-2 mb-2">\n        <div class="d-flex justify-content-between align-items-center">\n          <div class="fw-bold">\n            Order #{{ o.id }}\n            <span class="text-muted small ms-2">{{ o.created_at }} by {{ o.created_by }}</span>\n            {% if o.updated_at %}\n              <span class="text-muted small ms-2">| Updated: {{ o.updated_at }} by {{ o.updated_by }}</span>\n            {% endif %}\n          </div>\n\n          <div class="d-flex gap-1">\n            <a class="btn btn-sm btn-outline-secondary"\n               target="_blank"\n               href="{{ url_for(\'clinical_order_pdf\', visit_id=visit.visit_id, oid=o.id) }}">Print PDF</a>\n\n            {% if session.get(\'role\') in [\'nurse\',\'doctor\',\'admin\'] %}\n              <form method="post" class="d-inline" action="{{ url_for(\'delete_clinical_order\', visit_id=visit.visit_id, oid=o.id) }}" onsubmit="return confirm(\'Delete this order?\');">\n                <button class="btn btn-sm btn-outline-danger">Delete</button>\n              </form>\n\n              <button class="btn btn-sm btn-outline-dark"\n                      data-bs-toggle="collapse"\n                      data-bs-target="#edit{{ o.id }}">Edit</button>\n            {% endif %}\n          </div>\n        </div>\n\n        <div class="mt-2 small">\n          <div><strong>Diagnosis / Chief Complaint:</strong><br>{{ o.diagnosis or \'-\' }}</div>\n          <div class="mt-1"><strong>Radiology:</strong><br>{{ o.radiology_orders or \'-\' }}</div>\n          <div class="mt-1"><strong>Lab:</strong><br>{{ o.lab_orders or \'-\' }}</div>\n          <div class="mt-1"><strong>Medications:</strong><br>{{ o.medications or \'-\' }}</div>\n        </div>\n\n        <div class="collapse mt-2" id="edit{{ o.id }}">\n          <form method="POST"\n                action="{{ url_for(\'update_clinical_order\', visit_id=visit.visit_id, oid=o.id) }}"\n                class="bg-light p-2 rounded">\n  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">\n            <label class="form-label fw-bold small">Diagnosis / Chief Complaint</label>\n            <textarea class="form-control mb-2" name="diagnosis" rows="2">{{ o.diagnosis or \'\' }}</textarea>\n\n            <label class="form-label fw-bold small">Radiology Orders</label>\n            <textarea class="form-control mb-2" name="radiology_orders" rows="2">{{ o.radiology_orders or \'\' }}</textarea>\n\n            <label class="form-label fw-bold small">Lab Orders</label>\n            <textarea class="form-control mb-2" name="lab_orders" rows="2">{{ o.lab_orders or \'\' }}</textarea>\n\n            <label class="form-label fw-bold small">Medications</label>\n            <textarea class="form-control mb-2" name="medications" rows="2">{{ o.medications or \'\' }}</textarea>\n\n            <button class="btn btn-sm btn-success">Save Changes</button>\n          </form>\n        </div>\n      </div>\n    {% endfor %}\n  {% endif %}\n</div>\n\n<script>\nfunction syncChecked(className, targetId){\n  const checked = Array.from(document.querySelectorAll(\'.\'+className+\':checked\')).map(cb => cb.value);\n  document.getElementById(targetId).value = checked.join(", ");\n}\n\nfunction syncMedications(){\n  const parts = [];\n  document.querySelectorAll(\'.med-item\').forEach(cb => {\n    if (!cb.checked) return;\n    const label = cb.value;\n    let dose = "";\n    const container = cb.closest(\'.form-check\');\n    if (container) {\n      const doseInput = container.querySelector(\'.med-dose\');\n      if (doseInput && doseInput.value) {\n        dose = doseInput.value.trim();\n      }\n    }\n    if (dose) {\n      parts.push(label + " (" + dose + ")");\n    } else {\n      parts.push(label);\n    }\n  });\n  const target = document.getElementById(\'med_text\');\n  if (target) {\n    target.value = parts.join(", ");\n  }\n}\n\ndocument.addEventListener(\'change\', function(e){\n  if(e.target.classList.contains(\'rad-item\')) syncChecked(\'rad-item\',\'radiology_text\');\n  if(e.target.classList.contains(\'lab-item\')) syncChecked(\'lab-item\',\'lab_text\');\n  if(e.target.classList.contains(\'med-item\')) syncMedications();\n});\n\ndocument.addEventListener(\'input\', function(e){\n  if(e.target.classList.contains(\'med-dose\')) syncMedications();\n});\n\nfunction addOther(prefix){\n  const input = document.getElementById(prefix+\'_other\');\n  const val = (input.value || \'\').trim();\n  if(!val) return;\n\n  const tId = prefix===\'rad\' ? \'radiology_text\' : prefix===\'lab\' ? \'lab_text\' : \'med_text\';\n  const t = document.getElementById(tId);\n  const cur = t.value ? t.value.split(\',\').map(x=>x.trim()).filter(Boolean) : [];\n  if(!cur.includes(val)) cur.push(val);\n  t.value = cur.join(\', \');\n  input.value = \'\';\n}\n\n[\'rad_other\',\'lab_other\',\'med_other\'].forEach(id=>{\n  const el = document.getElementById(id);\n  if(el){\n    el.addEventListener(\'keydown\', (e)=>{\n      if(e.key===\'Enter\'){ e.preventDefault(); addOther(id.split(\'_\')[0]); }\n    });\n  }\n});\n\nconst bundles = {\n  chest_pain: {\n    radiology: ["X-Ray Chest"],\n    labs: ["Troponin","CK-MB","CBC","Electrolytes","PT/PTT/INR","D-Dimer","RBS (Random Blood Sugar)"],\n    meds: ["Aspirin PO 300mg","Nitroglycerin SL","Morphine IV","Ondansetron IV","Normal Saline 0.9%"]\n  },\n  stroke: {\n    radiology: ["CT Brain Without Contrast","CT Angio Brain/Neck"],\n    labs: ["CBC","Electrolytes","PT/PTT/INR","RBS (Random Blood Sugar)"],\n    meds: ["Normal Saline 0.9%","Labetalol IV"]\n  },\n  trauma: {\n    radiology: ["CT Trauma Pan-Scan","X-Ray Chest","X-Ray Pelvis","FAST Ultrasound"],\n    labs: ["CBC","CMP (Kidney/Liver)","PT/PTT/INR","Lactate","Type & Screen / Crossmatch","ABG"],\n    meds: ["Tetanus Toxoid IM","Cefazolin IV","Morphine IV","Ringer Lactate","Normal Saline 0.9%"]\n  },\nabdominal_pain: {\n  radiology: ["US Abdomen","CT Abdomen/Pelvis"],\n  labs: ["CBC","CRP","Electrolytes","LFT","Lipase","Urine Analysis","BHCG (Pregnancy Test)"],\n  meds: ["Paracetamol IV/PO","Ondansetron IV","Hyoscine (Buscopan) IV/IM","Normal Saline 0.9%"]\n},\nsob: {\n  radiology: ["X-Ray Chest","CT Chest"],\n  labs: ["CBC","Electrolytes","ABG","D-Dimer","Troponin","BNP","RBS (Random Blood Sugar)"],\n  meds: ["Oxygen Therapy","Salbutamol Nebulizer","Ipratropium Nebulizer","Hydrocortisone IV","Normal Saline 0.9%"]\n},\nsepsis: {\n  radiology: ["X-Ray Chest","US Abdomen"],\n  labs: ["CBC","CRP","Lactate","Blood Culture","Urine Analysis","Electrolytes","ABG"],\n  meds: ["Broad Spectrum Antibiotic (per policy)","Normal Saline 0.9% Bolus"]\n},\nfever: {\n  radiology: ["X-Ray Chest","US Abdomen"],\n  labs: ["CBC","CRP","Urine Analysis","Blood Culture","RBS (Random Blood Sugar)"],\n  meds: ["Paracetamol IV/PO","Normal Saline 0.9%"]\n},\ngi_bleed: {\n  radiology: ["X-Ray Chest"],\n  labs: ["CBC","PT/PTT/INR","Electrolytes","Type & Screen / Crossmatch"],\n  meds: ["Pantoprazole IV","Normal Saline 0.9%","Tranexamic Acid IV (if indicated)"]\n},\nanaphylaxis: {\n  radiology: [],\n  labs: ["CBC","ABG"],\n  meds: ["Epinephrine IM","Hydrocortisone IV","Chlorpheniramine IV/IM","Normal Saline 0.9%","Salbutamol Nebulizer"]\n}\n};\n\nfunction clearAllBundles(){\n  document.querySelectorAll(\'.rad-item,.lab-item,.med-item\').forEach(cb => cb.checked=false);\n  syncChecked(\'rad-item\',\'radiology_text\');\n  syncChecked(\'lab-item\',\'lab_text\');\n  syncMedications();\n}\n\nfunction applyBundle(name){\n  clearAllBundles();\n  const b = bundles[name];\n  if(!b) return;\n\n  document.querySelectorAll(\'.rad-item\').forEach(cb => cb.checked = b.radiology.includes(cb.value));\n  document.querySelectorAll(\'.lab-item\').forEach(cb => cb.checked = b.labs.includes(cb.value));\n  document.querySelectorAll(\'.med-item\').forEach(cb => cb.checked = b.meds.includes(cb.value));\n\n  syncChecked(\'rad-item\',\'radiology_text\');\n  syncChecked(\'lab-item\',\'lab_text\');\n  syncMedications();\n}\n</script>\n\n{% endblock %}\n', 'sticker.html': '\n<!doctype html>\n<html>\n<head>\n  <meta charset="utf-8">\n  <title>Sticker</title>\n  <style>\n    @page {\n      size: 5cm 3cm;\n      margin: 0;\n    }\n    body { margin:0; padding:0; font-family: Arial; }\n    .label {\n      width: 5cm; height: 3cm;\n      border:1px solid #000; padding:0.06cm;\n      box-sizing:border-box;\n    }\n    .row { font-size:6pt; margin:0.01cm 0; white-space: normal; word-wrap: break-word; }\n    .title { font-weight:bold; font-size:7pt; }\n    .barcode {\n      width: 100%;\n      max-width: 3.5cm;\n      margin-top:0.05cm;\n    }\n    #btnPrint { margin-top:10px; padding:6px 12px; font-size:12px; }\n    @media print {\n      body { margin:0; padding:0; }\n      #btnPrint { display:none; }\n    }\n  </style>\n</head>\n<body onload="window.print()">\n  <div class="label">\n    {% set name_len = v.name|length %}\n    <div class="row title" style="font-size: {{ 7 if name_len <= 20 else 6 }}pt;">NAME: {{ v.name }}</div>\n    <div class="row">AGE: {{ age or \'-\' }}</div>\n    <div class="row">ID: {{ v.id_number or \'-\' }}</div>\n    <div class="row">INS: {{ v.insurance or \'-\' }}</div>\n    <div class="row">TIME: {{ time_only }}</div>\n    <div class="row">VISIT: {{ v.visit_id }}</div>\n    <div class="row">\n      <img class="barcode"\n           src="https://barcode.tec-it.com/barcode.ashx?data={{ (v.id_number or v.visit_id)|urlencode }}&code=Code128&dpi=96&imagetype=png"\n           alt="BARCODE">\n    </div>\n  </div>\n  <button id="btnPrint" onclick="window.print()">Print Again</button>\n</body>\n</html>\n', 'chat.html': '\n{% extends "base.html" %}\n{% block content %}\n<h4 class="mb-3">Live Chat - Staff</h4>\n\n<div class="row">\n  <div class="col-md-8">\n    <div class="card bg-white">\n      <div class="card-body" style="height:400px; overflow-y:auto;" id="chat-box">\n        <div class="text-muted small">Loading messages...</div>\n      </div>\n      <div class="card-footer">\n        <div class="input-group">\n          <input type="text" id="chat-input" class="form-control" placeholder="Type your message and press Enter or click Send ...">\n          <button class="btn btn-primary" id="chat-send-btn">Send</button>\n        </div>\n        <div class="small text-muted mt-1">\n          Current channel: All staff (Public ED Room)\n        </div>\n      </div>\n    </div>\n  </div>\n</div>\n\n<script>\n(function() {\n  const chatBox = document.getElementById("chat-box");\n  const input   = document.getElementById("chat-input");\n  const sendBtn = document.getElementById("chat-send-btn");\n\n  let lastTimestamp = "";\n\n  function appendMessage(msg) {\n    const div = document.createElement("div");\n    div.className = "mb-1";\n    div.innerHTML =\n      \'<span class="badge bg-light text-dark me-1">\' +\n      (msg.username || "User") +\n      \'</span>\' +\n      \'<span class="small text-muted me-1">[\' + msg.created_at + \']</span>\' +\n      \'<span>\' + escapeHtml(msg.message) + \'</span>\';\n    chatBox.appendChild(div);\n    chatBox.scrollTop = chatBox.scrollHeight;\n  }\n\n  function escapeHtml(text) {\n    if (!text) return "";\n    return text\n      .replace(/&/g, "&amp;")\n      .replace(/</g, "&lt;")\n      .replace(/>/g, "&gt;");\n  }\n\n  function playBeep() {\n    try {\n      const ctx = new (window.AudioContext || window.webkitAudioContext)();\n      const osc = ctx.createOscillator();\n      const gain = ctx.createGain();\n      osc.type = "sine";\n      osc.frequency.value = 880;\n      gain.gain.value = 0.05;\n      osc.connect(gain);\n      gain.connect(ctx.destination);\n      osc.start();\n      setTimeout(function() {\n        osc.stop();\n        ctx.close();\n      }, 200);\n    } catch (e) {\n      console.log("Beep error", e);\n    }\n  }\n\n  async function loadMessages() {\n    try {\n      const url = lastTimestamp\n        ? "/chat/messages?after=" + encodeURIComponent(lastTimestamp)\n        : "/chat/messages";\n\n      const res = await fetch(url);\n      if (!res.ok) return;\n      const data = await res.json();\n      if (!data.ok) return;\n\n      if (data.messages && data.messages.length > 0) {\n        const isInitial = !lastTimestamp;\n        data.messages.forEach(function(m) {\n          appendMessage(m);\n          lastTimestamp = m.created_at;\n        });\n        if (!isInitial) {\n          playBeep();\n        }\n      } else if (!lastTimestamp) {\n        chatBox.innerHTML = \'<div class="text-muted small">No messages yet. Type the first message 👋</div>\';\n      }\n    } catch (e) {\n      // ignore\n    }\n  }\n\n  async function sendMessage() {\n    const text = (input.value || "").trim();\n    if (!text) return;\n\n    try {\n      const res = await fetch("/chat/send", {\n        method: "POST",\n        headers: { "Content-Type": "application/json" },\n        body: JSON.stringify({ message: text })\n      });\n      const data = await res.json();\n      if (data.ok) {\n        input.value = "";\n        loadMessages();\n      }\n    } catch (e) {\n      alert("Error sending message");\n    }\n  }\n\n  sendBtn.addEventListener("click", sendMessage);\n  input.addEventListener("keydown", function(e) {\n    if (e.key === "Enter") {\n      e.preventDefault();\n      sendMessage();\n    }\n  });\n\n  loadMessages();\n  setInterval(loadMessages, 3000);\n})();\n</script>\n{% endblock %}\n', 'depart_workflow.html': '\n{% extends "base.html" %}\n{% block content %}\n\n<div class="d-flex justify-content-between align-items-start mb-3 flex-wrap gap-2">\n  <div>\n    <h4 class="mb-0">ED Depart / Discharge</h4>\n    <div class="text-muted small">\n      Visit {{ visit.visit_id }} &mdash; {{ visit.name }} ({{ visit.id_number or \'-\' }})\n    </div>\n  </div>\n  <div class="text-end small">\n    <div class="mb-1">\n      {% set cat = (visit.triage_cat or \'\').lower() %}\n      {% if cat == \'es1\' %}<span class="badge bg-danger">ES1</span>\n      {% elif cat == \'es2\' %}<span class="badge bg-warning text-dark">ES2</span>\n      {% elif cat == \'es3\' %}<span class="badge bg-info text-dark">ES3</span>\n      {% elif cat == \'es4\' %}<span class="badge bg-primary">ES4</span>\n      {% elif cat == \'es5\' %}<span class="badge bg-success">ES5</span>\n      {% else %}<span class="badge bg-secondary">No ES</span>\n      {% endif %}\n    </div>\n    <div class="mb-1">\n      {% set st = (visit.status or \'\').upper() %}\n      {% set st_class = \'secondary\' %}\n      {% if st == \'OPEN\' %}{% set st_class = \'success\' %}{% endif %}\n      {% if st in [\'DISCHARGED\',\'TRANSFERRED\',\'LAMA\',\'EXPIRED\',\'CANCELLED\'] %}{% set st_class = \'danger\' %}{% endif %}\n      <span class="badge bg-{{ st_class }}">{{ visit.status or \'-\' }}</span>\n    </div>\n    <div class="small text-muted">\n      Loc: {{ visit.location or \'-\' }}\n      {% if visit.bed_no %}\n        · Bed: {{ visit.bed_no }} ({{ visit.bed_status or \'EMPTY\' }})\n      {% endif %}\n    </div>\n  </div>\n</div>\n\n{% with messages = get_flashed_messages(with_categories=true) %}\n  {% for category, msg in messages %}\n    <div class="alert alert-{{ category }}">{{ msg }}</div>\n  {% endfor %}\n{% endwith %}\n\n<div class="row g-3">\n  <!-- Checklist summary -->\n  <div class="col-md-4">\n    <div class="card p-3 bg-white h-100">\n      <h6 class="fw-bold mb-2">Checklist overview</h6>\n      <ul class="list-unstyled small mb-0">\n        <li class="mb-1">\n          {% if visit.task_reg %}\n            ✅ Registration completed\n          {% else %}\n            ☐ Registration pending\n          {% endif %}\n        </li>\n        <li class="mb-1">\n          {% if visit.triage_status == \'YES\' %}\n            ✅ Triage done ({{ visit.triage_cat or \'-\' }})\n          {% else %}\n            ☐ Triage pending\n          {% endif %}\n        </li>\n        <li class="mb-1">\n          {% if visit.task_ekg %}\n            ✅ ECG / EKG done\n          {% else %}\n            ☐ ECG / EKG pending\n          {% endif %}\n        </li>\n        <li class="mb-1">\n          {% if visit.task_sepsis %}\n            ✅ Sepsis screen done\n          {% else %}\n            ☐ Sepsis screen pending\n          {% endif %}\n        </li>\n        <li class="mb-1">\n          {% if orders_count %}\n            ✅ Clinical orders entered ({{ orders_count }})\n          {% else %}\n            ☐ No clinical orders yet\n          {% endif %}\n        </li>\n        <li class="mb-1">\n          {% if labs_total %}\n            {% if labs_pending %}\n              ⚠️ Lab results pending ({{ labs_pending }} / {{ labs_total }})\n            {% else %}\n              ✅ Labs cleared ({{ labs_total }})\n            {% endif %}\n          {% else %}\n            ☐ No lab requests\n          {% endif %}\n        </li>\n        <li class="mb-1">\n          {% if rads_total %}\n            {% if rads_pending %}\n              ⚠️ Radiology pending ({{ rads_pending }} / {{ rads_total }})\n            {% else %}\n              ✅ Radiology cleared ({{ rads_total }})\n            {% endif %}\n          {% else %}\n            ☐ No radiology requests\n          {% endif %}\n        </li>\n        <li class="mb-1">\n          {% if discharge_exists %}\n            ✅ Discharge summary saved\n            {% if discharge_diag %}\n              &mdash; {{ discharge_diag }}\n            {% endif %}\n          {% else %}\n            ☐ Discharge summary pending\n          {% endif %}\n        </li>\n      </ul>\n    </div>\n  </div>\n\n  <!-- Editable tasks -->\n  <div class="col-md-4">\n    <div class="card p-3 bg-white h-100">\n      <h6 class="fw-bold mb-2">Tasks / Checklist (editable)</h6>\n      <form method="POST" class="small">\n        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">\n        <div class="form-check mb-1">\n          <input class="form-check-input" type="checkbox" value="1" name="task_reg" id="task_reg"\n                 {% if visit.task_reg %}checked{% endif %}>\n          <label class="form-check-label" for="task_reg">\n            Registration completed\n          </label>\n        </div>\n        <div class="form-check mb-1">\n          <input class="form-check-input" type="checkbox" value="1" name="task_ekg" id="task_ekg"\n                 {% if visit.task_ekg %}checked{% endif %}>\n          <label class="form-check-label" for="task_ekg">\n            ECG / EKG done\n          </label>\n        </div>\n        <div class="form-check mb-1">\n          <input class="form-check-input" type="checkbox" value="1" name="task_sepsis" id="task_sepsis"\n                 {% if visit.task_sepsis %}checked{% endif %}>\n          <label class="form-check-label" for="task_sepsis">\n            Sepsis screening done\n          </label>\n        </div>\n        <button class="btn btn-sm btn-primary mt-2">\n          Save checklist\n        </button>\n      </form>\n\n      <hr class="my-3">\n\n      <div class="small">\n        <div class="fw-semibold mb-1">Quick links</div>\n        <div class="d-grid gap-1">\n          <a class="btn btn-sm btn-outline-primary"\n             href="{{ url_for(\'patient_details\', visit_id=visit.visit_id) }}">\n            Open chart\n          </a>\n          <a class="btn btn-sm btn-outline-primary"\n             href="{{ url_for(\'clinical_orders_page\', visit_id=visit.visit_id) }}">\n            Clinical orders &amp; notes\n          </a>\n          <a class="btn btn-sm btn-outline-secondary"\n             href="{{ url_for(\'lab_board\', status=\'PENDING\', q=visit.visit_id) }}">\n            Lab board (this visit)\n          </a>\n          <a class="btn btn-sm btn-outline-secondary"\n             href="{{ url_for(\'radiology_board\', status=\'PENDING\', q=visit.visit_id) }}">\n            Radiology board (this visit)\n          </a>\n        </div>\n      </div>\n    </div>\n  </div>\n\n  <!-- Discharge / PDFs / Close -->\n  <div class="col-md-4">\n    <div class="card p-3 bg-white h-100">\n      <h6 class="fw-bold mb-2">Discharge / Depart</h6>\n\n      <div class="small mb-2">\n        <div>Current status:\n          {% set st = (visit.status or \'\').upper() %}\n          {% set st_class = \'secondary\' %}\n          {% if st == \'OPEN\' %}{% set st_class = \'success\' %}{% endif %}\n          {% if st in [\'DISCHARGED\',\'TRANSFERRED\',\'LAMA\',\'EXPIRED\',\'CANCELLED\'] %}{% set st_class = \'danger\' %}{% endif %}\n          <span class="badge bg-{{ st_class }}">{{ visit.status or \'-\' }}</span>\n        </div>\n        {% if visit.closed_at %}\n          <div class="text-muted">Closed at {{ visit.closed_at }} by {{ visit.closed_by or \'-\' }}</div>\n        {% endif %}\n      </div>\n\n      <div class="d-grid gap-1 small mb-2">\n        <a class="btn btn-sm btn-outline-primary"\n           target="_blank"\n           href="{{ url_for(\'discharge_summary_pdf\', visit_id=visit.visit_id) }}">\n          Discharge summary PDF\n        </a>\n        <a class="btn btn-sm btn-outline-primary"\n           target="_blank"\n           href="{{ url_for(\'auto_summary_pdf\', visit_id=visit.visit_id) }}">\n          ED auto-summary PDF\n        </a>\n        <a class="btn btn-sm btn-outline-primary"\n           target="_blank"\n           href="{{ url_for(\'patient_summary_pdf\', visit_id=visit.visit_id) }}">\n          Patient copy PDF\n        </a>\n        <a class="btn btn-sm btn-outline-secondary"\n           target="_blank"\n           href="{{ url_for(\'home_med_pdf\', visit_id=visit.visit_id) }}">\n          Home medication PDF\n        </a>\n      </div>\n\n      {% if session.get(\'role\') in [\'doctor\',\'admin\'] %}\n      <hr class="my-2">\n      <form method="POST" action="{{ url_for(\'close_visit\', visit_id=visit.visit_id) }}" class="small">\n        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">\n        <div class="mb-2">\n          <label class="form-label small">Final status</label>\n          <select name="status" class="form-select form-select-sm">\n            {% for st in [\'DISCHARGED\',\'ADMITTED\',\'TRANSFERRED\',\'LAMA\',\'EXPIRED\',\'IN_TREATMENT\',\'CANCELLED\'] %}\n              <option value="{{ st }}" {% if (visit.status or \'\').upper() == st %}selected{% endif %}>{{ st }}</option>\n            {% endfor %}\n          </select>\n        </div>\n        <button class="btn btn-sm btn-danger w-100"\n                onclick="return confirm(\'Confirm close visit with this status?\');">\n          Close visit\n        </button>\n      </form>\n      {% else %}\n        <div class="alert alert-info small mt-2 mb-0">\n          Final close of the visit is limited to doctors / admins.\n        </div>\n      {% endif %}\n    </div>\n  </div>\n</div>\n\n{% endblock %}\n'}
 
-  <div class="d-flex gap-3 align-items-center">
-    <a class="nav-link" href="{{ url_for('ed_board') }}">ED Board</a>
-    <a class="nav-link" href="{{ url_for('search_patients') }}">Search</a>
-    <a class="nav-link" href="{{ url_for('chat_page') }}">Live Chat</a>
-    {% if session.get('role') in ['admin','doctor','nurse'] %}
-      <a class="nav-link" href="{{ url_for('reports') }}">Reports</a>
-    {% endif %}
-    {% if session.get('role') in ['lab','admin','doctor','nurse'] %}
-      <a class="nav-link" href="{{ url_for('lab_board') }}">Lab Board</a>
-    {% endif %}
-    {% if session.get('role') in ['radiology','admin','doctor','nurse'] %}
-      <a class="nav-link" href="{{ url_for('radiology_board') }}">Radiology Board</a>
-    {% endif %}
-    {% if session.get('role') in ['reception','admin'] %}
-      <a class="nav-link" href="{{ url_for('register_patient') }}">Register</a>
-    {% endif %}
-    {% if session.get('role')=='admin' %}
-      <a class="nav-link" href="{{ url_for('admin_users') }}">Users</a>
-      <a class="nav-link" href="{{ url_for('admin_reset_password') }}">Reset Password</a>
-      <a class="nav-link" href="{{ url_for('admin_logs') }}">Logs</a>
-      <a class="nav-link" href="{{ url_for('admin_backup') }}">Backup DB</a>
-      <a class="nav-link text-primary" href="{{ url_for('admin_backup_now') }}">Backup Now</a>
-      <a class="nav-link text-danger" href="{{ url_for('admin_restore') }}">Restore DB</a>
-    {% endif %}
-    <span class="text-muted">User: {{ session.get('username') }} ({{ session.get('role') }})</span>
-    <a class="text-danger nav-link" href="{{ url_for('logout') }}">Logout</a>
-  </div>
-  <button class="btn btn-sm btn-outline-secondary" onclick="location.reload()">🔄 Manual Refresh</button>
-</nav>
 
-<div class="container py-3">
-  {% block content %}{% endblock %}
-</div>
 
-<footer class="text-center text-muted small py-3">
-  {{ footer_text }}
-</footer>
-
-<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
-</body>
-</html>
-""",
-
-"login.html": """
-{% extends "base.html" %}
-{% block content %}
-<div class="row justify-content-center mt-5">
-  <div class="col-md-4">
-    <h4 class="mb-3 text-center">Login</h4>
-    {% with messages = get_flashed_messages(with_categories=true) %}
-      {% for category, msg in messages %}
-        <div class="alert alert-{{ category }}">{{ msg }}</div>
-      {% endfor %}
-    {% endwith %}
-    <form method="POST">
-      <input class="form-control mb-2" name="username" placeholder="username">
-      <input class="form-control mb-2" name="password" placeholder="password" type="password">
-      <button class="btn btn-primary w-100">Login</button>
-    </form>
-    <div class="text-muted small mt-2">
-    </div>
-  </div>
-</div>
-{% endblock %}
-""",
-
-"admin_users.html": """
-{% extends "base.html" %}
-{% block content %}
-<h4 class="mb-3">Users Management</h4>
-
-{% with messages = get_flashed_messages(with_categories=true) %}
-  {% for category, msg in messages %}
-    <div class="alert alert-{{ category }}">{{ msg }}</div>
-  {% endfor %}
-{% endwith %}
-
-<form method="POST" class="card p-3 mb-3">
-  <div class="row g-2">
-    <div class="col-md-4"><input class="form-control" name="username" placeholder="Username"></div>
-    <div class="col-md-4"><input class="form-control" name="password" placeholder="Password"></div>
-    <div class="col-md-3">
-      <select class="form-select" name="role">
-        <option value="reception">reception</option>
-        <option value="nurse">nurse</option>
-        <option value="doctor">doctor</option>
-        <option value="lab">lab</option>
-        <option value="radiology">radiology</option>
-        <option value="admin">admin</option>
-      </select>
-    </div>
-    <div class="col-md-1 d-grid"><button class="btn btn-primary">Add</button></div>
-  </div>
-</form>
-
-<table class="table table-sm table-striped bg-white">
-  <thead><tr><th>ID</th><th>Username</th><th>Role</th><th>Created</th></tr></thead>
-  <tbody>
-    {% for u in users %}
-      <tr><td>{{ u.id }}</td><td>{{ u.username }}</td><td>{{ u.role }}</td><td>{{ u.created_at }}</td></tr>
-    {% endfor %}
-  </tbody>
-</table>
-{% endblock %}
-""",
-
-"admin_reset_password.html": """
-{% extends "base.html" %}
-{% block content %}
-<h4 class="mb-3">Admin Password Reset</h4>
-
-{% with messages = get_flashed_messages(with_categories=true) %}
-  {% for category, msg in messages %}
-    <div class="alert alert-{{ category }}">{{ msg }}</div>
-  {% endfor %}
-{% endwith %}
-
-<form method="POST" class="card p-3 bg-white mb-3">
-  <div class="row g-2 align-items-end">
-    <div class="col-md-5">
-      <label class="form-label fw-bold">Select User</label>
-      <select class="form-select" name="user_id" required>
-        <option value="">-- choose --</option>
-        {% for u in users %}
-          <option value="{{ u.id }}">{{ u.username }} ({{ u.role }})</option>
-        {% endfor %}
-      </select>
-    </div>
-    <div class="col-md-5">
-      <label class="form-label fw-bold">New Password</label>
-      <input class="form-control" name="new_password" type="text" required>
-    </div>
-    <div class="col-md-2 d-grid">
-      <button class="btn btn-primary">Reset</button>
-    </div>
-  </div>
-</form>
-
-<a class="btn btn-outline-danger btn-sm" href="{{ url_for('admin_reset_admin_default') }}">
-  Reset admin to default (admin12)
-</a>
-{% endblock %}
-""",
-
-"admin_logs.html": """
-{% extends "base.html" %}
-{% block content %}
-<h4 class="mb-3">Activity Logs (Last 1000)</h4>
-
-<form method="GET" class="card p-3 mb-3 bg-white">
-  <div class="row g-2 align-items-end">
-    <div class="col-md-3">
-      <label class="form-label fw-bold">Visit ID</label>
-      <input class="form-control" name="visit_id" value="{{ visit_f or '' }}" placeholder="visit id">
-    </div>
-    <div class="col-md-3">
-      <label class="form-label fw-bold">User</label>
-      <select class="form-select" name="user">
-        <option value="">ALL</option>
-        {% for u in users %}
-          <option value="{{u.username}}" {% if user_f==u.username %}selected{% endif %}>{{u.username}}</option>
-        {% endfor %}
-      </select>
-    </div>
-    <div class="col-md-2">
-      <label class="form-label fw-bold">From</label>
-      <input class="form-control" type="date" name="date_from" value="{{ dfrom or '' }}">
-    </div>
-    <div class="col-md-2">
-      <label class="form-label fw-bold">To</label>
-      <input class="form-control" type="date" name="date_to" value="{{ dto or '' }}">
-    </div>
-    <div class="col-md-2 d-grid">
-      <button class="btn btn-primary">Filter</button>
-    </div>
-  </div>
-
-  <div class="mt-2 d-flex gap-2">
-    <a class="btn btn-outline-success btn-sm"
-       href="{{ url_for('export_logs_csv', visit_id=visit_f, user=user_f, date_from=dfrom, date_to=dto) }}">Export CSV</a>
-    <a class="btn btn-outline-danger btn-sm"
-       href="{{ url_for('export_logs_pdf', visit_id=visit_f, user=user_f, date_from=dfrom, date_to=dto) }}">Export PDF</a>
-  </div>
-</form>
-
-<table class="table table-sm table-striped bg-white">
-  <thead><tr><th>Time</th><th>User</th><th>Action</th><th>Visit</th><th>Details</th></tr></thead>
-  <tbody>
-  {% for l in logs %}
-    <tr>
-      <td>{{ l.created_at }}</td>
-      <td>{{ l.username }}</td>
-      <td>{{ l.action }}</td>
-      <td>{{ l.visit_id or '-' }}</td>
-      <td>{{ l.details or '-' }}</td>
-    </tr>
-  {% endfor %}
-  </tbody>
-</table>
-{% endblock %}
-""",
-"admin_restore.html": """
-{% extends "base.html" %}
-{% block content %}
-<h4 class="mb-3">Restore Database from Backup</h4>
-
-{% with messages = get_flashed_messages(with_categories=true) %}
-  {% for category, msg in messages %}
-    <div class="alert alert-{{ category }}">{{ msg }}</div>
-  {% endfor %}
-{% endwith %}
-
-<div class="card p-3 bg-white">
-  <p class="text-danger small mb-2">
-    ⚠️ Warning: restoring a backup will overwrite the current database file.
-    A safety copy (*.before_restore.bak) will be created automatically.
-  </p>
-
-  <h6 class="fw-bold mt-2">Available backup files</h6>
-  {% if backups %}
-    <div class="table-responsive mb-3">
-      <table class="table table-sm table-hover align-middle mb-0">
-        <thead>
-          <tr>
-            <th>#</th>
-            <th>File name</th>
-            <th>Created / Modified</th>
-            <th>Size (KB)</th>
-            <th>Download</th>
-            <th>Restore</th>
-          </tr>
-        </thead>
-        <tbody>
-          {% for b in backups %}
-          <tr>
-            <td>{{ loop.index }}</td>
-            <td>
-              <a href="{{ url_for('admin_backup_file', filename=b.name) }}">
-                {{ b.name }}
-              </a>
-            </td>
-            <td>{{ b.mtime }}</td>
-            <td>{{ "%.1f"|format(b.size_kb) }}</td>
-            <td>
-              <a class="btn btn-sm btn-outline-primary"
-                 href="{{ url_for('admin_backup_file', filename=b.name) }}">
-                Download
-              </a>
-            </td>
-            <td>
-              <a class="btn btn-sm btn-outline-danger"
-                 href="{{ url_for('admin_restore_file', filename=b.name) }}">
-                Restore this backup
-              </a>
-            </td>
-          </tr>
-          {% endfor %}
-        </tbody>
-      </table>
-    </div>
-  {% else %}
-    <p class="text-muted small">No backup .db files found in the backups folder yet.</p>
-  {% endif %}
-
-  <form method="POST" enctype="multipart/form-data" class="mt-2">
-    <div class="mb-2">
-      <label class="form-label fw-bold">Select backup .db file</label>
-      <input type="file" name="file" class="form-control" required>
-    </div>
-    <button class="btn btn-danger mt-2">Restore Now</button>
-    <a class="btn btn-secondary mt-2" href="{{ url_for('ed_board') }}">Cancel</a>
-  </form>
-</div>
-{% endblock %}
-""",
-
-"admin_restore_confirm.html": """
-{% extends "base.html" %}
-{% block content %}
-<h4 class="mb-3">Confirm Restore from Backup</h4>
-
-{% with messages = get_flashed_messages(with_categories=true) %}
-  {% for category, msg in messages %}
-    <div class="alert alert-{{ category }}">{{ msg }}</div>
-  {% endfor %}
-{% endwith %}
-
-<div class="card p-3 bg-white">
-  <p class="text-danger small mb-2">
-    ⚠️ You are about to restore the database from backup file:
-    <strong>{{ backup_name }}</strong>
-  </p>
-  <p class="text-muted small mb-2">
-    This will overwrite the current database. A safety copy (*.before_restore.bak) will be created automatically.
-  </p>
-
-  <form method="POST">
-    <div class="mb-2">
-      <label class="form-label fw-bold">Re-enter your password to confirm</label>
-      <input type="password" name="password" class="form-control" required autofocus>
-    </div>
-    <button class="btn btn-danger mt-2">Confirm Restore</button>
-    <a class="btn btn-secondary mt-2" href="{{ url_for('admin_restore') }}">Cancel</a>
-  </form>
-</div>
-{% endblock %}
-""",
-
-
-"register.html": """
-{% extends "base.html" %}
-{% block content %}
-<h4 class="mb-3">Register Patient</h4>
-
-{% with messages = get_flashed_messages(with_categories=true) %}
-  {% for category, msg in messages %}
-    <div class="alert alert-{{ category }}">{{ msg }}</div>
-  {% endfor %}
-{% endwith %}
-
-<form method="POST" enctype="multipart/form-data" class="card p-3 bg-white" id="register-form">
-  <div class="row g-2">
-    <div class="col-md-6">
-      <label class="form-label fw-bold">Name</label>
-      <input class="form-control" name="name" required>
-    </div>
-
-    <div class="col-md-6">
-      <label class="form-label fw-bold">ID Number</label>
-      <input class="form-control" name="id_number">
-    </div>
-
-    <div class="col-md-4">
-      <label class="form-label fw-bold">Phone</label>
-      <input class="form-control" name="phone">
-    </div>
-
-    <div class="col-md-4">
-      <label class="form-label fw-bold">Insurance</label>
-      <input class="form-control" name="insurance">
-    </div>
-
-    <div class="col-md-4">
-      <label class="form-label fw-bold">Insurance No</label>
-      <input class="form-control" name="insurance_no">
-    </div>
-
-    <div class="col-md-4">
-      <label class="form-label fw-bold">DOB</label>
-      <input class="form-control" name="dob" placeholder="YYYY-MM-DD">
-    </div>
-
-    <div class="col-md-2">
-      <label class="form-label fw-bold">Sex</label>
-      <select class="form-select" name="sex">
-        <option value=""></option>
-        <option>M</option>
-        <option>F</option>
-      </select>
-    </div>
-
-    <div class="col-md-6">
-      <label class="form-label fw-bold">Nationality</label>
-      <input class="form-control" name="nationality">
-    </div>
-
-    {# hidden field that will be filled automatically from insurance block #}
-    <input type="hidden" name="payment_details" id="payment_details">
-  </div>
-
-  <hr class="mt-3 mb-2">
-
-  <h5 class="mb-2">Insurance / Contract Scheme (optional)</h5>
-
-  <div class="row g-2">
-    <div class="col-md-4">
-      <label class="form-label fw-bold">Ins. Provider</label>
-      <input class="form-control" id="ins_provider">
-    </div>
-
-    <div class="col-md-4">
-      <label class="form-label fw-bold">Insur. Card No</label>
-      <input class="form-control" id="ins_card_no">
-    </div>
-
-    <div class="col-md-4">
-      <label class="form-label fw-bold">DHA Member ID</label>
-      <input class="form-control" id="dha_member_id">
-    </div>
-
-    <div class="col-md-4">
-      <label class="form-label fw-bold">Ins. Plan</label>
-      <input class="form-control" id="ins_plan">
-    </div>
-
-    <div class="col-md-4">
-      <label class="form-label fw-bold">Policy No</label>
-      <input class="form-control" id="policy_no">
-    </div>
-
-    <div class="col-md-4">
-      <label class="form-label fw-bold">Policy Name</label>
-      <input class="form-control" id="policy_name">
-    </div>
-
-    <div class="col-md-3">
-      <label class="form-label fw-bold">Valid From</label>
-      <input type="date" class="form-control" id="valid_from">
-    </div>
-
-    <div class="col-md-3">
-      <label class="form-label fw-bold">Valid To</label>
-      <input type="date" class="form-control" id="valid_to">
-    </div>
-
-    <div class="col-md-6">
-      <label class="form-label fw-bold">Consultation Deductible %</label>
-      <input class="form-control" id="consult_deduct" placeholder="e.g. 20%">
-    </div>
-
-    <div class="col-md-12">
-      <label class="form-label fw-bold d-block">Contract Scheme Details</label>
-      <div class="small text-muted">Enter percentage or fixed amount (AED) for each service – you may leave any field blank.</div>
-    </div>
-
-    <div class="col-md-4">
-      <label class="form-label">Laboratory</label>
-      <div class="input-group mb-1">
-        <span class="input-group-text">%</span>
-        <input class="form-control" id="lab_percent" placeholder="e.g. 20">
-      </div>
-      <div class="input-group">
-        <span class="input-group-text">AED</span>
-        <input class="form-control" id="lab_amount" placeholder="e.g. 50">
-      </div>
-    </div>
-
-    <div class="col-md-4">
-      <label class="form-label">Radiology</label>
-      <div class="input-group mb-1">
-        <span class="input-group-text">%</span>
-        <input class="form-control" id="radiology_percent" placeholder="e.g. 20">
-      </div>
-      <div class="input-group">
-        <span class="input-group-text">AED</span>
-        <input class="form-control" id="radiology_amount" placeholder="e.g. 50">
-      </div>
-    </div>
-
-    <div class="col-md-4">
-      <label class="form-label">Investigation</label>
-      <div class="input-group mb-1">
-        <span class="input-group-text">%</span>
-        <input class="form-control" id="investigation_percent" placeholder="e.g. 20">
-      </div>
-      <div class="input-group">
-        <span class="input-group-text">AED</span>
-        <input class="form-control" id="investigation_amount" placeholder="e.g. 50">
-      </div>
-    </div>
-
-    <div class="col-md-4">
-      <label class="form-label">Inpatient</label>
-      <div class="input-group mb-1">
-        <span class="input-group-text">%</span>
-        <input class="form-control" id="inpatient_percent" placeholder="e.g. 10">
-      </div>
-      <div class="input-group">
-        <span class="input-group-text">AED</span>
-        <input class="form-control" id="inpatient_amount" placeholder="e.g. 100">
-      </div>
-    </div>
-
-    <div class="col-md-4">
-      <label class="form-label">Pharmacy</label>
-      <div class="input-group mb-1">
-        <span class="input-group-text">%</span>
-        <input class="form-control" id="pharmacy_percent" placeholder="e.g. 10">
-      </div>
-      <div class="input-group">
-        <span class="input-group-text">AED</span>
-        <input class="form-control" id="pharmacy_amount" placeholder="e.g. 20">
-      </div>
-    </div>
-
-    <div class="col-md-4">
-      <label class="form-label">Dental</label>
-      <div class="input-group mb-1">
-        <span class="input-group-text">%</span>
-        <input class="form-control" id="dental_percent" placeholder="e.g. 20">
-      </div>
-      <div class="input-group">
-        <span class="input-group-text">AED</span>
-        <input class="form-control" id="dental_amount" placeholder="e.g. 50">
-      </div>
-    </div>
-  </div>
-
-  <div class="row g-2 mt-3">
-    <div class="col-md-6">
-      <label class="form-label fw-bold">Attachment (Eligibility / ID)</label>
-      <input type="file" class="form-control" name="eligibility_file">
-    </div>
-  </div>
-
-  <button class="btn btn-primary mt-3">Save & Create Visit</button>
-</form>
-
-<script>
-  (function () {
-    const form = document.getElementById("register-form");
-    if (!form) return;
-
-    form.addEventListener("submit", function () {
-      const get = function (id) {
-        const el = document.getElementById(id);
-        return el && el.value ? el.value.trim() : "";
-      };
-
-      const parts = [];
-      const add = function (label, id) {
-        const v = get(id);
-        if (v) { parts.push(label + ": " + v); }
-      };
-
-      add("Provider", "ins_provider");
-      add("Card", "ins_card_no");
-      add("DHA", "dha_member_id");
-      add("Plan", "ins_plan");
-      add("PolicyNo", "policy_no");
-      add("PolicyName", "policy_name");
-
-      const vFrom = get("valid_from");
-      const vTo   = get("valid_to");
-      if (vFrom || vTo) {
-        parts.push("Valid " + (vFrom || "?") + " → " + (vTo || "?"));
-      }
-
-      add("Consult%", "consult_deduct");
-
-      add("Lab%", "lab_percent");
-      add("LabAmt", "lab_amount");
-
-      add("Rad%", "radiology_percent");
-      add("RadAmt", "radiology_amount");
-
-      add("Inv%", "investigation_percent");
-      add("InvAmt", "investigation_amount");
-
-      add("Inp%", "inpatient_percent");
-      add("InpAmt", "inpatient_amount");
-
-      add("Pharm%", "pharmacy_percent");
-      add("PharmAmt", "pharmacy_amount");
-
-      add("Dent%", "dental_percent");
-      add("DentAmt", "dental_amount");
-
-      document.getElementById("payment_details").value = parts.join(" | ");
-    });
-  })();
-</script>
-
-{% endblock %}
-""",
-
-"search.html": """
-{% extends "base.html" %}
-{% block content %}
-<h4 class="mb-3">Search Patients</h4>
-
-<form class="card p-3 mb-3 bg-white" method="GET">
-  <div class="row g-2 align-items-end">
-    <div class="col-md-4">
-      <label class="form-label fw-bold">Free Search</label>
-      <input class="form-control" name="q" placeholder="Search by name / visit / ID / insurance no" value="{{ q }}">
-    </div>
-    <div class="col-md-2">
-      <label class="form-label fw-bold">Visit ID</label>
-      <input class="form-control" name="visit_id" value="{{ visit_f or '' }}">
-    </div>
-    <div class="col-md-2">
-      <label class="form-label fw-bold">User</label>
-      <select class="form-select" name="user">
-        <option value="">ALL</option>
-        {% for u in users %}
-          <option value="{{u.created_by}}" {% if user_f==u.created_by %}selected{% endif %}>{{u.created_by}}</option>
-        {% endfor %}
-      </select>
-    </div>
-    <div class="col-md-2">
-      <label class="form-label fw-bold">From</label>
-      <input class="form-control" type="date" name="date_from" value="{{ dfrom or '' }}">
-    </div>
-    <div class="col-md-2">
-      <label class="form-label fw-bold">To</label>
-      <input class="form-control" type="date" name="date_to" value="{{ dto or '' }}">
-    </div>
-    <div class="col-md-12 mt-2 d-grid">
-      <button class="btn btn-primary btn-sm">Filter</button>
-    </div>
-  </div>
-</form>
-
-
-{% if q and not results %}<div class="text-muted">No results</div>{% endif %}
-
-<table class="table table-sm bg-white">
-  <thead>
-    <tr>
-      <th>Visit</th><th>Queue</th><th>Name</th><th>ID</th><th>INS</th><th>INS No</th>
-      <th>Phone</th><th>Payment</th><th>Triage</th><th>CAT</th><th>Status</th><th>Actions</th>
-    </tr>
-  </thead>
-  <tbody>
-  {% for r in results %}
-    <tr>
-      <td>{{ r.visit_id }}</td>
-      <td class="fw-bold">{{ r.queue_no }}</td>
-      <td>{{ r.name }}</td>
-      <td>{{ r.id_number }}</td>
-      <td>{{ r.insurance }}</td>
-      <td>{{ r.insurance_no }}</td>
-      <td>{{ r.phone }}</td>
-      <td>{{ r.payment_details or '-' }}</td>
-      <td>{{ r.triage_status }}</td>
-      <td>
-        {% set cat = (r.triage_cat or '').lower() %}
-        {% if cat == 'es1' %}<span class="badge cat-red">ES1</span>
-        {% elif cat == 'es2' %}<span class="badge cat-orange">ES2</span>
-        {% elif cat == 'es3' %}<span class="badge cat-yellow">ES3</span>
-        {% elif cat == 'es4' %}<span class="badge cat-green">ES4</span>
-        {% elif cat == 'es5' %}<span class="badge cat-none">ES5</span>
-        {% else %}<span class="badge cat-none">-</span>{% endif %}
-      </td>
-      <td>{{ r.status }}</td>
-      <td><a class="btn btn-sm btn-outline-primary" href="{{ url_for('patient_details', visit_id=r.visit_id) }}">Open</a></td>
-    </tr>
-  {% endfor %}
-  </tbody>
-</table>
-{% endblock %}
-
-<nav class="d-flex justify-content-between align-items-center mt-2">
-  <div class="small text-muted">
-    Page {{page}} / {{pages}} - Total: {{total}}
-  </div>
-  <ul class="pagination pagination-sm mb-0">
-    <li class="page-item {% if page<=1 %}disabled{% endif %}">
-      <a class="page-link" href="{{ url_for('ed_board', status=status_filter, cat=cat_filter, visit_id=visit_f, user=user_f, date_from=dfrom, date_to=dto, per_page=per_page, page=page-1) }}">Prev</a>
-    </li>
-    <li class="page-item {% if page>=pages %}disabled{% endif %}">
-      <a class="page-link" href="{{ url_for('ed_board', status=status_filter, cat=cat_filter, visit_id=visit_f, user=user_f, date_from=dfrom, date_to=dto, per_page=per_page, page=page+1) }}">Next</a>
-    </li>
-  </ul>
-  <button class="btn btn-sm btn-outline-secondary" onclick="location.reload()">🔄 Manual Refresh</button>
-</nav>
-
-""",
-
-"ed_board.html": """
-{% extends "base.html" %}
-{% block content %}
-<div class="d-flex justify-content-between align-items-center mb-2">
-  <h4 class="mb-0">ED Board</h4>
-  <a class="btn btn-sm btn-outline-primary" href="{{ url_for('export_ed_board_csv') }}">Export CSV</a>
-</div>
-
-
-<form class="card p-2 mb-3 bg-white" method="GET">
-  <div class="row g-2 align-items-end">
-    <div class="col-md-2">
-      <label class="form-label fw-bold small">Status</label>
-      <select name="status" class="form-select form-select-sm" onchange="this.form.submit()">
-        <option value="ALL" {% if status_filter=="ALL" %}selected{% endif %}>ALL</option>
-        <option value="OPEN" {% if status_filter=="OPEN" %}selected{% endif %}>OPEN</option>
-        <option value="IN_TREATMENT" {% if status_filter=="IN_TREATMENT" %}selected{% endif %}>IN_TREATMENT</option>
-        <option value="ADMITTED" {% if status_filter=="ADMITTED" %}selected{% endif %}>ADMITTED</option>
-        <option value="DISCHARGED" {% if status_filter=="DISCHARGED" %}selected{% endif %}>DISCHARGED</option>
-        <option value="TRANSFERRED" {% if status_filter=="TRANSFERRED" %}selected{% endif %}>TRANSFERRED</option>
-        <option value="LAMA" {% if status_filter=="LAMA" %}selected{% endif %}>LAMA</option>
-        <option value="EXPIRED" {% if status_filter=="EXPIRED" %}selected{% endif %}>EXPIRED</option>
-        <option value="CANCELLED" {% if status_filter=="CANCELLED" %}selected{% endif %}>CANCELLED</option>
-      </select>
-    </div>
-
-    <div class="col-md-2">
-      <label class="form-label fw-bold small">Triage ES</label>
-      <select name="cat" class="form-select form-select-sm" onchange="this.form.submit()">
-        <option value="ALL" {% if cat_filter=="ALL" %}selected{% endif %}>All ES</option>
-        <option value="ES1" {% if cat_filter=="ES1" %}selected{% endif %}>ES1</option>
-        <option value="ES2" {% if cat_filter=="ES2" %}selected{% endif %}>ES2</option>
-        <option value="ES3" {% if cat_filter=="ES3" %}selected{% endif %}>ES3</option>
-        <option value="ES4" {% if cat_filter=="ES4" %}selected{% endif %}>ES4</option>
-        <option value="ES5" {% if cat_filter=="ES5" %}selected{% endif %}>ES5</option>
-      </select>
-    </div>
-
-    <div class="col-md-2">
-      <label class="form-label fw-bold small">Visit ID</label>
-      <input class="form-control form-control-sm" name="visit_id" value="{{ visit_f or '' }}">
-    </div>
-
-    <div class="col-md-2">
-      <label class="form-label fw-bold small">User</label>
-      <select class="form-select form-select-sm" name="user" onchange="this.form.submit()">
-        <option value="">ALL</option>
-        {% for u in users %}
-          <option value="{{u.created_by}}" {% if user_f==u.created_by %}selected{% endif %}>{{u.created_by}}</option>
-        {% endfor %}
-      </select>
-    </div>
-
-    <div class="col-md-2">
-      <label class="form-label fw-bold small">From</label>
-      <input class="form-control form-control-sm" type="date" name="date_from" value="{{ dfrom or '' }}" onchange="this.form.submit()">
-    </div>
-
-    <div class="col-md-2">
-      <label class="form-label fw-bold small">To</label>
-      <input class="form-control form-control-sm" type="date" name="date_to" value="{{ dto or '' }}" onchange="this.form.submit()">
-    </div>
-  </div>
-</form>
-
-
-<table class="table table-sm table-striped bg-white">
-  <thead>
-    <tr>
-      <th>Queue</th><th>Visit</th><th>Name</th><th>Age</th><th>ID</th><th>INS</th><th>Payment</th><th>Triage</th><th>ES</th><th>Status</th><th>User</th><th>Created</th><th>Actions</th>
-    </tr>
-  </thead>
-  <tbody>
-    {% for v in visits %}
-    <tr>
-      <td class="fw-bold">{{ v.queue_no }}</td>
-      <td>{{ v.visit_id }}</td>
-      <td>{{ v.name }}</td>
-      <td>{{ v.age or '-' }}</td>
-      <td>{{ v.id_number }}</td>
-      <td>{{ v.insurance }}</td>
-      <td style="max-width:220px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">{{ v.payment_details or '-' }}</td>
-      <td>
-        {% if v.triage_status=='YES' %}<span class="badge badge-triage-yes">YES</span>
-        {% else %}<span class="badge badge-triage-no">NO</span>{% endif %}
-      </td>
-      <td>
-        {% set cat = (v.triage_cat or '').lower() %}
-        {% if cat == 'es1' %}<span class="badge cat-red">ES1</span>
-        {% elif cat == 'es2' %}<span class="badge cat-orange">ES2</span>
-        {% elif cat == 'es3' %}<span class="badge cat-yellow">ES3</span>
-        {% elif cat == 'es4' %}<span class="badge cat-green">ES4</span>
-        {% elif cat == 'es5' %}<span class="badge cat-none">ES5</span>
-        {% else %}<span class="badge cat-none">-</span>{% endif %}
-      </td>
-      <td>{{ v.status }}</td>
-      <td>{{ v.created_by }}</td>
-      <td>{{ v.created_at }}</td>
-    <td class="d-flex gap-1 flex-wrap">
-    <a class="btn btn-sm btn-outline-primary"
-       href="{{ url_for('patient_details', visit_id=v.visit_id) }}">
-       Open
-    </a>
-
-    <a class="btn btn-sm btn-outline-secondary"
-       target="_blank"
-       href="{{ url_for('sticker_html', visit_id=v.visit_id) }}">
-       Print Sticker
-    </a>
-
-    {% if session.get('role') in ['nurse','doctor','admin'] %}
-        <a class="btn btn-sm btn-outline-success"
-           href="{{ url_for('triage', visit_id=v.visit_id) }}">
-           Triage
-        </a>
-    {% endif %}
-
-    {% if session.get('role') != 'reception' %}
-    <a class="btn btn-sm btn-outline-primary"
-       target="_blank"
-       href="{{ url_for('patient_summary_pdf', visit_id=v.visit_id) }}">
-       ED Visit Summary - Patient Copy
-    </a>
-    {% endif %}
-
-</td>
-
-      </td>
-    </tr>
-    {% endfor %}
-  </tbody>
-</table>
-{% endblock %}
-
-<nav class="d-flex justify-content-between align-items-center mt-2">
-  <div class="small text-muted">
-    Page {{page}} / {{pages}} - Total: {{total}}
-  </div>
-  <ul class="pagination pagination-sm mb-0">
-    <li class="page-item {% if page<=1 %}disabled{% endif %}">
-      <a class="page-link" href="{{ url_for('ed_board', status=status_filter, cat=cat_filter, visit_id=visit_f, user=user_f, date_from=dfrom, date_to=dto, per_page=per_page, page=page-1) }}">Prev</a>
-    </li>
-    <li class="page-item {% if page>=pages %}disabled{% endif %}">
-      <a class="page-link" href="{{ url_for('ed_board', status=status_filter, cat=cat_filter, visit_id=visit_f, user=user_f, date_from=dfrom, date_to=dto, per_page=per_page, page=page+1) }}">Next</a>
-    </li>
-  </ul>
-  <button class="btn btn-sm btn-outline-secondary" onclick="location.reload()">🔄 Manual Refresh</button>
-</nav>
-
-""",
-
-"patient_details.html": """
-{% extends "base.html" %}
-{% block content %}
-<h4 class="mb-3">Patient Details – Visit {{ visit.visit_id }}</h4>
-
-{% with messages = get_flashed_messages(with_categories=true) %}
-  {% for category, msg in messages %}
-    <div class="alert alert-{{ category }}">{{ msg }}</div>
-  {% endfor %}
-{% endwith %}
-
-<div class="card p-3 bg-white mb-3">
-  <div><strong>Name:</strong> {{ visit.name }}</div>
-  <div><strong>ID:</strong> {{ visit.id_number or '-' }}</div>
-  <div><strong>Phone:</strong> {{ visit.phone or '-' }}</div>
-  <div><strong>Insurance:</strong> {{ visit.insurance or '-' }}</div>
-  <div><strong>Insurance No:</strong> {{ visit.insurance_no or '-' }}</div>
-  <div><strong>Payment Details:</strong> {{ visit.payment_details or '-' }}</div>
-  <div><strong>Patient Complaint:</strong> {{ visit.comment or '-' }}</div>
-  <div>
-    <strong>Allergy:</strong>
-    {{ visit.allergy_status or '-' }}
-    {% if visit.allergy_details %}
-      – {{ visit.allergy_details }}
-    {% endif %}
-  </div>
-  <div><strong>Triage Status:</strong> {{ visit.triage_status }}</div>
-  <div><strong>Status:</strong> {{ visit.status }}</div>
-  {% if visit.status == 'CANCELLED' %}
-    <div><strong>Cancel Reason:</strong> {{ visit.cancel_reason or '-' }}</div>
-    <div><strong>Cancelled By:</strong> {{ visit.cancelled_by or '-' }}</div>
-  {% endif %}
-
-  <div class="mt-2"><strong>Vital Signs:</strong>
-    <div class="small text-muted">
-      PR: {{ visit.pulse_rate or '-' }} bpm |
-      RR: {{ visit.resp_rate or '-' }}/min |
-      BP: {{ visit.bp_systolic or '-' }}/{{ visit.bp_diastolic or '-' }} |
-      Temp: {{ visit.temperature or '-' }} °C |
-      SpO₂: {{ visit.spo2 or '-' }}% |
-      Consciousness: {{ visit.consciousness_level or '-' }} |
-      Pain: {{ visit.pain_score or '-' }}/10 |
-      Wt: {{ visit.weight or '-' }} kg |
-      Ht: {{ visit.height or '-' }} cm
-    </div>
-  </div>
-
-
-  <div class="mt-2"><strong>Triage ES:</strong>
-    {% set cat = (visit.triage_cat or '').lower() %}
-    {% if cat == 'es1' %}<span class="badge cat-red">ES1</span>
-    {% elif cat == 'es2' %}<span class="badge cat-orange">ES2</span>
-    {% elif cat == 'es3' %}<span class="badge cat-yellow">ES3</span>
-    {% elif cat == 'es4' %}<span class="badge cat-green">ES4</span>
-    {% elif cat == 'es5' %}<span class="badge cat-none">ES5</span>
-    {% else %}<span class="badge cat-none">-</span>{% endif %}
-  </div>
-</div>
-
-{% if session.get('role') == 'reception' %}
-<div class="card p-3 bg-white mb-3">
-  <h6 class="fw-bold mb-2">Investigations (Read-only for Reception)</h6>
-  <div class="row">
-    <div class="col-md-6 mb-2">
-      <strong>Lab Results:</strong>
-      {% if lab_reqs %}
-        <ul class="small mb-0">
-          {% for l in lab_reqs %}
-            {% if l.status == 'REPORTED' %}
-              <li>{{ l.test_name }}: {{ l.result_text or '-' }}</li>
-            {% else %}
-              <li>{{ l.test_name }} – {{ l.status }}</li>
-            {% endif %}
-          {% endfor %}
-        </ul>
-      {% else %}
-        <div class="small text-muted">No lab requests for this visit.</div>
-      {% endif %}
-    </div>
-    <div class="col-md-6 mb-2">
-      <strong>Radiology Reports:</strong>
-      {% if rad_reqs %}
-        <ul class="small mb-0">
-          {% for r in rad_reqs %}
-            {% if r.status == 'REPORTED' %}
-              <li>{{ r.test_name }}: {{ r.report_text or '-' }}</li>
-            {% else %}
-              <li>{{ r.test_name }} – {{ r.status }}</li>
-            {% endif %}
-          {% endfor %}
-        </ul>
-      {% else %}
-        <div class="small text-muted">No radiology requests for this visit.</div>
-      {% endif %}
-    </div>
-  </div>
-  <div class="small text-muted mt-1">
-    * View only – reception cannot edit results.
-  </div>
-</div>
-{% endif %}
-
-</div>
-
-<div class="d-flex gap-2 mb-3 flex-wrap">
-  {% if session.get('role') in ['reception','admin'] %}
-    <a class="btn btn-outline-warning" href="{{ url_for('edit_patient', visit_id=visit.visit_id) }}">Edit Patient</a>
-  {% endif %}
-
-  {% if session.get('role') in ['nurse','doctor','admin'] %}
-    <a class="btn btn-success" href="{{ url_for('triage', visit_id=visit.visit_id) }}">Triage</a>
-  {% endif %}
-
-  {% if session.get('role') != 'reception' %}
-    <a class="btn btn-primary" href="{{ url_for('clinical_orders_page', visit_id=visit.visit_id) }}">Clinical Orders</a>
-  {% endif %}
-
-  {% if session.get('role') in ['nurse','doctor','admin'] %}
-    <a class="btn btn-outline-dark" target="_blank" href="{{ url_for('auto_summary_pdf', visit_id=visit.visit_id) }}">Auto Summary</a>
-  {% endif %}
-
-  {% if session.get('role') in ['nurse','doctor','admin'] %}
-    <a class="btn btn-outline-primary" target="_blank" href="{{ url_for('patient_summary_pdf', visit_id=visit.visit_id) }}">ED Visit Summary - Patient Copy</a>
-  {% endif %}
-  {% if session.get('role') in ['reception','nurse','doctor','admin'] %}
-    <a class="btn btn-outline-secondary" target="_blank" href="{{ url_for('home_med_pdf', visit_id=visit.visit_id) }}">Home Medication</a>
-  {% endif %}
-
-  <a class="btn btn-outline-dark" target="_blank" href="{{ url_for('sticker_html', visit_id=visit.visit_id) }}">Sticker</a>
-  <a class="btn btn-outline-secondary" target="_blank" href="{{ url_for('sticker_zpl', visit_id=visit.visit_id) }}">ZPL</a>
-</div>
-
-{% if session.get('role') in ['reception','admin'] and visit.status == 'OPEN' and orders_count == 0 %}
-<div class="card p-3 bg-white mb-3">
-  <h6 class="fw-bold mb-2 text-danger">Cancel Visit</h6>
-  <form method="POST" action="{{ url_for('cancel_visit', visit_id=visit.visit_id) }}" onsubmit="return confirm('Are you sure you want to cancel this visit?');">
-    <label class="form-label fw-bold small">Reason for cancellation</label>
-    <textarea name="cancel_reason" class="form-control mb-2" rows="2" required></textarea>
-    <button class="btn btn-danger btn-sm">Cancel Visit</button>
-  </form>
-  <div class="small text-muted mt-1">
-    Use only if patient registered but did not see the doctor.
-  </div>
-</div>
-{% endif %}
-
-{% if session.get('role') in ['doctor','admin'] %}
-<form method="POST" action="{{ url_for('close_visit', visit_id=visit.visit_id) }}" class="card p-3 bg-white mb-3">
-  <h6 class="fw-bold">Update Status</h6>
-  <div class="row g-2 align-items-end">
-    <div class="col-md-4">
-      <label class="form-label fw-bold small mb-1">&nbsp;</label>
-      <select class="form-select" name="status">
-        <option>DISCHARGED</option>
-        <option>ADMITTED</option>
-        <option>TRANSFERRED</option>
-        <option>LAMA</option>
-        <option>EXPIRED</option>
-        <option>IN_TREATMENT</option>
-        <option>CANCELLED</option>
-      </select>
-    </div>
-    <div class="col-md-3">
-      <button class="btn btn-danger w-100">Update Status</button>
-    </div>
-  </div>
-</form>
-{% endif %}
-
-<div class="card p-3 bg-white mb-3">
-  <h6>Attach Patient ID</h6>
-  <form method="POST" enctype="multipart/form-data" action="{{ url_for('upload_id', visit_id=visit.visit_id) }}">
-    <input type="file" name="file" class="form-control mb-2">
-    <button class="btn btn-sm btn-primary">Upload</button>
-  </form>
-
-  {% if attachments %}
-    <hr>
-    <ul>
-      {% for a in attachments %}
-        {% set is_result = '_LAB_' in a.filename or '_RAD_' in a.filename %}
-        <li>
-          {# Reception cannot open lab / radiology result files #}
-          {% if session.get('role') == 'reception' and is_result %}
-            {{ a.filename }} ({{ a.uploaded_at }}) – <span class="text-muted">restricted</span>
-          {% else %}
-            <a href="{{ url_for('uploaded_file', filename=a.filename) }}" target="_blank">{{ a.filename }}</a>
-            ({{ a.uploaded_at }})
-          {% endif %}
-
-          {# Delete: admin can always delete; reception only if NOT lab/rad result #}
-          {% if session.get('role') == 'admin' or (session.get('role') == 'reception' and not is_result) %}
-            - <form method="POST" action="{{ url_for('delete_attachment', att_id=a.id) }}" style="display:inline"
-                    onsubmit="return confirm('Delete this attachment?');">
-                <button class="btn btn-sm btn-link text-danger p-0">Delete</button>
-              </form>
-          {% endif %}
-        </li>
-      {% endfor %}
-    </ul>
-  {% endif %}
-</div>
-{% endblock %}
-""",
-
-"edit_patient.html": """
-{% extends "base.html" %}
-{% block content %}
-<h4 class="mb-3">Edit Patient – Visit {{ r.visit_id }}</h4>
-
-<form method="POST" class="card p-3 bg-white">
-  <div class="row g-2">
-    <div class="col-md-6"><label class="form-label fw-bold">Name</label><input class="form-control" name="name" value="{{ r.name }}" required></div>
-    <div class="col-md-6"><label class="form-label fw-bold">ID Number</label><input class="form-control" name="id_number" value="{{ r.id_number }}"></div>
-    <div class="col-md-4"><label class="form-label fw-bold">Phone</label><input class="form-control" name="phone" value="{{ r.phone }}"></div>
-    <div class="col-md-4"><label class="form-label fw-bold">Insurance</label><input class="form-control" name="insurance" value="{{ r.insurance }}"></div>
-    <div class="col-md-4"><label class="form-label fw-bold">Insurance No</label><input class="form-control" name="insurance_no" value="{{ r.insurance_no }}"></div>
-    <div class="col-md-4"><label class="form-label fw-bold">DOB</label><input class="form-control" name="dob" value="{{ r.dob }}"></div>
-    <div class="col-md-2"><label class="form-label fw-bold">Sex</label>
-      <select class="form-select" name="sex">
-        <option value="" {% if not r.sex %}selected{% endif %}></option>
-        <option value="M" {% if r.sex=='M' %}selected{% endif %}>M</option>
-        <option value="F" {% if r.sex=='F' %}selected{% endif %}>F</option>
-      </select>
-    </div>
-    <div class="col-md-6"><label class="form-label fw-bold">Nationality</label><input class="form-control" name="nationality" value="{{ r.nationality }}"></div>
-    <div class="col-md-12"><label class="form-label fw-bold">Payment Details</label><input class="form-control" name="payment_details" value="{{ r.payment_details }}"></div>
-  </div>
-  <div class="mt-3 d-flex gap-2">
-    <button class="btn btn-success">Save Changes</button>
-    <a class="btn btn-secondary" href="{{ url_for('patient_details', visit_id=r.visit_id) }}">Cancel</a>
-  </div>
-</form>
-{% endblock %}
-""",
-
-
-"triage.html": """
-{% extends "base.html" %}
-{% block content %}
-<h4 class="mb-3">Triage – Visit {{ visit.visit_id }}</h4>
-
-{% with messages = get_flashed_messages(with_categories=true) %}
-  {% for category, msg in messages %}
-    <div class="alert alert-{{ category }}">{{ msg }}</div>
-  {% endfor %}
-{% endwith %}
-
-<form method="POST" class="card p-3 bg-white">
-  <div class="mb-2"><strong>Patient:</strong> {{ visit.name }} | ID: {{ visit.id_number }} | INS: {{ visit.insurance }}</div>
-
-  <label class="form-label fw-bold mt-2">Patient's Complaint</label>
-  <input class="form-control" name="comment" value="{{ visit.comment or '' }}">
-
-  <label class="form-label fw-bold mt-2">Allergy</label>
-  <div class="row g-2">
-    <div class="col-md-4">
-      <select class="form-select" name="allergy_status" id="allergy_status">
-        {% set al = visit.allergy_status or '' %}
-        <option value="" {% if al=='' %}selected{% endif %}>-- Select --</option>
-        <option value="No" {% if al=='No' %}selected{% endif %}>No</option>
-        <option value="Yes" {% if al=='Yes' %}selected{% endif %}>Yes</option>
-      </select>
-    </div>
-    <div class="col-md-8"
-         id="allergy_details_group"
-         style="display: {% if (visit.allergy_status or '') == 'Yes' %}block{% else %}none{% endif %};">
-      <input class="form-control"
-             name="allergy_details"
-             placeholder="Cause of allergy (drug / food / other)"
-             value="{{ visit.allergy_details or '' }}">
-    </div>
-  </div>
-
-  <hr class="my-3">
-
-  <h6 class="fw-bold">Vital Signs</h6>
-  <div class="row g-2">
-    <div class="col-md-4">
-      <label class="form-label">Pulse Rate (bpm)</label>
-      <input class="form-control" name="pulse_rate" value="{{ visit.pulse_rate or '' }}">
-    </div>
-    <div class="col-md-4">
-      <label class="form-label">Resp Rate (/min)</label>
-      <input class="form-control" name="resp_rate" value="{{ visit.resp_rate or '' }}">
-    </div>
-    <div class="col-md-4">
-      <label class="form-label">Temp (°C)</label>
-      <input class="form-control" name="temperature" value="{{ visit.temperature or '' }}">
-    </div>
-    <div class="col-md-4">
-      <label class="form-label">BP Systolic</label>
-      <input class="form-control" name="bp_systolic" value="{{ visit.bp_systolic or '' }}">
-    </div>
-    <div class="col-md-4">
-      <label class="form-label">BP Diastolic</label>
-      <input class="form-control" name="bp_diastolic" value="{{ visit.bp_diastolic or '' }}">
-    </div>
-    <div class="col-md-4">
-      <label class="form-label">SpO₂ (%)</label>
-      <input class="form-control" name="spo2" value="{{ visit.spo2 or '' }}">
-    </div>
-    <div class="col-md-4">
-      <label class="form-label">Weight (kg)</label>
-      <input class="form-control" name="weight" value="{{ visit.weight or '' }}">
-    </div>
-    <div class="col-md-4">
-      <label class="form-label">Height (cm)</label>
-      <input class="form-control" name="height" value="{{ visit.height or '' }}">
-    </div>
-    <div class="col-md-6">
-      <label class="form-label">Level of Consciousness</label>
-      <select class="form-select" name="consciousness_level">
-        {% set cl = visit.consciousness_level or '' %}
-        <option value="" {% if cl=='' %}selected{% endif %}>-- Select --</option>
-        <option value="Alert" {% if cl=='Alert' %}selected{% endif %}>Alert</option>
-        <option value="Verbal" {% if cl=='Verbal' %}selected{% endif %}>Verbal</option>
-        <option value="Pain" {% if cl=='Pain' %}selected{% endif %}>Pain</option>
-        <option value="Unresponsive" {% if cl=='Unresponsive' %}selected{% endif %}>Unresponsive</option>
-      </select>
-      <div class="form-text">AVPU scale</div>
-    </div>
-    <div class="col-md-6">
-      <label class="form-label">Pain Score (0–10)</label>
-      <input class="form-control" name="pain_score" value="{{ visit.pain_score or '' }}">
-    </div>
-  </div>
-
-  <hr class="my-3">
-
-  <label class="form-label fw-bold mt-2">Triage Category (ES)</label>
-  <select class="form-select" name="triage_cat" required>
-    <option value="">-- Select --</option>
-    <option value="ES1" {% if visit.triage_cat=='ES1' %}selected{% endif %}>ES1</option>
-    <option value="ES2" {% if visit.triage_cat=='ES2' %}selected{% endif %}>ES2</option>
-    <option value="ES3" {% if visit.triage_cat=='ES3' %}selected{% endif %}>ES3</option>
-    <option value="ES4" {% if visit.triage_cat=='ES4' %}selected{% endif %}>ES4</option>
-    <option value="ES5" {% if visit.triage_cat=='ES5' %}selected{% endif %}>ES5</option>
-  </select>
-
-  <button class="btn btn-success mt-3">Save Triage</button>
-</form>
-
-<script>
-document.addEventListener('DOMContentLoaded', function () {
-  const allergySelect = document.getElementById('allergy_status');
-  const detailsGroup = document.getElementById('allergy_details_group');
-  if (!allergySelect || !detailsGroup) return;
-
-  function toggleDetails() {
-    if (allergySelect.value === 'Yes') {
-      detailsGroup.style.display = 'block';
-    } else {
-      detailsGroup.style.display = 'none';
-    }
-  }
-
-  allergySelect.addEventListener('change', toggleDetails);
-  toggleDetails();
-});
-</script>
-{% endblock %}
-""",
-
-"lab_board.html": """
-{% extends "base.html" %}
-{% block content %}
-<h4 class="mb-3">Lab Board</h4>
-
-{% with messages = get_flashed_messages(with_categories=true) %}
-  {% for category, msg in messages %}
-    <div class="alert alert-{{ category }}">{{ msg }}</div>
-  {% endfor %}
-{% endwith %}
-
-<form method="GET" class="card p-2 mb-3 bg-white">
-  <div class="row g-2 align-items-end">
-    <div class="col-md-3 col-sm-4">
-      <label class="form-label fw-bold small mb-1">Status</label>
-      <select name="status" class="form-select form-select-sm">
-        <option value="PENDING" {% if status_filter=='PENDING' %}selected{% endif %}>Pending / Received</option>
-        <option value="REPORTED" {% if status_filter=='REPORTED' %}selected{% endif %}>Reported</option>
-        <option value="ALL" {% if status_filter=='ALL' %}selected{% endif %}>All</option>
-      </select>
-    </div>
-    <div class="col-md-5 col-sm-8">
-      <label class="form-label fw-bold small mb-1">Search</label>
-      <input type="text"
-             name="q"
-             value="{{ q or '' }}"
-             class="form-control form-control-sm"
-             placeholder="Name / ID / Visit / Test">
-    </div>
-    <div class="col-md-2 col-sm-6">
-      <label class="form-label fw-bold small mb-1">&nbsp;</label>
-      <button class="btn btn-sm btn-primary w-100">Search / Filter</button>
-    </div>
-    <div class="col-md-2 col-sm-6 text-end small text-muted">
-      Showing last 500 requests only.
-    </div>
-  </div>
-</form>
-
-
-<table class="table table-sm table-striped table-hover bg-white align-middle">
-  <thead class="table-light">
-    <tr>
-      <th style="width:60px;">#</th>
-      <th>Visit</th>
-      <th>Patient</th>
-      <th>ID</th>
-      <th>Test</th>
-      <th>Status</th>
-      <th>Result</th>
-      <th style="width:220px;">Actions</th>
-    </tr>
-  </thead>
-  <tbody>
-  {% if not rows %}
-    <tr>
-      <td colspan="8" class="text-center text-muted small py-3">
-        No lab requests found for current filter.
-      </td>
-    </tr>
-  {% else %}
-    {% for r in rows %}
-      <tr>
-        <td>{{ r.id }}</td>
-        <td class="fw-bold">{{ r.visit_id }}</td>
-        <td>{{ r.name }}</td>
-        <td>{{ r.id_number or '-' }}</td>
-        <td>{{ r.test_name }}</td>
-        <td>
-          {% if r.status == 'REQUESTED' %}
-            <span class="badge bg-secondary">Waiting sample</span>
-          {% elif r.status == 'RECEIVED' %}
-            <span class="badge bg-warning text-dark">Sample received</span>
-          {% elif r.status == 'REPORTED' %}
-            <span class="badge bg-success">Reported</span>
-          {% else %}
-            <span class="badge bg-light text-muted">{{ r.status }}</span>
-          {% endif %}
-        </td>
-        <td style="max-width:260px; white-space:pre-wrap; font-size:0.85rem;">
-          {{ r.result_text or '-' }}
-        </td>
-        <td>
-          <div class="d-flex flex-column gap-1">
-            {% if session.get('role') in ['lab','admin'] %}
-              {% if r.status == 'REQUESTED' %}
-                <form method="POST"
-                      action="{{ url_for('lab_receive_sample', rid=r.id) }}">
-                  <button class="btn btn-sm btn-outline-primary w-100">
-                    ✅ Receive Sample
-                  </button>
-                </form>
-              {% endif %}
-
-              <button class="btn btn-sm btn-outline-secondary w-100 mt-1"
-                      type="button"
-                      data-bs-toggle="collapse"
-                      data-bs-target="#edit{{ r.id }}">
-                ✏️ Edit / Add Result
-              </button>
-
-              <div class="collapse mt-1" id="edit{{ r.id }}">
-                <form method="POST"
-                      action="{{ url_for('lab_report_result', rid=r.id) }}">
-                  <div class="input-group input-group-sm mb-1">
-                    <input type="text"
-                           name="result_text"
-                           class="form-control"
-                           placeholder="Enter result..."
-                           value="{{ r.result_text or '' }}">
-                  </div>
-                  <button class="btn btn-sm btn-success w-100">
-                    💾 Save Result
-                  </button>
-                </form>
-              </div>
-
-              {% if r.status == 'REPORTED' %}
-                <span class="small text-muted mt-1">
-                  {{ r.reported_at or '' }} | {{ r.reported_by or '' }}
-                </span>
-              {% endif %}
-            {% else %}
-              <span class="small text-muted">Read-only</span>
-            {% endif %}
-
-            {% if session.get('role') in ['lab','admin','doctor'] %}
-              <form method="POST"
-                    enctype="multipart/form-data"
-                    action="{{ url_for('lab_upload_result_file', rid=r.id) }}"
-                    class="d-flex gap-1 mt-1">
-                <input type="file" name="file" class="form-control form-control-sm">
-                <button class="btn btn-sm btn-outline-secondary w-100">
-                  📎 Upload Result File
-                </button>
-              </form>
-            {% endif %}
-          </div>
-        </td>
-      </tr>
-    {% endfor %}
-  {% endif %}
-  </tbody>
-</table>
-{% endblock %}
-""",
-
-"radiology_board.html": """
-{% extends "base.html" %}
-{% block content %}
-<h4 class="mb-3">Radiology Board</h4>
-
-{% with messages = get_flashed_messages(with_categories=true) %}
-  {% for category, msg in messages %}
-    <div class="alert alert-{{ category }}">{{ msg }}</div>
-  {% endfor %}
-{% endwith %}
-
-<form method="GET" class="card p-2 mb-3 bg-white">
-  <div class="row g-2 align-items-end">
-    <div class="col-md-3 col-sm-4">
-      <label class="form-label fw-bold small mb-1">Status</label>
-      <select name="status" class="form-select form-select-sm">
-        <option value="PENDING" {% if status_filter=='PENDING' %}selected{% endif %}>Pending / Done</option>
-        <option value="REPORTED" {% if status_filter=='REPORTED' %}selected{% endif %}>Reported</option>
-        <option value="ALL" {% if status_filter=='ALL' %}selected{% endif %}>All</option>
-      </select>
-    </div>
-    <div class="col-md-5 col-sm-8">
-      <label class="form-label fw-bold small mb-1">Search</label>
-      <input type="text"
-             name="q"
-             value="{{ q or '' }}"
-             class="form-control form-control-sm"
-             placeholder="Name / ID / Visit / Study">
-    </div>
-    <div class="col-md-2 col-sm-6">
-      <label class="form-label fw-bold small mb-1">&nbsp;</label>
-      <button class="btn btn-sm btn-primary w-100">Search / Filter</button>
-    </div>
-    <div class="col-md-2 col-sm-6 text-end small text-muted">
-      Showing last 500 requests only.
-    </div>
-  </div>
-</form>
-
-
-<table class="table table-sm table-striped table-hover bg-white align-middle">
-  <thead class="table-light">
-    <tr>
-      <th style="width:60px;">#</th>
-      <th>Visit</th>
-      <th>Patient</th>
-      <th>ID</th>
-      <th>Study</th>
-      <th>Status</th>
-      <th>Report</th>
-      <th style="width:260px;">Actions</th>
-    </tr>
-  </thead>
-  <tbody>
-  {% if not rows %}
-    <tr>
-      <td colspan="8" class="text-center text-muted small py-3">
-        No radiology requests found for current filter.
-      </td>
-    </tr>
-  {% else %}
-    {% for r in rows %}
-      <tr>
-        <td>{{ r.id }}</td>
-        <td class="fw-bold">{{ r.visit_id }}</td>
-        <td>{{ r.name }}</td>
-        <td>{{ r.id_number or '-' }}</td>
-        <td>{{ r.test_name }}</td>
-        <td>
-          {% if r.status == 'REQUESTED' %}
-            <span class="badge bg-secondary">Waiting</span>
-          {% elif r.status == 'DONE' %}
-            <span class="badge bg-warning text-dark">Done</span>
-          {% elif r.status == 'REPORTED' %}
-            <span class="badge bg-success">Reported</span>
-          {% else %}
-            <span class="badge bg-light text-muted">{{ r.status }}</span>
-          {% endif %}
-        </td>
-        <td style="max-width:260px; white-space:pre-wrap; font-size:0.85rem;">
-          {{ r.report_text or '-' }}
-        </td>
-        <td>
-          <div class="d-flex flex-column gap-1">
-            {% if session.get('role') in ['radiology','admin'] %}
-              {% if r.status == 'REQUESTED' %}
-                <form method="POST"
-                      action="{{ url_for('radiology_mark_done', rid=r.id) }}">
-                  <button class="btn btn-sm btn-outline-primary w-100">
-                    ✅ Mark as Done
-                  </button>
-                </form>
-              {% endif %}
-
-              <button class="btn btn-sm btn-outline-secondary w-100 mt-1"
-                      type="button"
-                      data-bs-toggle="collapse"
-                      data-bs-target="#edit{{ r.id }}">
-                ✏️ Edit / Add Report
-              </button>
-
-              <div class="collapse mt-1" id="edit{{ r.id }}">
-                <form method="POST"
-                      action="{{ url_for('radiology_report_result', rid=r.id) }}">
-                  <div class="input-group input-group-sm mb-1">
-                    <textarea name="report_text"
-                              class="form-control"
-                              rows="3"
-                              placeholder="Enter radiology report...">{{ r.report_text or '' }}</textarea>
-                  </div>
-                  <button class="btn btn-sm btn-success w-100">
-                    💾 Save Report
-                  </button>
-                </form>
-              </div>
-
-              {% if r.status == 'REPORTED' %}
-                <span class="small text-muted mt-1">
-                  {{ r.reported_at or '' }} | {{ r.reported_by or '' }}
-                </span>
-              {% endif %}
-            {% else %}
-              <span class="small text-muted">Read-only</span>
-            {% endif %}
-
-            {% if session.get('role') in ['radiology','admin','doctor'] %}
-              <form method="POST"
-                    enctype="multipart/form-data"
-                    action="{{ url_for('radiology_upload_result_file', rid=r.id) }}"
-                    class="d-flex gap-1 mt-1">
-                <input type="file" name="file" class="form-control form-control-sm">
-                <button class="btn btn-sm btn-outline-secondary w-100">
-                  📎 Upload Result File
-                </button>
-              </form>
-            {% endif %}
-          </div>
-        </td>
-      </tr>
-    {% endfor %}
-  {% endif %}
-  </tbody>
-</table>
-{% endblock %}
-""",
-"clinical_orders.html": """
-{% extends "base.html" %}
-{% block content %}
-<h4 class="mb-2">Clinical Orders – Visit {{ visit.visit_id }}</h4>
-<div class="mb-3 text-muted">
-  Patient: {{ visit.name }} | ID: {{ visit.id_number }} | Insurance: {{ visit.insurance }}
-</div>
-
-{% with messages = get_flashed_messages(with_categories=true) %}
-  {% for category, msg in messages %}
-    <div class="alert alert-{{ category }}">{{ msg }}</div>
-  {% endfor %}
-{% endwith %}
-
-<div class="mb-3 d-flex flex-wrap gap-2">
-  <a class="btn btn-sm btn-outline-secondary"
-     target="_blank"
-     href="{{ url_for('lab_results_pdf', visit_id=visit.visit_id) }}">
-    Print Lab Results PDF
-  </a>
-
-  <a class="btn btn-sm btn-outline-secondary"
-     target="_blank"
-     href="{{ url_for('radiology_results_pdf', visit_id=visit.visit_id) }}">
-    Print Radiology Reports PDF
-  </a>
-
-  <a class="btn btn-sm btn-outline-dark"
-     target="_blank"
-     href="{{ url_for('auto_summary_pdf', visit_id=visit.visit_id) }}">
-    Auto ED Course Summary PDF
-  </a>
-</div>
-
-<div class="row g-3">
-  <div class="col-lg-7">
-    <div class="card p-3 bg-white">
-      <h6 class="fw-bold mb-2">Add New Clinical Order</h6>
-
-      <div class="mb-3 d-flex flex-wrap gap-2">
-        <button type="button" class="btn btn-sm btn-outline-primary" onclick="applyBundle('chest_pain')">Chest Pain Bundle</button>
-        <button type="button" class="btn btn-sm btn-outline-danger" onclick="applyBundle('stroke')">Stroke Bundle</button>
-        <button type="button" class="btn btn-sm btn-outline-dark" onclick="applyBundle('trauma')">Trauma Bundle</button>
-        
-        <button type="button" class="btn btn-sm btn-outline-success" onclick="applyBundle('abdominal_pain')">Abdominal Pain Bundle</button>
-        <button type="button" class="btn btn-sm btn-outline-info" onclick="applyBundle('sob')">SOB Bundle</button>
-        <button type="button" class="btn btn-sm btn-outline-warning" onclick="applyBundle('sepsis')">Sepsis Bundle</button>
-        <button type="button" class="btn btn-sm btn-outline-primary" onclick="applyBundle('fever')">Fever Bundle</button>
-        <button type="button" class="btn btn-sm btn-outline-dark" onclick="applyBundle('gi_bleed')">GI Bleed Bundle</button>
-        <button type="button" class="btn btn-sm btn-outline-danger" onclick="applyBundle('anaphylaxis')">Anaphylaxis Bundle</button>
-<button type="button" class="btn btn-sm btn-outline-secondary" onclick="clearAllBundles()">Clear Selections</button>
-      </div>
-
-      {% if session.get('role') not in ['reception'] %}
-      <form method="POST" action="{{ url_for('add_clinical_order', visit_id=visit.visit_id) }}">
-        <label class="form-label fw-bold">Diagnosis / Chief Complaint</label>
-        <textarea class="form-control mb-3" name="diagnosis" rows="2" placeholder="Write diagnosis or chief complaint..."></textarea>
-
-        <label class="form-label fw-bold">Radiology Orders</label>
-        <div class="border rounded p-2 mb-2" style="max-height:180px; overflow:auto;">
-          {% set rad_list = [
-            "X-Ray Chest","X-Ray Pelvis","X-Ray C-Spine","X-Ray L-Spine",
-            "CT Brain Without Contrast","CT Brain With Contrast","CT C-Spine","CT Chest","CT Abdomen/Pelvis",
-            "CT Angio Brain/Neck","CT Trauma Pan-Scan",
-            "MRI Brain","MRI Spine",
-            "US Abdomen","US Pelvis","US DVT Lower Limb","FAST Ultrasound"
-          ] %}
-          {% for item in rad_list %}
-            <div class="form-check">
-              <input class="form-check-input rad-item" type="checkbox" value="{{ item }}" id="rad_{{ loop.index }}">
-              <label class="form-check-label" for="rad_{{ loop.index }}">{{ item }}</label>
-            </div>
-          {% endfor %}
-        </div>
-
-        <div class="input-group input-group-sm mb-2">
-          <input type="text" class="form-control" id="rad_other" placeholder="Add other radiology (optional)">
-          <button class="btn btn-outline-secondary" type="button" onclick="addOther('rad')">Add</button>
-        </div>
-
-        <textarea class="form-control mb-3" id="radiology_text" name="radiology_orders" rows="2"
-                  placeholder="Selected radiology appear here..." readonly></textarea>
-
-        <label class="form-label fw-bold">Lab Orders</label>
-        <div class="border rounded p-2 mb-2" style="max-height:180px; overflow:auto;">
-          {% set lab_list = [
-            "CBC","CMP (Kidney/Liver)","Electrolytes","CRP","ESR",
-            "Troponin","CK-MB","PT/PTT/INR","RBS (Random Blood Sugar)","ABG",
-            "Urine Analysis","Blood Culture","Lactate","D-Dimer","Lipase","BHCG (Pregnancy Test)",
-            "Type & Screen / Crossmatch"
-          ] %}
-          {% for item in lab_list %}
-            <div class="form-check">
-              <input class="form-check-input lab-item" type="checkbox" value="{{ item }}" id="lab_{{ loop.index }}">
-              <label class="form-check-label" for="lab_{{ loop.index }}">{{ item }}</label>
-            </div>
-          {% endfor %}
-        </div>
-
-        <div class="input-group input-group-sm mb-2">
-          <input type="text" class="form-control" id="lab_other" placeholder="Add other lab (optional)">
-          <button class="btn btn-outline-secondary" type="button" onclick="addOther('lab')">Add</button>
-        </div>
-
-        <textarea class="form-control mb-3" id="lab_text" name="lab_orders" rows="2"
-                  placeholder="Selected labs appear here..." readonly></textarea>
-
-        <label class="form-label fw-bold">Medications</label>
-        <div class="border rounded p-2 mb-2" style="max-height:200px; overflow:auto;">
-          {% set med_list = [
-            "Paracetamol IV","Diclofenac IM","Tramadol IV","Morphine IV",
-            "Ondansetron IV","Metoclopramide IV",
-            "Ceftriaxone IV","Piperacillin/Tazobactam (Tazocin)","Cefazolin IV",
-            "Salbutamol Neb","Duolin Neb","Hydrocortisone IV","Pantoprazole IV",
-            "Aspirin PO 300mg","Nitroglycerin SL","Heparin SC/IV",
-            "Labetalol IV",
-            "Tetanus Toxoid IM",
-            "Normal Saline 0.9%","Ringer Lactate","D5W"
-          ] %}
-          {% for item in med_list %}
-            <div class="form-check">
-              <input class="form-check-input med-item" type="checkbox" value="{{ item }}" id="med_{{ loop.index }}">
-              <label class="form-check-label" for="med_{{ loop.index }}">{{ item }}</label>
-            </div>
-          {% endfor %}
-        </div>
-
-        <div class="input-group input-group-sm mb-2">
-          <input type="text" class="form-control" id="med_other" placeholder="Add other medication (optional)">
-          <button class="btn btn-outline-secondary" type="button" onclick="addOther('med')">Add</button>
-        </div>
-
-        <textarea class="form-control mb-3" id="med_text" name="medications" rows="2"
-                  placeholder="Selected medications appear here..." readonly></textarea>
-
-        <div class="d-flex gap-2 mt-2">
-          <button class="btn btn-primary">Save Clinical Order</button>
-          <a class="btn btn-secondary" href="{{ url_for('patient_details', visit_id=visit.visit_id) }}">Back</a>
-        </div>
-      </form>
-      {% else %}
-        <div class="alert alert-warning mb-0">
-          Reception role has no access to create clinical orders.
-        </div>
-      {% endif %}
-    </div>
-  </div>
-
-  <div class="col-lg-5">
-    <div class="card p-3 bg-white mb-3">
-      <div class="d-flex justify-content-between align-items-center">
-        <h6 class="fw-bold mb-2">Nursing Notes</h6>
-        <a class="btn btn-sm btn-outline-primary"
-           target="_blank"
-           href="{{ url_for('nursing_notes_pdf', visit_id=visit.visit_id) }}">Print Notes PDF</a>
-      </div>
-
-      {% if session.get('role') in ['nurse','doctor','admin'] %}
-      <form method="POST" action="{{ url_for('add_nursing_note', visit_id=visit.visit_id) }}">
-        <textarea class="form-control mb-2" name="note_text" rows="3" placeholder="Write nursing note..."></textarea>
-        <button class="btn btn-sm btn-primary">Save Note</button>
-      </form>
-      {% else %}
-        <div class="text-muted small">Nursing notes are read-only for this role.</div>
-      {% endif %}
-
-      <hr>
-      {% if notes %}
-        <div style="max-height:220px; overflow:auto;">
-          {% for n in notes %}
-            <div class="border rounded p-2 mb-2">
-              <div class="small fw-bold">{{ n.created_at }} | {{ n.created_by }}</div>
-              <div class="small">{{ n.note_text }}</div>
-            </div>
-          {% endfor %}
-        </div>
-      {% else %}
-        <div class="text-muted small">No nursing notes yet.</div>
-      {% endif %}
-    </div>
-
-    {% if session.get('role') != 'nurse' %}
-    <div class="card p-3 bg-white">
-      <div class="d-flex justify-content-between align-items-center">
-        <h6 class="fw-bold mb-2">Discharge Summary V5</h6>
-        <a class="btn btn-sm btn-outline-secondary"
-           target="_blank"
-           href="{{ url_for('discharge_summary_pdf', visit_id=visit.visit_id) }}">Auto-Summary PDF</a>
-      </div>
-
-      <form method="POST" action="{{ url_for('discharge_save', visit_id=visit.visit_id) }}">
-        <label class="form-label fw-bold small mt-2">Diagnosis / Chief Complaint</label>
-        <textarea class="form-control mb-2" name="diagnosis_cc" rows="2"
-          placeholder="Diagnosis / chief complaint...">{{ summary.diagnosis_cc if summary else '' }}</textarea>
-
-        <label class="form-label fw-bold small">Referral to Clinic</label>
-        <input class="form-control mb-2"
-               name="referral_clinic"
-               list="clinic_list"
-               placeholder="Select / type clinic"
-               value="{{ summary.referral_clinic if summary else '' }}">
-        <datalist id="clinic_list">
-          <option value="ED / Emergency">
-          <option value="General Medicine OPD">
-          <option value="General Surgery OPD">
-          <option value="Pediatrics OPD">
-          <option value="Obstetrics & Gynecology OPD">
-          <option value="Orthopedics OPD">
-          <option value="Cardiology OPD">
-          <option value="Neurology OPD">
-          <option value="ENT OPD">
-          <option value="Ophthalmology OPD">
-          <option value="Urology OPD">
-          <option value="Dermatology OPD">
-          <option value="Psychiatry OPD">
-          <option value="Dental OPD">
-          <option value="Oncology OPD">
-          <option value="Endocrinology OPD">
-          <option value="Nephrology OPD">
-          <option value="Pulmonology OPD">
-          <option value="ICU">
-          <option value="LDR">
-        </datalist>
-
-        <label class="form-label fw-bold small">Home Medication</label>
-        <textarea class="form-control mb-2" name="home_medication" rows="2"
-          placeholder="Home discharge meds...">{{ summary.home_medication if summary else '' }}</textarea>
-
-        <label class="form-label fw-bold small">Doctor Examination / History</label>
-        <textarea class="form-control mb-2" name="summary_text" rows="4"
-                  placeholder="Write doctor examination / patient history...">{{ summary.summary_text if summary else '' }}</textarea>
-
-        <button class="btn btn-sm btn-success">Save Summary</button>
-      </form>
-    </div>
-    {% endif %}
-  </div>
-</div>
-
-<div class="card p-3 bg-white mt-3">
-  <h6 class="fw-bold mb-2">Lab Requests / Results</h6>
-  {% if not lab_reqs %}
-    <div class="text-muted small">No lab requests for this visit.</div>
-  {% else %}
-    <table class="table table-sm mb-0">
-      <thead>
-        <tr>
-          <th style="width:60px;">#</th>
-          <th>Test</th>
-          <th>Status</th>
-          <th>Result</th>
-          <th class="small">Requested</th>
-        </tr>
-      </thead>
-      <tbody>
-        {% for l in lab_reqs %}
-          <tr>
-            <td>{{ l.id }}</td>
-            <td>{{ l.test_name }}</td>
-            <td>
-              {% if l.status == 'REQUESTED' %}
-                <span class="badge bg-secondary">Waiting Sample</span>
-              {% elif l.status == 'RECEIVED' %}
-                <span class="badge bg-warning text-dark">Sample Received</span>
-              {% elif l.status == 'REPORTED' %}
-                <span class="badge bg-success">Result Ready</span>
-              {% else %}
-                <span class="badge bg-light text-muted">{{ l.status }}</span>
-              {% endif %}
-            </td>
-            <td style="max-width:260px;white-space:pre-wrap;font-size:0.85rem;">
-              {{ l.result_text or '-' }}
-            </td>
-            <td class="small text-muted">
-              {{ l.requested_at or '-' }}<br>
-              by {{ l.requested_by or '-' }}
-            </td>
-          </tr>
-        {% endfor %}
-      </tbody>
-    </table>
-  {% endif %}
-</div>
-
-<div class="card p-3 bg-white mt-3">
-  <h6 class="fw-bold mb-2">Radiology Requests / Reports</h6>
-  {% if not rad_reqs %}
-    <div class="text-muted small">No radiology requests for this visit.</div>
-  {% else %}
-    <table class="table table-sm mb-0">
-      <thead>
-        <tr>
-          <th style="width:60px;">#</th>
-          <th>Study</th>
-          <th>Status</th>
-          <th>Report</th>
-          <th class="small">Requested</th>
-        </tr>
-      </thead>
-      <tbody>
-        {% for r in rad_reqs %}
-          <tr>
-            <td>{{ r.id }}</td>
-            <td>{{ r.test_name }}</td>
-            <td>
-              {% if r.status == 'REQUESTED' %}
-                <span class="badge bg-secondary">Waiting</span>
-              {% elif r.status == 'DONE' %}
-                <span class="badge bg-warning text-dark">Done</span>
-              {% elif r.status == 'REPORTED' %}
-                <span class="badge bg-success">Report Ready</span>
-              {% else %}
-                <span class="badge bg-light text-muted">{{ r.status }}</span>
-              {% endif %}
-            </td>
-            <td style="max-width:260px;white-space:pre-wrap;font-size:0.85rem;">
-              {{ r.report_text or '-' }}
-            </td>
-            <td class="small text-muted">
-              {{ r.requested_at or '-' }}<br>
-              by {{ r.requested_by or '-' }}
-            </td>
-          </tr>
-        {% endfor %}
-      </tbody>
-    </table>
-  {% endif %}
-</div>
-
-<div class="card p-3 bg-white mt-3">
-  <h6 class="fw-bold mb-2">Previous Clinical Orders</h6>
-
-  {% if not orders %}
-    <div class="text-muted small">No clinical orders yet.</div>
-  {% else %}
-    {% for o in orders %}
-      <div class="border rounded p-2 mb-2">
-        <div class="d-flex justify-content-between align-items-center">
-          <div class="fw-bold">
-            Order #{{ o.id }}
-            <span class="text-muted small ms-2">{{ o.created_at }} by {{ o.created_by }}</span>
-            {% if o.updated_at %}
-              <span class="text-muted small ms-2">| Updated: {{ o.updated_at }} by {{ o.updated_by }}</span>
-            {% endif %}
-          </div>
-
-          <div class="d-flex gap-1">
-            <a class="btn btn-sm btn-outline-secondary"
-               target="_blank"
-               href="{{ url_for('clinical_order_pdf', visit_id=visit.visit_id, oid=o.id) }}">Print PDF</a>
-
-            {% if session.get('role') in ['nurse','doctor','admin'] %}
-              <form method="post" class="d-inline" action="{{ url_for('delete_clinical_order', visit_id=visit.visit_id, oid=o.id) }}" onsubmit="return confirm('Delete this order?');">
-                <button class="btn btn-sm btn-outline-danger">Delete</button>
-              </form>
-
-              <button class="btn btn-sm btn-outline-dark"
-                      data-bs-toggle="collapse"
-                      data-bs-target="#edit{{ o.id }}">Edit</button>
-            {% endif %}
-          </div>
-        </div>
-
-        <div class="mt-2 small">
-          <div><strong>Diagnosis / Chief Complaint:</strong><br>{{ o.diagnosis or '-' }}</div>
-          <div class="mt-1"><strong>Radiology:</strong><br>{{ o.radiology_orders or '-' }}</div>
-          <div class="mt-1"><strong>Lab:</strong><br>{{ o.lab_orders or '-' }}</div>
-          <div class="mt-1"><strong>Medications:</strong><br>{{ o.medications or '-' }}</div>
-        </div>
-
-        <div class="collapse mt-2" id="edit{{ o.id }}">
-          <form method="POST"
-                action="{{ url_for('update_clinical_order', visit_id=visit.visit_id, oid=o.id) }}"
-                class="bg-light p-2 rounded">
-            <label class="form-label fw-bold small">Diagnosis / Chief Complaint</label>
-            <textarea class="form-control mb-2" name="diagnosis" rows="2">{{ o.diagnosis or '' }}</textarea>
-
-            <label class="form-label fw-bold small">Radiology Orders</label>
-            <textarea class="form-control mb-2" name="radiology_orders" rows="2">{{ o.radiology_orders or '' }}</textarea>
-
-            <label class="form-label fw-bold small">Lab Orders</label>
-            <textarea class="form-control mb-2" name="lab_orders" rows="2">{{ o.lab_orders or '' }}</textarea>
-
-            <label class="form-label fw-bold small">Medications</label>
-            <textarea class="form-control mb-2" name="medications" rows="2">{{ o.medications or '' }}</textarea>
-
-            <button class="btn btn-sm btn-success">Save Changes</button>
-          </form>
-        </div>
-      </div>
-    {% endfor %}
-  {% endif %}
-</div>
-
-<script>
-function syncChecked(className, targetId){
-  const checked = Array.from(document.querySelectorAll('.'+className+':checked')).map(cb => cb.value);
-  document.getElementById(targetId).value = checked.join(", ");
-}
-
-document.addEventListener('change', function(e){
-  if(e.target.classList.contains('rad-item')) syncChecked('rad-item','radiology_text');
-  if(e.target.classList.contains('lab-item')) syncChecked('lab-item','lab_text');
-  if(e.target.classList.contains('med-item')) syncChecked('med-item','med_text');
-});
-
-function addOther(prefix){
-  const input = document.getElementById(prefix+'_other');
-  const val = (input.value || '').trim();
-  if(!val) return;
-
-  const tId = prefix==='rad' ? 'radiology_text' : prefix==='lab' ? 'lab_text' : 'med_text';
-  const t = document.getElementById(tId);
-  const cur = t.value ? t.value.split(',').map(x=>x.trim()).filter(Boolean) : [];
-  if(!cur.includes(val)) cur.push(val);
-  t.value = cur.join(', ');
-  input.value = '';
-}
-
-['rad_other','lab_other','med_other'].forEach(id=>{
-  const el = document.getElementById(id);
-  if(el){
-    el.addEventListener('keydown', (e)=>{
-      if(e.key==='Enter'){ e.preventDefault(); addOther(id.split('_')[0]); }
-    });
-  }
-});
-
-const bundles = {
-  chest_pain: {
-    radiology: ["X-Ray Chest"],
-    labs: ["Troponin","CK-MB","CBC","Electrolytes","PT/PTT/INR","D-Dimer","RBS (Random Blood Sugar)"],
-    meds: ["Aspirin PO 300mg","Nitroglycerin SL","Morphine IV","Ondansetron IV","Normal Saline 0.9%"]
-  },
-  stroke: {
-    radiology: ["CT Brain Without Contrast","CT Angio Brain/Neck"],
-    labs: ["CBC","Electrolytes","PT/PTT/INR","RBS (Random Blood Sugar)"],
-    meds: ["Normal Saline 0.9%","Labetalol IV"]
-  },
-  trauma: {
-    radiology: ["CT Trauma Pan-Scan","X-Ray Chest","X-Ray Pelvis","FAST Ultrasound"],
-    labs: ["CBC","CMP (Kidney/Liver)","PT/PTT/INR","Lactate","Type & Screen / Crossmatch","ABG"],
-    meds: ["Tetanus Toxoid IM","Cefazolin IV","Morphine IV","Ringer Lactate","Normal Saline 0.9%"]
-  },
-abdominal_pain: {
-  radiology: ["US Abdomen","CT Abdomen/Pelvis"],
-  labs: ["CBC","CRP","Electrolytes","LFT","Lipase","Urine Analysis","BHCG (Pregnancy Test)"],
-  meds: ["Paracetamol IV/PO","Ondansetron IV","Hyoscine (Buscopan) IV/IM","Normal Saline 0.9%"]
-},
-sob: {
-  radiology: ["X-Ray Chest","CT Chest"],
-  labs: ["CBC","Electrolytes","ABG","D-Dimer","Troponin","BNP","RBS (Random Blood Sugar)"],
-  meds: ["Oxygen Therapy","Salbutamol Nebulizer","Ipratropium Nebulizer","Hydrocortisone IV","Normal Saline 0.9%"]
-},
-sepsis: {
-  radiology: ["X-Ray Chest","US Abdomen"],
-  labs: ["CBC","CRP","Lactate","Blood Culture","Urine Analysis","Electrolytes","ABG"],
-  meds: ["Broad Spectrum Antibiotic (per policy)","Normal Saline 0.9% Bolus"]
-},
-fever: {
-  radiology: ["X-Ray Chest","US Abdomen"],
-  labs: ["CBC","CRP","Urine Analysis","Blood Culture","RBS (Random Blood Sugar)"],
-  meds: ["Paracetamol IV/PO","Normal Saline 0.9%"]
-},
-gi_bleed: {
-  radiology: ["X-Ray Chest"],
-  labs: ["CBC","PT/PTT/INR","Electrolytes","Type & Screen / Crossmatch"],
-  meds: ["Pantoprazole IV","Normal Saline 0.9%","Tranexamic Acid IV (if indicated)"]
-},
-anaphylaxis: {
-  radiology: [],
-  labs: ["CBC","ABG"],
-  meds: ["Epinephrine IM","Hydrocortisone IV","Chlorpheniramine IV/IM","Normal Saline 0.9%","Salbutamol Nebulizer"]
-}
-};
-
-function clearAllBundles(){
-  document.querySelectorAll('.rad-item,.lab-item,.med-item').forEach(cb => cb.checked=false);
-  syncChecked('rad-item','radiology_text');
-  syncChecked('lab-item','lab_text');
-  syncChecked('med-item','med_text');
-}
-
-function applyBundle(name){
-  clearAllBundles();
-  const b = bundles[name];
-  if(!b) return;
-
-  document.querySelectorAll('.rad-item').forEach(cb => cb.checked = b.radiology.includes(cb.value));
-  document.querySelectorAll('.lab-item').forEach(cb => cb.checked = b.labs.includes(cb.value));
-  document.querySelectorAll('.med-item').forEach(cb => cb.checked = b.meds.includes(cb.value));
-
-  syncChecked('rad-item','radiology_text');
-  syncChecked('lab-item','lab_text');
-  syncChecked('med-item','med_text');
-}
-</script>
-
-{% endblock %}
-""",
-
-"sticker.html": """
-<!doctype html>
-<html>
-<head>
-  <meta charset="utf-8">
-  <title>Sticker</title>
-  <style>
-    @page {
-      size: 5cm 3cm;
-      margin: 0;
-    }
-    body { margin:0; padding:0; font-family: Arial; }
-    .label {
-      width: 5cm; height: 3cm;
-      border:1px solid #000; padding:0.06cm;
-      box-sizing:border-box;
-    }
-    .row { font-size:6pt; margin:0.01cm 0; white-space: normal; word-wrap: break-word; }
-    .title { font-weight:bold; font-size:7pt; }
-    .barcode {
-      width: 100%;
-      max-width: 3.5cm;
-      margin-top:0.05cm;
-    }
-    #btnPrint { margin-top:10px; padding:6px 12px; font-size:12px; }
-    @media print {
-      body { margin:0; padding:0; }
-      #btnPrint { display:none; }
-    }
-  </style>
-</head>
-<body onload="window.print()">
-  <div class="label">
-    {% set name_len = v.name|length %}
-    <div class="row title" style="font-size: {{ 7 if name_len <= 20 else 6 }}pt;">NAME: {{ v.name }}</div>
-    <div class="row">AGE: {{ age or '-' }}</div>
-    <div class="row">ID: {{ v.id_number or '-' }}</div>
-    <div class="row">INS: {{ v.insurance or '-' }}</div>
-    <div class="row">TIME: {{ time_only }}</div>
-    <div class="row">VISIT: {{ v.visit_id }}</div>
-    <div class="row">
-      <img class="barcode"
-           src="https://barcode.tec-it.com/barcode.ashx?data={{ (v.id_number or v.visit_id)|urlencode }}&code=Code128&dpi=96&imagetype=png"
-           alt="BARCODE">
-    </div>
-  </div>
-  <button id="btnPrint" onclick="window.print()">Print Again</button>
-</body>
-</html>
-"""
-
-
-,"chat.html": """
-{% extends "base.html" %}
-{% block content %}
-<h4 class="mb-3">Live Chat – Staff</h4>
-
-<div class="row">
-  <div class="col-md-8">
-    <div class="card bg-white">
-      <div class="card-body" style="height:400px; overflow-y:auto;" id="chat-box">
-        <div class="text-muted small">Loading messages...</div>
-      </div>
-      <div class="card-footer">
-        <div class="input-group">
-          <input type="text" id="chat-input" class="form-control" placeholder="Type your message and press Enter or click Send ...">
-          <button class="btn btn-primary" id="chat-send-btn">Send</button>
-        </div>
-        <div class="small text-muted mt-1">
-          Current channel: All staff (Public ED Room)
-        </div>
-      </div>
-    </div>
-  </div>
-</div>
-
-<script>
-(function() {
-  const chatBox = document.getElementById("chat-box");
-  const input   = document.getElementById("chat-input");
-  const sendBtn = document.getElementById("chat-send-btn");
-
-  let lastTimestamp = "";
-
-  function appendMessage(msg) {
-    const div = document.createElement("div");
-    div.className = "mb-1";
-    div.innerHTML =
-      '<span class="badge bg-light text-dark me-1">' +
-      (msg.username || "User") +
-      '</span>' +
-      '<span class="small text-muted me-1">[' + msg.created_at + ']</span>' +
-      '<span>' + escapeHtml(msg.message) + '</span>';
-    chatBox.appendChild(div);
-    chatBox.scrollTop = chatBox.scrollHeight;
-  }
-
-  function escapeHtml(text) {
-    if (!text) return "";
-    return text
-      .replace(/&/g, "&amp;")
-      .replace(/</g, "&lt;")
-      .replace(/>/g, "&gt;");
-  }
-
-  function playBeep() {
-    try {
-      const ctx = new (window.AudioContext || window.webkitAudioContext)();
-      const osc = ctx.createOscillator();
-      const gain = ctx.createGain();
-      osc.type = "sine";
-      osc.frequency.value = 880;
-      gain.gain.value = 0.05;
-      osc.connect(gain);
-      gain.connect(ctx.destination);
-      osc.start();
-      setTimeout(function() {
-        osc.stop();
-        ctx.close();
-      }, 200);
-    } catch (e) {
-      console.log("Beep error", e);
-    }
-  }
-
-  async function loadMessages() {
-    try {
-      const url = lastTimestamp
-        ? "/chat/messages?after=" + encodeURIComponent(lastTimestamp)
-        : "/chat/messages";
-
-      const res = await fetch(url);
-      if (!res.ok) return;
-      const data = await res.json();
-      if (!data.ok) return;
-
-      if (data.messages && data.messages.length > 0) {
-        const isInitial = !lastTimestamp;
-        data.messages.forEach(function(m) {
-          appendMessage(m);
-          lastTimestamp = m.created_at;
-        });
-        if (!isInitial) {
-          playBeep();
-        }
-      } else if (!lastTimestamp) {
-        chatBox.innerHTML = '<div class="text-muted small">No messages yet. Type the first message 👋</div>';
-      }
-    } catch (e) {
-      // ignore
-    }
-  }
-
-  async function sendMessage() {
-    const text = (input.value || "").trim();
-    if (!text) return;
-
-    try {
-      const res = await fetch("/chat/send", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ message: text })
-      });
-      const data = await res.json();
-      if (data.ok) {
-        input.value = "";
-        loadMessages();
-      }
-    } catch (e) {
-      alert("Error sending message");
-    }
-  }
-
-  sendBtn.addEventListener("click", sendMessage);
-  input.addEventListener("keydown", function(e) {
-    if (e.key === "Enter") {
-      e.preventDefault();
-      sendMessage();
-    }
-  });
-
-  loadMessages();
-  setInterval(loadMessages, 3000);
-})();
-</script>
-{% endblock %}
-"""
-}
 
 @app.context_processor
 def inject_footer():
     return dict(footer_text=APP_FOOTER_TEXT)
+
+@app.context_processor
+def inject_nav_counters():
+    """Inject small counters for navbar badges (e.g. pending labs, radiology, chat)."""
+    lab_pending = 0
+    rad_pending = 0
+    chat_recent = 0
+    try:
+        cur = get_db().cursor()
+        # Lab pending
+        row = cur.execute(
+            "SELECT COUNT(*) AS c FROM lab_requests WHERE status IN ('REQUESTED','RECEIVED')"
+        ).fetchone()
+        if row is not None:
+            try:
+                lab_pending = row["c"]
+            except Exception:
+                lab_pending = row[0]
+        # Radiology pending (requested or done but not yet reported)
+        row2 = cur.execute(
+            "SELECT COUNT(*) AS c FROM radiology_requests WHERE status IN ('REQUESTED','DONE')"
+        ).fetchone()
+        if row2 is not None:
+            try:
+                rad_pending = row2["c"]
+            except Exception:
+                rad_pending = row2[0]
+        # Live chat "unread-ish": messages in last 15 minutes
+        row3 = cur.execute(
+            "SELECT COUNT(*) AS c FROM chat_messages WHERE created_at >= datetime('now', '-15 minutes')"
+        ).fetchone()
+        if row3 is not None:
+            try:
+                chat_recent = row3["c"]
+            except Exception:
+                chat_recent = row3[0]
+    except Exception:
+        lab_pending = lab_pending or 0
+        rad_pending = rad_pending or 0
+        chat_recent = chat_recent or 0
+    return dict(
+        nav_lab_pending=lab_pending,
+        nav_rad_pending=rad_pending,
+        nav_chat_recent=chat_recent,
+    )
 
 app.jinja_loader = DictLoader(TEMPLATES)
 
@@ -5468,13 +4264,294 @@ def _ensure_bootstrap():
 @app.route("/chat")
 @login_required
 def chat_page():
-    return render_template("chat.html")
+    tpl = """
+{% extends "base.html" %}
+{% block content %}
+<h4 class="mb-3">Live Chat - Staff</h4>
+
+<div class="row">
+  <!-- Chat + input -->
+  <div class="col-md-8">
+    <div class="card bg-white mb-3">
+      <div class="card-header py-2">
+        <div class="d-flex flex-wrap align-items-center gap-2">
+          <div>
+            <label class="form-label small mb-0">Room</label>
+            <select id="chat-room" class="form-select form-select-sm">
+              <option value="general">General</option>
+              <option value="triage">Triage</option>
+              <option value="lab">Lab</option>
+              <option value="radiology">Radiology</option>
+              <option value="doctor">Doctors</option>
+            </select>
+          </div>
+          <div>
+            <label class="form-label small mb-0">Visit ID</label>
+            <input type="text"
+                   id="chat-visit-id"
+                   class="form-control form-control-sm"
+                   placeholder="Optional visit id (e.g., ED-2025-0001)">
+          </div>
+          <div class="ms-auto small text-muted">
+            Last update: <span id="chat-last-update">-</span>
+          </div>
+        </div>
+      </div>
+      <div class="card-body" style="height:380px; overflow-y:auto;" id="chat-box">
+        <div class="text-muted small">Loading messages...</div>
+      </div>
+      <div class="card-footer">
+        <div class="input-group">
+          <input type="text"
+                 id="chat-input"
+                 class="form-control"
+                 placeholder="Type your message and press Enter or click Send ...">
+          <button class="btn btn-primary" id="chat-send-btn">Send</button>
+        </div>
+        <div class="form-text small text-muted mt-1">
+          Room is visible to all staff; optional Visit ID links the message to a specific visit.
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Activity / feed -->
+  <div class="col-md-4">
+    <div class="card bg-white mb-3">
+      <div class="card-header py-2 d-flex justify-content-between align-items-center">
+        <span class="small fw-bold">Users activity</span>
+        <button class="btn btn-sm btn-outline-secondary btn-refresh-activity">Refresh</button>
+      </div>
+      <div class="card-body small" style="max-height:220px; overflow-y:auto;" id="chat-activity-box">
+        <div class="text-muted small">Loading activity...</div>
+      </div>
+    </div>
+
+    <div class="alert alert-info small">
+      <div class="fw-bold mb-1">Tips:</div>
+      <ul class="mb-0 ps-3">
+        <li>Use <strong>Visit ID</strong> to link discussion to a patient.</li>
+        <li>Use rooms (Lab / Radiology / Triage...) لفرز المحادثات.</li>
+        <li>Activity list تساعدك تعرف مين آخر واحد كان متواجد.</li>
+      </ul>
+    </div>
+  </div>
+</div>
+
+<script>
+  const chatBox = document.getElementById("chat-box");
+  const chatInput = document.getElementById("chat-input");
+  const sendBtn = document.getElementById("chat-send-btn");
+  const roomSelect = document.getElementById("chat-room");
+  const visitInput = document.getElementById("chat-visit-id");
+  const lastUpdateSpan = document.getElementById("chat-last-update");
+
+  const activityBox = document.getElementById("chat-activity-box");
+  const refreshActivityBtns = document.querySelectorAll(".btn-refresh-activity");
+
+  let lastTimestamp = "";
+  let currentRoom = roomSelect.value || "general";
+
+  function escapeHtml(str) {
+    return str
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;")
+      .replace(/'/g, "&#039;");
+  }
+
+  function scrollChatToBottom() {
+    chatBox.scrollTop = chatBox.scrollHeight;
+  }
+
+  function formatTimestamp(ts) {
+    return ts || "";
+  }
+
+  function appendMessage(msg, highlight=false) {
+    const div = document.createElement("div");
+    div.className = "mb-1";
+    const visitTag = msg.visit_id ? '<span class="badge bg-light text-dark me-1">[' + escapeHtml(msg.visit_id) + ']</span>' : "";
+    const roomTag = msg.room && msg.room !== "general"
+      ? '<span class="badge bg-secondary me-1">' + escapeHtml(msg.room) + '</span>'
+      : "";
+    div.innerHTML =
+      roomTag +
+      visitTag +
+      '<span class="badge bg-light text-dark me-1">' +
+      (msg.username || "User") +
+      '</span>' +
+      '<span class="small text-muted me-1">[' + formatTimestamp(msg.created_at) + ']</span>' +
+      '<span>' + escapeHtml(msg.message) + '</span>';
+    if (highlight) {
+      div.classList.add("fw-bold");
+    }
+    chatBox.appendChild(div);
+  }
+
+  function updateLastUpdate(ts) {
+    lastTimestamp = ts || lastTimestamp;
+    if (lastTimestamp) {
+      lastUpdateSpan.textContent = lastTimestamp;
+    }
+  }
+
+  async function fetchMessages(initial=false) {
+    const params = new URLSearchParams();
+    if (lastTimestamp && !initial) {
+      params.append("after", lastTimestamp);
+    }
+    if (currentRoom) {
+      params.append("room", currentRoom);
+    }
+    if (visitInput.value.trim()) {
+      params.append("visit_id", visitInput.value.trim());
+    }
+
+    try {
+      const res = await fetch("/chat/messages?" + params.toString());
+      const data = await res.json();
+      if (!data.ok) return;
+
+      if (initial) {
+        chatBox.innerHTML = "";
+      }
+
+      if (data.messages && data.messages.length) {
+        let needsScroll = Math.abs(chatBox.scrollHeight - chatBox.scrollTop - chatBox.clientHeight) < 40;
+        data.messages.forEach((m, idx) => {
+          const highlight = !initial && idx === data.messages.length - 1;
+          appendMessage(m, highlight);
+          lastTimestamp = m.created_at;
+        });
+        if (needsScroll) {
+          scrollChatToBottom();
+        }
+        updateLastUpdate(lastTimestamp);
+        // Simple audio notifier for new messages (not on initial load)
+        if (!initial) {
+          try {
+            const ctx = new (window.AudioContext || window.webkitAudioContext)();
+            const o = ctx.createOscillator();
+            const g = ctx.createGain();
+            o.type = "sine";
+            o.frequency.value = 880;
+            o.connect(g);
+            g.connect(ctx.destination);
+            o.start();
+            g.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 0.15);
+            o.stop(ctx.currentTime + 0.15);
+          } catch (e) { /* ignore */ }
+        }
+      } else if (initial) {
+        chatBox.innerHTML = '<div class="text-muted small">No messages yet.</div>';
+      }
+
+    } catch (err) {
+      console.error(err);
+    }
+  }
+
+  async function sendMessage() {
+    const text = chatInput.value.trim();
+    if (!text) return;
+
+    const payload = {
+      message: text,
+      room: currentRoom,
+      visit_id: visitInput.value.trim()
+    };
+
+    try {
+      const res = await fetch("/chat/send", {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify(payload)
+      });
+      const data = await res.json();
+      if (data.ok) {
+        chatInput.value = "";
+        fetchMessages(false);
+      }
+    } catch (err) {
+      console.error(err);
+    }
+  }
+
+  chatInput.addEventListener("keydown", function (e) {
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      sendMessage();
+    }
+  });
+  sendBtn.addEventListener("click", sendMessage);
+
+  roomSelect.addEventListener("change", function () {
+    currentRoom = this.value || "general";
+    lastTimestamp = "";
+    fetchMessages(true);
+  });
+
+  // If visit ID changes, reload messages filtered by that visit
+  visitInput.addEventListener("change", function () {
+    lastTimestamp = "";
+    fetchMessages(true);
+  });
+
+  async function fetchActivity() {
+    try {
+      const res = await fetch("/chat/users_activity");
+      const data = await res.json();
+      if (!data.ok) return;
+      if (!data.items || !data.items.length) {
+        activityBox.innerHTML = '<div class="text-muted small">No recent activity.</div>';
+        return;
+      }
+      activityBox.innerHTML = "";
+      data.items.forEach(function (u) {
+        const div = document.createElement("div");
+        div.className = "d-flex justify-content-between align-items-center mb-1";
+        div.innerHTML =
+          '<span class="fw-bold small">' + escapeHtml(u.username) + '</span>' +
+          '<span class="small text-muted">' + escapeHtml(u.last_at || "") + '</span>';
+        activityBox.appendChild(div);
+      });
+    } catch (e) {
+      console.error(e);
+    }
+  }
+
+  refreshActivityBtns.forEach(function (btn) {
+    btn.addEventListener("click", function () {
+      fetchActivity();
+    });
+  });
+
+  // Initial load
+  fetchMessages(true);
+  fetchActivity();
+
+  // Polling
+  setInterval(function () {
+    fetchMessages(false);
+  }, 5000);
+  setInterval(function () {
+    fetchActivity();
+  }, 15000);
+</script>
+
+{% endblock %}
+"""
+    return render_template_string(tpl)
 
 @app.route("/chat/send", methods=["POST"])
 @login_required
 def chat_send():
     data = request.get_json(silent=True) or {}
     msg = (data.get("message") or "").strip()
+    room = (data.get("room") or "general").strip() or "general"
+    visit_id = (data.get("visit_id") or "").strip()
 
     if not msg:
         return jsonify({"ok": False, "error": "Empty message"}), 400
@@ -5485,31 +4562,42 @@ def chat_send():
 
     db.execute(
         """
-        INSERT INTO chat_messages (username, message, created_at)
-        VALUES (?,?,?)
+        INSERT INTO chat_messages (username, message, room, visit_id, created_at)
+        VALUES (?, ?, ?, ?, ?)
         """,
-        (username, msg, now),
+        (username, msg, room, visit_id, now),
     )
     db.commit()
 
     try:
-        log_action("CHAT_SEND", details=f"{username}: {msg[:50]}")
+        log_action("CHAT_SEND", details=f"{username} [{room}]: {msg[:80]}")
     except Exception:
         pass
 
     return jsonify({"ok": True})
 
+
 @app.route("/chat/messages")
 @login_required
 def chat_messages():
     after = (request.args.get("after") or "").strip()
+    room = (request.args.get("room") or "general").strip() or "general"
+    visit_id = (request.args.get("visit_id") or "").strip()
 
     cur = get_db().cursor()
-    sql = "SELECT username, message, created_at FROM chat_messages"
+    sql = "SELECT username, message, room, visit_id, created_at FROM chat_messages WHERE 1=1"
     params = []
 
+    if room:
+        sql += " AND (room = ? OR room IS NULL OR room = '')"
+        params.append(room)
+
+    if visit_id:
+        sql += " AND visit_id = ?"
+        params.append(visit_id)
+
     if after:
-        sql += " WHERE datetime(created_at) > datetime(?)"
+        sql += " AND created_at > ?"
         params.append(after)
 
     sql += " ORDER BY datetime(created_at) ASC LIMIT 200"
@@ -5520,14 +4608,81 @@ def chat_messages():
         {
             "username": r["username"],
             "message": r["message"],
+            "room": r["room"] or "general",
+            "visit_id": r["visit_id"] or "",
             "created_at": r["created_at"],
         }
         for r in rows
     ]
 
-    return jsonify({"ok": True, "messages": messages
+    return jsonify({"ok": True, "messages": messages})
 
-})
+
+@app.route("/chat/users_activity")
+@login_required
+def chat_users_activity():
+    """
+    Simple 'last seen in chat' based on latest chat_messages per user.
+    """
+    cur = get_db().cursor()
+    rows = cur.execute(
+        """
+        SELECT username, MAX(created_at) AS last_at
+        FROM chat_messages
+        GROUP BY username
+        ORDER BY last_at DESC
+        LIMIT 50
+        """
+    ).fetchall()
+
+    items = [
+        {
+            "username": r["username"],
+            "last_at": r["last_at"],
+        }
+        for r in rows
+    ]
+    return jsonify({"ok": True, "items": items})
+
+
+
+# ============================================================
+# Help page
+# ============================================================
+
+@app.route("/help")
+@login_required
+def help_page():
+    tpl = """
+{% extends "base.html" %}
+{% block content %}
+<h4 class="mb-3">Downtime Tool - Help</h4>
+
+<p>This tool is designed for ED downtime use. Main modules:</p>
+<ul>
+  <li><strong>ED Board:</strong> Overview of all open visits with triage ES colours.</li>
+  <li><strong>Triage:</strong> Capture chief complaint, allergy, vital signs and ES category.</li>
+  <li><strong>Clinical Orders:</strong> Lab / Radiology / Procedures ordering.</li>
+  <li><strong>Discharge Summary & Auto-Summary PDF:</strong> Print patient copy of the visit.</li>
+  <li><strong>Boards (Lab / Radiology):</strong> Worklists with status and quick editing via pop-up.</li>
+  <li><strong>Admin:</strong> Manage users, backups and review activity log.</li>
+</ul>
+
+<p class="mb-1"><strong>Typical workflow:</strong></p>
+<ol>
+  <li>Reception registers patient & opens visit.</li>
+  <li>Nurse performs triage and assigns ES category.</li>
+  <li>Doctor sees patient, places clinical orders and documents course.</li>
+  <li>Lab / Radiology teams work from their boards and enter results/reports.</li>
+  <li>Doctor completes discharge summary and closes the visit.</li>
+  <li>Print patient copy (summary, medications, triage, investigations as needed).</li>
+</ol>
+
+<p class="text-muted small">For internal ED use only. Always follow hospital policies and local regulations.</p>
+{% endblock %}
+"""
+    return render_template_string(tpl)
+
 
 # ============================================================
 # Run
