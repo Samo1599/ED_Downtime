@@ -34,6 +34,7 @@ import textwrap
 from reportlab.lib.pagesizes import A4
 from reportlab.pdfgen import canvas
 from reportlab.lib.units import cm
+from reportlab.lib import colors
 
 # ============================================================
 # Application Setup
@@ -98,6 +99,206 @@ os.makedirs(BACKUP_FOLDER, exist_ok=True)
 app.config["UPLOAD_FOLDER"] = UPLOAD_FOLDER
 
 APP_FOOTER_TEXT = "Downtime Tool © 2025 — Developed by: Samy Aly | ID 20155"
+
+DEFAULT_RAD_ITEMS = [
+    "X-Ray Chest PA/AP",
+    "X-Ray Abdomen",
+    "X-Ray Pelvis",
+    "X-Ray Skull",
+    "X-Ray C-Spine",
+    "X-Ray T-Spine",
+    "X-Ray L-Spine",
+    "X-Ray Thoraco-Lumbar",
+    "X-Ray Shoulder",
+    "X-Ray Humerus",
+    "X-Ray Elbow",
+    "X-Ray Forearm",
+    "X-Ray Wrist",
+    "X-Ray Hand",
+    "X-Ray Hip",
+    "X-Ray Femur",
+    "X-Ray Knee",
+    "X-Ray Leg/Ankle",
+    "X-Ray Foot/Toes",
+    "CT Brain Without Contrast",
+    "CT Brain With Contrast",
+    "CT Temporal Bones",
+    "CT C-Spine",
+    "CT Dorsal Spine",
+    "CT L-S Spine",
+    "CT Chest",
+    "CT Abdomen",
+    "CT Abdomen/Pelvis",
+    "CT KUB",
+    "CT Angio Brain/Neck",
+    "CT Angio Chest (PE Study)",
+    "CT Trauma Pan-Scan",
+    "MRI Brain",
+    "MRI Pituitary",
+    "MRI C-Spine",
+    "MRI T-Spine",
+    "MRI L-Spine",
+    "MRI Knee",
+    "MRI Shoulder",
+    "US Abdomen",
+    "US Hepatobiliary",
+    "US Pelvis",
+    "US KUB",
+    "US Scrotum/Testes",
+    "US DVT Lower Limb",
+    "US DVT Upper Limb",
+    "FAST Ultrasound",
+    "POCUS / Bedside US",
+]
+
+DEFAULT_LAB_ITEMS = [
+    "CBC",
+    "CMP (Kidney/Liver)",
+    "Electrolytes",
+    "CRP",
+    "ESR",
+    "Troponin",
+    "CK-MB",
+    "PT/PTT/INR",
+    "RBS (Random Blood Sugar)",
+    "ABG",
+    "Lactate",
+    "D-Dimer",
+    "BNP",
+    "LFT",
+    "Urine Analysis",
+    "Blood Culture",
+    "BHCG (Pregnancy Test)",
+    "Type & Screen / Crossmatch",
+    "FBS (Fasting Blood Sugar)",
+    "HbA1c",
+    "Renal Function (BUN/Creatinine)",
+    "Serum Urea",
+    "Serum Creatinine",
+    "Serum Sodium",
+    "Serum Potassium",
+    "Serum Chloride",
+    "Serum Bicarbonate",
+    "Calcium",
+    "Magnesium",
+    "Phosphate",
+    "Lipase",
+    "Amylase",
+    "Total Bilirubin",
+    "Direct Bilirubin",
+    "AST",
+    "ALT",
+    "Alkaline Phosphatase",
+    "Procalcitonin",
+    "Serum Lactate (Sepsis)",
+    "TSH",
+    "Free T4",
+    "Serum Ferritin",
+    "Iron Studies",
+    "Vitamin B12",
+    "Folate",
+    "Urine Culture",
+    "Urine Microscopy",
+    "Stool Analysis",
+    "Stool Culture",
+    "CSF Analysis",
+    "CSF Culture",
+    "HIV Rapid Test",
+    "HBsAg",
+    "HCV Antibody",
+    "COVID-19 PCR",
+    "Influenza PCR",
+]
+
+DEFAULT_MED_ITEMS = [
+    "Paracetamol IV",
+    "Paracetamol PO",
+    "Paracetamol IV/PO",
+    "Diclofenac IM",
+    "Ibuprofen PO",
+    "Ketorolac IV/IM",
+    "Tramadol IV",
+    "Morphine IV",
+    "Fentanyl IV",
+    "Midazolam IV",
+    "Diazepam IV",
+    "Ondansetron IV",
+    "Metoclopramide IV",
+    "Domperidone PO",
+    "Ceftriaxone IV",
+    "Cefotaxime IV",
+    "Ceftazidime IV",
+    "Cefazolin IV",
+    "Piperacillin/Tazobactam (Tazocin)",
+    "Meropenem IV",
+    "Vancomycin IV",
+    "Amoxicillin/Clavulanate IV",
+    "Amoxicillin/Clavulanate PO",
+    "Azithromycin IV",
+    "Azithromycin PO",
+    "Clarithromycin PO",
+    "Metronidazole IV",
+    "Clindamycin IV",
+    "Gentamicin IV",
+    "Ciprofloxacin IV",
+    "Ciprofloxacin PO",
+    "Levofloxacin IV",
+    "Levofloxacin PO",
+    "Broad Spectrum Antibiotic (per policy)",
+    "Aspirin PO 300mg",
+    "Aspirin PO 81mg",
+    "Nitroglycerin SL",
+    "Nitroglycerin Infusion",
+    "Heparin SC/IV",
+    "Enoxaparin SC",
+    "Labetalol IV",
+    "Metoprolol IV",
+    "Furosemide IV",
+    "Hydralazine IV",
+    "Noradrenaline Infusion",
+    "Dopamine Infusion",
+    "Adrenaline Infusion",
+    "Oxygen Therapy",
+    "Salbutamol Neb",
+    "Salbutamol Nebulizer",
+    "Salbutamol MDI",
+    "Duolin Neb",
+    "Ipratropium Nebulizer",
+    "Epinephrine IM",
+    "Hydrocortisone IV",
+    "Chlorpheniramine IV/IM",
+    "Diphenhydramine IV/IM",
+    "Pantoprazole IV",
+    "Ranitidine IV",
+    "Omeprazole PO",
+    "Hyoscine (Buscopan) IV/IM",
+    "Regular Insulin IV",
+    "SC Insulin (sliding scale)",
+    "Dextrose 50% IV Bolus",
+    "Magnesium Sulfate IV",
+    "Calcium Gluconate IV",
+    "Sodium Bicarbonate IV",
+    "Potassium Chloride IV Infusion",
+    "Normal Saline 0.9%",
+    "Normal Saline 0.9% Bolus",
+    "Ringer Lactate",
+    "D5W",
+    "D5NS",
+    "D10W",
+    "Tranexamic Acid IV (if indicated)",
+    "Tetanus Toxoid IM",
+]
+
+
+DEFAULT_HOME_MED_ITEMS = [
+    "Paracetamol 500 mg tab – 1 tab PO – every 8h – for 3 days – PRN for pain",
+    "Ibuprofen 400 mg tab – 1 tab PO – every 8h – for 3–5 days – after food",
+    "Omeprazole 20 mg cap – 1 cap PO – once daily – for 14 days",
+    "Amoxicillin/Clavulanate 1 g tab – 1 tab PO – every 12h – for 5 days",
+    "Azithromycin 500 mg tab – 1 tab PO – once daily – for 3 days",
+    "Paracetamol syrup 15 mg/kg/dose – every 6h – PRN fever",
+    "Salbutamol inhaler – 2 puffs – every 6h – PRN wheeze",
+]
 ALLOWED_EXTENSIONS = {"png", "jpg", "jpeg", "pdf"}
 app.config["MAX_CONTENT_LENGTH"] = APP_CONFIG.get("MAX_CONTENT_LENGTH", 5 * 1024 * 1024)  # 5 MB upload limit
 
@@ -219,15 +420,21 @@ def init_db():
             username TEXT UNIQUE NOT NULL,
             password_hash TEXT NOT NULL,
             role TEXT NOT NULL,
+            gd_number TEXT,
             created_at TEXT NOT NULL,
             is_active INTEGER NOT NULL DEFAULT 1
         )
     """)
-    # Ensure legacy DBs have is_active column
+    # Ensure legacy DBs have is_active and gd_number columns
     try:
         cur.execute("ALTER TABLE users ADD COLUMN is_active INTEGER NOT NULL DEFAULT 1")
     except sqlite3.OperationalError:
         pass
+    try:
+        cur.execute("ALTER TABLE users ADD COLUMN gd_number TEXT")
+    except sqlite3.OperationalError:
+        pass
+
 
     # Patients
     cur.execute("""
@@ -313,6 +520,26 @@ def init_db():
             note_text TEXT NOT NULL,
             created_at TEXT NOT NULL,
             created_by TEXT NOT NULL
+        )
+    """)
+
+    # Vital signs history (per-visit, time-stamped)
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS vital_signs (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            visit_id TEXT NOT NULL,
+            recorded_at TEXT NOT NULL,
+            pulse_rate TEXT,
+            resp_rate TEXT,
+            bp_systolic TEXT,
+            bp_diastolic TEXT,
+            temperature TEXT,
+            consciousness_level TEXT,
+            spo2 TEXT,
+            pain_score TEXT,
+            weight TEXT,
+            height TEXT,
+            recorded_by TEXT
         )
     """)
 
@@ -415,6 +642,41 @@ def init_db():
         )
     """)
 
+    # Catalog items (medications / labs / radiology)
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS items_medications (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL UNIQUE,
+            is_active INTEGER NOT NULL DEFAULT 1,
+            sort_order INTEGER
+        )
+    """)
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS items_labs (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL UNIQUE,
+            is_active INTEGER NOT NULL DEFAULT 1,
+            sort_order INTEGER
+        )
+    """)
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS items_radiology (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL UNIQUE,
+            is_active INTEGER NOT NULL DEFAULT 1,
+            sort_order INTEGER
+        )
+    """)
+
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS items_home_meds (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL UNIQUE,
+            is_active INTEGER NOT NULL DEFAULT 1,
+            sort_order INTEGER
+        )
+    """)
+
     # Indexes
     cur.execute("CREATE INDEX IF NOT EXISTS idx_visits_vid ON visits(visit_id);")
     cur.execute("CREATE INDEX IF NOT EXISTS idx_visits_pid ON visits(patient_id);")
@@ -428,7 +690,30 @@ def init_db():
     db.commit()
     init_logging_table()
 
-    # SQLite performance pragmas
+    
+    # Seed default catalogs (only if tables are empty)
+    try:
+        for table_name, items in (
+            ("items_radiology", DEFAULT_RAD_ITEMS),
+            ("items_labs", DEFAULT_LAB_ITEMS),
+            ("items_medications", DEFAULT_MED_ITEMS),
+            ("items_home_meds", DEFAULT_HOME_MED_ITEMS),
+        ):
+            try:
+                count = cur.execute(f"SELECT COUNT(*) FROM {table_name}").fetchone()[0]
+            except Exception:
+                count = 0
+            if count == 0:
+                cur.executemany(
+                    f"INSERT INTO {table_name} (name, is_active, sort_order) VALUES (?,?,?)",
+                    [(name, 1, idx + 1) for idx, name in enumerate(items)],
+                )
+        db.commit()
+    except Exception:
+        # If seeding fails, continue without crashing.
+        pass
+
+# SQLite performance pragmas
     db.execute("PRAGMA journal_mode = WAL;")
     db.execute("PRAGMA synchronous = NORMAL;")
     db.execute("PRAGMA temp_store = MEMORY;")
@@ -698,6 +983,7 @@ def logout():
 # Admin Users + Reset Password + Backups
 # ============================================================
 
+
 @app.route("/admin/users", methods=["GET","POST"])
 @login_required
 @role_required("admin")
@@ -709,6 +995,7 @@ def admin_users():
         username = request.form.get("username","").strip()
         password = request.form.get("password","").strip()
         role = request.form.get("role","reception").strip()
+        gd_number = request.form.get("gd_number","").strip()
 
         if not username or not password:
             flash("Username and password are required.", "danger")
@@ -717,12 +1004,13 @@ def admin_users():
         else:
             try:
                 cur.execute("""
-                    INSERT INTO users (username, password_hash, role, created_at, is_active)
-                    VALUES (?,?,?,?,1)
+                    INSERT INTO users (username, password_hash, role, gd_number, created_at, is_active)
+                    VALUES (?,?,?,?,?,1)
                 """, (
                     username,
                     generate_password_hash(password),
                     role,
+                    gd_number,
                     datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                 ))
                 db.commit()
@@ -731,10 +1019,8 @@ def admin_users():
             except sqlite3.IntegrityError:
                 flash("Username already exists.", "danger")
 
-    users = cur.execute("SELECT id, username, role, created_at, is_active FROM users ORDER BY id DESC").fetchall()
+    users = cur.execute("SELECT id, username, role, gd_number, created_at, is_active FROM users ORDER BY id DESC").fetchall()
     return render_template("admin_users.html", users=users)
-
-
 @app.route("/admin/users/<int:user_id>/toggle", methods=["POST"])
 @login_required
 @role_required("admin")
@@ -752,6 +1038,87 @@ def admin_toggle_user(user_id):
     log_action(action, details=u["username"])
     flash(f"User {u['username']} is now {'inactive' if new_status == 0 else 'active'}.", "success")
     return redirect(url_for("admin_users"))
+
+
+
+@app.route("/admin/items", methods=["GET","POST"])
+@login_required
+@role_required("admin")
+def admin_items():
+    db = get_db()
+    cur = db.cursor()
+
+    if request.method == "POST":
+        action = request.form.get("action")
+        kind = request.form.get("kind")
+        item_id = request.form.get("item_id")
+        name = (request.form.get("name") or "").strip()
+
+        table_map = {
+            "med": "items_medications",
+            "lab": "items_labs",
+            "rad": "items_radiology",
+            "home": "items_home_meds",
+        }
+        if kind not in table_map:
+            flash("Invalid list type.", "danger")
+            return redirect(url_for("admin_items"))
+
+        table = table_map[kind]
+
+        try:
+            if action == "add":
+                if not name:
+                    flash("Please enter item name.", "danger")
+                else:
+                    cur.execute(f"INSERT INTO {table} (name, is_active) VALUES (?, 1)", (name,))
+                    db.commit()
+                    flash("Item added.", "success")
+            elif action == "rename":
+                if not item_id or not name:
+                    flash("Missing item or name.", "danger")
+                else:
+                    cur.execute(f"UPDATE {table} SET name=? WHERE id=?", (name, item_id))
+                    db.commit()
+                    flash("Item updated.", "success")
+            elif action == "toggle":
+                if not item_id:
+                    flash("Missing item.", "danger")
+                else:
+                    row = cur.execute(f"SELECT is_active FROM {table} WHERE id=?", (item_id,)).fetchone()
+                    if row is not None:
+                        new_val = 0 if row["is_active"] else 1
+                        cur.execute(f"UPDATE {table} SET is_active=? WHERE id=?", (new_val, item_id))
+                        db.commit()
+                        flash("Item status updated.", "success")
+            elif action == "delete":
+                if not item_id:
+                    flash("Missing item.", "danger")
+                else:
+                    cur.execute(f"DELETE FROM {table} WHERE id=?", (item_id,))
+                    db.commit()
+                    flash("Item deleted.", "success")
+        except sqlite3.IntegrityError:
+            flash("Item with same name already exists.", "warning")
+        except Exception as e:
+            flash(f"Error updating items: {e}", "danger")
+
+        return redirect(url_for("admin_items"))
+
+    meds = cur.execute(
+        "SELECT * FROM items_medications ORDER BY is_active DESC, COALESCE(sort_order, 9999), name"
+    ).fetchall()
+    labs = cur.execute(
+        "SELECT * FROM items_labs ORDER BY is_active DESC, COALESCE(sort_order, 9999), name"
+    ).fetchall()
+    rads = cur.execute(
+        "SELECT * FROM items_radiology ORDER BY is_active DESC, COALESCE(sort_order, 9999), name"
+    ).fetchall()
+    home_meds = cur.execute(
+        "SELECT * FROM items_home_meds ORDER BY is_active DESC, COALESCE(sort_order, 9999), name"
+    ).fetchall()
+
+    return render_template("admin_items.html", meds=meds, labs=labs, rads=rads, home_meds=home_meds)
 
 
 @app.route("/admin/reset_password", methods=["GET","POST"])
@@ -1659,17 +2026,17 @@ REPORTS_TEMPLATE = """
 
 <form class="card p-3 mb-3 bg-white" method="GET">
   <div class="row g-2 align-items-end">
-    <div class="col-md-3">
-      <label class="form-label">From</label>
-      <input type="date" name="date_from" value="{{ dfrom }}" class="form-control">
+    <div class="col-md-3 col-sm-6">
+      <label class="form-label fw-bold small mb-1">From</label>
+      <input type="date" name="date_from" value="{{ dfrom }}" class="form-control form-control-sm">
     </div>
-    <div class="col-md-3">
-      <label class="form-label">To</label>
-      <input type="date" name="date_to" value="{{ dto }}" class="form-control">
+    <div class="col-md-3 col-sm-6">
+      <label class="form-label fw-bold small mb-1">To</label>
+      <input type="date" name="date_to" value="{{ dto }}" class="form-control form-control-sm">
     </div>
-    <div class="col-md-3">
-      <button class="btn btn-primary mt-4">Apply</button>
-      <a href="{{ url_for('reports') }}" class="btn btn-outline-secondary mt-4">Reset</a>
+    <div class="col-md-3 col-sm-6">
+      <button class="btn btn-primary btn-sm mt-4">Apply</button>
+      <a href="{{ url_for('reports') }}" class="btn btn-outline-secondary btn-sm mt-4">Reset</a>
     </div>
   </div>
 </form>
@@ -1700,6 +2067,68 @@ REPORTS_TEMPLATE = """
     </div>
   </div>
 </div>
+
+{% if visit_status_counts or lab_status_counts or rad_status_counts %}
+<div class="card p-3 bg-white mb-3">
+  <h6 class="mb-2">By status (for selected period)</h6>
+  <div class="row g-2">
+    <div class="col-lg-6">
+      <div class="small fw-bold text-muted mb-1">Visits</div>
+      {% set vs = visit_status_counts or {} %}
+      <div class="d-flex flex-wrap gap-1">
+        <span class="badge rounded-pill bg-success-subtle text-success border border-success">
+          OPEN: <span class="fw-bold">{{ vs.get('OPEN', 0) }}</span>
+        </span>
+        <span class="badge rounded-pill bg-primary-subtle text-primary border border-primary">
+          IN_TREATMENT: <span class="fw-bold">{{ vs.get('IN_TREATMENT', 0) }}</span>
+        </span>
+        <span class="badge rounded-pill bg-info-subtle text-info border border-info">
+          ADMITTED: <span class="fw-bold">{{ vs.get('ADMITTED', 0) }}</span>
+        </span>
+        <span class="badge rounded-pill bg-secondary-subtle text-secondary border border-secondary">
+          DISCHARGED: <span class="fw-bold">{{ vs.get('DISCHARGED', 0) }}</span>
+        </span>
+        <span class="badge rounded-pill bg-warning-subtle text-warning border border-warning">
+          TRANSFERRED: <span class="fw-bold">{{ vs.get('TRANSFERRED', 0) }}</span>
+        </span>
+        <span class="badge rounded-pill bg-dark-subtle text-dark border border-dark">
+          LAMA: <span class="fw-bold">{{ vs.get('LAMA', 0) }}</span>
+        </span>
+        <span class="badge rounded-pill bg-danger-subtle text-danger border border-danger">
+          EXPIRED: <span class="fw-bold">{{ vs.get('EXPIRED', 0) }}</span>
+        </span>
+        <span class="badge rounded-pill bg-light text-muted border">
+          CANCELLED: <span class="fw-bold">{{ vs.get('CANCELLED', 0) }}</span>
+        </span>
+      </div>
+    </div>
+    <div class="col-lg-3 col-md-6">
+      <div class="small fw-bold text-muted mb-1">Labs</div>
+      {% set ls = lab_status_counts or {} %}
+      <div class="d-flex flex-wrap gap-1">
+        <span class="badge rounded-pill bg-secondary-subtle text-secondary border border-secondary">
+          Pending: <span class="fw-bold">{{ ls.get('REQUESTED', 0) + ls.get('COLLECTED', 0) + ls.get('RECEIVED', 0) + ls.get('IN_LAB', 0) }}</span>
+        </span>
+        <span class="badge rounded-pill bg-success-subtle text-success border border-success">
+          Reported: <span class="fw-bold">{{ ls.get('REPORTED', 0) }}</span>
+        </span>
+      </div>
+    </div>
+    <div class="col-lg-3 col-md-6">
+      <div class="small fw-bold text-muted mb-1">Radiology</div>
+      {% set rs = rad_status_counts or {} %}
+      <div class="d-flex flex-wrap gap-1">
+        <span class="badge rounded-pill bg-secondary-subtle text-secondary border border-secondary">
+          Pending: <span class="fw-bold">{{ rs.get('REQUESTED', 0) + rs.get('DONE', 0) }}</span>
+        </span>
+        <span class="badge rounded-pill bg-success-subtle text-success border border-success">
+          Reported: <span class="fw-bold">{{ rs.get('REPORTED', 0) }}</span>
+        </span>
+      </div>
+    </div>
+  </div>
+</div>
+{% endif %}
 
 <div class="card p-3 bg-white">
   <h6 class="mb-2">Daily counts</h6>
@@ -1735,26 +2164,32 @@ REPORTS_TEMPLATE = """
 {% endblock %}
 """
 
+
 @app.route("/reports")
 @login_required
 @role_required("admin","doctor","nurse")
 def reports():
-    """Simple dashboard with basic statistics for visits, labs, and radiology."""
+    """
+    Simple dashboard with statistics for visits, labs, and radiology,
+    including status breakdown and daily counts for the selected period.
+    """
+    dfrom = (request.args.get("date_from", "") or "").strip()
+    dto   = (request.args.get("date_to", "") or "").strip()
+
+    # If only one date is provided, use it for both
+    if dfrom and not dto:
+        dto = dfrom
+    elif dto and not dfrom:
+        dfrom = dto
+
+    # Default to last 7 days (including today) if both are empty
+    if not dfrom or not dto:
+        today = datetime.today().date()
+        dfrom = (today - timedelta(days=6)).strftime("%Y-%m-%d")
+        dto   = today.strftime("%Y-%m-%d")
+
     db = get_db()
     cur = db.cursor()
-
-    dfrom = request.args.get("date_from","").strip()
-    dto   = request.args.get("date_to","").strip()
-
-    today = datetime.now().strftime("%Y-%m-%d")
-    if not dfrom and not dto:
-        start_date = datetime.now() - timedelta(days=6)
-        dfrom = start_date.strftime("%Y-%m-%d")
-        dto   = today
-    elif not dfrom:
-        dfrom = dto
-    elif not dto:
-        dto = dfrom
 
     # High level counts
     total_visits = cur.execute(
@@ -1763,21 +2198,78 @@ def reports():
     ).fetchone()[0]
 
     open_visits = cur.execute(
-        "SELECT COUNT(*) FROM visits WHERE status='OPEN' AND date(created_at) BETWEEN date(?) AND date(?)",
+        "SELECT COUNT(*) FROM visits WHERE status='OPEN' "
+        "AND date(created_at) BETWEEN date(?) AND date(?)",
         (dfrom, dto),
     ).fetchone()[0]
 
     lab_requests = cur.execute(
-        "SELECT COUNT(*) FROM lab_requests WHERE date(requested_at) BETWEEN date(?) AND date(?)",
+        "SELECT COUNT(*) FROM lab_requests "
+        "WHERE date(requested_at) BETWEEN date(?) AND date(?)",
         (dfrom, dto),
     ).fetchone()[0]
 
     radiology_requests = cur.execute(
-        "SELECT COUNT(*) FROM radiology_requests WHERE date(requested_at) BETWEEN date(?) AND date(?)",
+        "SELECT COUNT(*) FROM radiology_requests "
+        "WHERE date(requested_at) BETWEEN date(?) AND date(?)",
         (dfrom, dto),
     ).fetchone()[0]
 
-    # Daily breakdown
+    # Visits by status (OPEN / IN_TREATMENT / ADMITTED / ... / CANCELLED)
+    visit_status_counts = {}
+    try:
+        rows = cur.execute(
+            """
+            SELECT status, COUNT(*) AS c
+            FROM visits
+            WHERE date(created_at) BETWEEN date(?) AND date(?)
+            GROUP BY status
+            """,
+            (dfrom, dto),
+        ).fetchall()
+        for r in rows:
+            key = (r["status"] or "UNKNOWN").upper()
+            visit_status_counts[key] = r["c"]
+    except Exception:
+        visit_status_counts = {}
+
+    # Lab by status
+    lab_status_counts = {}
+    try:
+        rows = cur.execute(
+            """
+            SELECT status, COUNT(*) AS c
+            FROM lab_requests
+            WHERE date(requested_at) BETWEEN date(?) AND date(?)
+            GROUP BY status
+            """,
+            (dfrom, dto),
+        ).fetchall()
+        for r in rows:
+            key = (r["status"] or "UNKNOWN").upper()
+            lab_status_counts[key] = r["c"]
+    except Exception:
+        lab_status_counts = {}
+
+    # Radiology by status
+    rad_status_counts = {}
+    try:
+        rows = cur.execute(
+            """
+            SELECT status, COUNT(*) AS c
+            FROM radiology_requests
+            WHERE date(requested_at) BETWEEN date(?) AND date(?)
+            GROUP BY status
+            """,
+            (dfrom, dto),
+        ).fetchall()
+        for r in rows:
+            key = (r["status"] or "UNKNOWN").upper()
+            rad_status_counts[key] = r["c"]
+    except Exception:
+        rad_status_counts = {}
+
+    # Daily breakdown (visits / lab / radiology)
     v_rows = cur.execute(
         "SELECT date(created_at) AS d, COUNT(*) AS c FROM visits "
         "WHERE date(created_at) BETWEEN date(?) AND date(?) "
@@ -1816,7 +2308,6 @@ def reports():
             })
             d += timedelta(days=1)
     except Exception:
-        # Fallback: no daily breakdown if dates are invalid
         daily = []
 
     return render_template_string(
@@ -1828,6 +2319,9 @@ def reports():
         lab_requests=lab_requests,
         radiology_requests=radiology_requests,
         daily=daily,
+        visit_status_counts=visit_status_counts,
+        lab_status_counts=lab_status_counts,
+        rad_status_counts=rad_status_counts,
     )
 
 @app.route("/patient/<visit_id>")
@@ -1886,6 +2380,76 @@ def patient_details(visit_id):
                            lab_reqs=lab_reqs,
                            rad_reqs=rad_reqs,
                            orders_count=orders_count)
+
+
+@app.route("/visit/<visit_id>/location_bed", methods=["POST"])
+@app.route("/patient/<visit_id>/vitals_history")
+@login_required
+def vitals_history(visit_id):
+    """Return JSON vitals history for a visit for use in front-end graphs."""
+    cur = get_db().cursor()
+    points = []
+
+    # Try to read from dedicated history table (if available)
+    try:
+        rows = cur.execute(
+            """
+            SELECT recorded_at,
+                   pulse_rate, resp_rate,
+                   bp_systolic, bp_diastolic,
+                   temperature, spo2, pain_score
+            FROM vital_signs
+            WHERE visit_id=?
+            ORDER BY recorded_at ASC, id ASC
+            """,
+            (visit_id,),
+        ).fetchall()
+    except Exception:
+        rows = []
+
+    for r in rows or []:
+        points.append(
+            {
+                "time": r["recorded_at"],
+                "pulse": r["pulse_rate"],
+                "resp": r["resp_rate"],
+                "bp_sys": r["bp_systolic"],
+                "bp_dia": r["bp_diastolic"],
+                "temp": r["temperature"],
+                "spo2": r["spo2"],
+                "pain": r["pain_score"],
+            }
+        )
+
+    # Fallback: if no history rows, expose single snapshot from visits table
+    if not points:
+        v = cur.execute(
+            """
+            SELECT triage_time, created_at,
+                   pulse_rate, resp_rate,
+                   bp_systolic, bp_diastolic,
+                   temperature, spo2, pain_score
+            FROM visits
+            WHERE visit_id=?
+            """,
+            (visit_id,),
+        ).fetchone()
+        if v:
+            ts = v["triage_time"] or v["created_at"]
+            points.append(
+                {
+                    "time": ts,
+                    "pulse": v["pulse_rate"],
+                    "resp": v["resp_rate"],
+                    "bp_sys": v["bp_systolic"],
+                    "bp_dia": v["bp_diastolic"],
+                    "temp": v["temperature"],
+                    "spo2": v["spo2"],
+                    "pain": v["pain_score"],
+                }
+            )
+
+    return jsonify({"ok": True, "points": points})
 
 
 @app.route("/visit/<visit_id>/location_bed", methods=["POST"])
@@ -2317,6 +2881,9 @@ def triage(visit_id):
             flash("Triage Category (ES) is required.", "danger")
             return redirect(url_for("triage", visit_id=visit_id))
 
+        # Single timestamp used for both visit record and vitals history
+        now_ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
         db.execute("""
             UPDATE visits SET
                 triage_status='YES',
@@ -2337,8 +2904,36 @@ def triage(visit_id):
                 triage_time=?
             WHERE visit_id=?
         """,(cat, comment, allergy, allergy_details, pr, rr, bp_sys, bp_dia, temp, gcs, spo2, pain, weight, height,
-             datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+             now_ts,
              visit_id))
+
+        # Keep vitals history for trend graph
+        try:
+            db.execute("""
+                INSERT INTO vital_signs (
+                    visit_id, recorded_at,
+                    pulse_rate, resp_rate,
+                    bp_systolic, bp_diastolic,
+                    temperature, consciousness_level,
+                    spo2, pain_score,
+                    weight, height,
+                    recorded_by
+                )
+                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)
+            """,(
+                visit_id,
+                now_ts,
+                pr, rr,
+                bp_sys, bp_dia,
+                temp, gcs,
+                spo2, pain,
+                weight, height,
+                session.get("username","UNKNOWN"),
+            ))
+        except Exception:
+            # If the history table is missing for any reason, ignore so triage is not blocked
+            pass
+
         db.commit()
         log_action("TRIAGE_UPDATE", visit_id=visit_id, details=f"CAT={cat}")
         flash("Triage saved successfully.", "success")
@@ -2769,13 +3364,38 @@ def clinical_orders_page(visit_id):
         ORDER BY id DESC
     """,(visit_id,)).fetchall()
 
+    # Dynamic catalog items for dropdown/checkbox lists
+    try:
+        rad_items = cur.execute(
+            "SELECT * FROM items_radiology WHERE is_active=1 ORDER BY COALESCE(sort_order, 9999), name"
+        ).fetchall()
+        lab_items = cur.execute(
+            "SELECT * FROM items_labs WHERE is_active=1 ORDER BY COALESCE(sort_order, 9999), name"
+        ).fetchall()
+        med_items = cur.execute(
+            "SELECT * FROM items_medications WHERE is_active=1 ORDER BY COALESCE(sort_order, 9999), name"
+        ).fetchall()
+        home_med_items = cur.execute(
+            "SELECT * FROM items_home_meds WHERE is_active=1 ORDER BY COALESCE(sort_order, 9999), name"
+        ).fetchall()
+    except Exception:
+        # Fallback: empty lists if catalog tables missing
+        rad_items = []
+        lab_items = []
+        med_items = []
+        home_med_items = []
+
     return render_template("clinical_orders.html",
                            visit=visit,
                            orders=orders,
                            notes=notes,
                            summary=summary,
                            lab_reqs=lab_reqs,
-                           rad_reqs=rad_reqs)
+                           rad_reqs=rad_reqs,
+                           rad_items=rad_items,
+                           lab_items=lab_items,
+                           med_items=med_items,
+                           home_med_items=home_med_items)
 
 @app.route("/clinical_orders/<visit_id>/add", methods=["POST"])
 @login_required
@@ -3003,6 +3623,18 @@ def clinical_order_pdf(visit_id, oid):
     section("Lab orders:", order["lab_orders"])
     section("Medications:", order["medications"])
 
+    # Doctor name and signature line
+    sig_y = max(2.0*cm, y - 1.5*cm)
+    c.setFont("Helvetica", 9)
+    c.drawString(2*cm, sig_y, f"Doctor: {doctor_display}")
+    c.drawString(width/2, sig_y, "Signature: ______________________")
+
+    # Doctor name and signature line
+    sig_y = max(2.0*cm, y - 1.5*cm)
+    c.setFont("Helvetica", 9)
+    c.drawString(2*cm, sig_y, f"Doctor: {doctor_display}")
+    c.drawString(width/2, sig_y, "Signature: ______________________")
+
     c.setFont("Helvetica-Oblique", 8)
     c.drawString(2*cm, 1.2*cm, APP_FOOTER_TEXT)
     c.showPage()
@@ -3050,6 +3682,15 @@ def nursing_notes_pdf(visit_id):
     """,(visit_id,)).fetchall()
     if not visit:
         return "Not found", 404
+
+    # Resolve doctor for signature (Home Medication)
+    doctor_name = _resolve_doctor_name_for_visit(cur, visit, visit_id)
+    doctor_display = _doctor_display_with_gd(cur, doctor_name)
+
+
+    # Resolve doctor for signature (Auto Summary)
+    doctor_name = _resolve_doctor_name_for_visit(cur, visit, visit_id)
+    doctor_display = _doctor_display_with_gd(cur, doctor_name)
 
     buffer=io.BytesIO(); c=canvas.Canvas(buffer, pagesize=A4)
     width,height=A4; y=height-2*cm
@@ -3226,8 +3867,29 @@ def discharge_summary_pdf(visit_id):
             doctor_name = summary["updated_by"] or summary["created_by"]
         except Exception:
             doctor_name = ""
+
+    # Try to fetch GD / license number for the doctor from users table
+    doctor_display = doctor_name or "______________________"
+    if doctor_name:
+        try:
+            user_row = cur.execute(
+                "SELECT * FROM users WHERE username=?",
+                (doctor_name,)
+            ).fetchone()
+            if user_row is not None:
+                gd_value = None
+                try:
+                    gd_value = user_row["gd_number"]
+                except Exception:
+                    gd_value = None
+                if gd_value:
+                    doctor_display = f"{doctor_name}  (GD: {gd_value})"
+        except Exception:
+            # If anything goes wrong (missing column, etc.), just fall back to the name only
+            pass
+
     c.setFont("Helvetica", 9)
-    c.drawString(2*cm, 2.0*cm, f"Doctor: {doctor_name or '______________________'}")
+    c.drawString(2*cm, 2.0*cm, f"Doctor: {doctor_display}")
     c.drawString(width/2, 2.0*cm, "Signature: ______________________")
 
     c.setFont("Helvetica-Oblique", 8)
@@ -3966,7 +4628,14 @@ def auto_summary_pdf(visit_id):
     cur = db.cursor()
 
     visit = cur.execute("""
-        SELECT v.visit_id, p.name, p.id_number, p.insurance, p.dob AS dob, v.created_at
+        SELECT v.visit_id,
+               p.name,
+               p.id_number,
+               p.insurance,
+               p.dob AS dob,
+               v.created_at,
+               v.created_by,
+               v.closed_by
         FROM visits v
         JOIN patients p ON p.id=v.patient_id
         WHERE v.visit_id=?
@@ -4041,6 +4710,75 @@ def auto_summary_pdf(visit_id):
     )
 
 
+def _resolve_doctor_name_for_visit(cur, visit_row, visit_id):
+    """
+    Try to determine the doctor username for this visit.
+    Priority:
+      1) discharge_summaries.updated_by / created_by
+      2) visits.closed_by / created_by
+    """
+    doctor_name = ""
+    try:
+        doc_row = cur.execute(
+            "SELECT updated_by, created_by FROM discharge_summaries WHERE visit_id=?",
+            (visit_id,),
+        ).fetchone()
+    except Exception:
+        doc_row = None
+
+    if doc_row:
+        try:
+            doctor_name = (doc_row["updated_by"] or doc_row["created_by"] or "").strip()
+        except Exception:
+            try:
+                doctor_name = (doc_row[0] or doc_row[1] or "").strip()
+            except Exception:
+                doctor_name = ""
+
+    if not doctor_name and visit_row is not None:
+        try:
+            closed_by = (visit_row["closed_by"] or "").strip()
+        except Exception:
+            closed_by = ""
+        try:
+            created_by = (visit_row["created_by"] or "").strip()
+        except Exception:
+            created_by = ""
+        doctor_name = closed_by or created_by
+
+    return doctor_name
+
+
+def _doctor_display_with_gd(cur, doctor_name):
+    """
+    Return doctor display name (with GD number if available).
+    """
+    if not doctor_name:
+        return "______________________"
+
+    doctor_display = doctor_name
+    try:
+        user_row = cur.execute(
+            "SELECT gd_number FROM users WHERE username=?",
+            (doctor_name,),
+        ).fetchone()
+    except Exception:
+        user_row = None
+
+    if user_row:
+        try:
+            gd_value = user_row["gd_number"]
+        except Exception:
+            try:
+                gd_value = user_row[0]
+            except Exception:
+                gd_value = None
+        if gd_value:
+            doctor_display = f"{doctor_name}  (GD: {gd_value})"
+
+    return doctor_display
+
+
 @app.route("/patient_summary/<visit_id>/pdf")
 @login_required
 def patient_summary_pdf(visit_id):
@@ -4070,33 +4808,9 @@ def patient_summary_pdf(visit_id):
     if not visit:
         return "Not found", 404
 
-    # Try to infer doctor name from discharge summary first
-    doctor_name = ""
-    try:
-        doc_row = cur.execute(
-            "SELECT updated_by, created_by FROM discharge_summaries WHERE visit_id=?",
-            (visit_id,),
-        ).fetchone()
-    except Exception:
-        doc_row = None
-
-    if doc_row:
-        try:
-            doctor_name = (doc_row["updated_by"] or doc_row["created_by"] or "").strip()
-        except Exception:
-            doctor_name = ""
-
-    # Fallback to visit.closed_by / created_by
-    if not doctor_name:
-        try:
-            closed_by = (visit["closed_by"] or "").strip()
-        except Exception:
-            closed_by = ""
-        try:
-            created_by = (visit["created_by"] or "").strip()
-        except Exception:
-            created_by = ""
-        doctor_name = closed_by or created_by
+    # Resolve doctor name + GD number once for this visit
+    doctor_name = _resolve_doctor_name_for_visit(cur, visit, visit_id)
+    doctor_display = _doctor_display_with_gd(cur, doctor_name)
 
     # Patient-friendly course summary text
     text = build_patient_short_summary(visit_id)
@@ -4155,7 +4869,7 @@ def patient_summary_pdf(visit_id):
     c.drawString(
         2 * cm,
         sig_y,
-        f"Doctor: {doctor_name or '______________________'}",
+        f"Doctor: {doctor_display}",
     )
     c.drawString(width / 2, sig_y, "Signature: ______________________")
 
@@ -4349,7 +5063,13 @@ def lab_results_pdf(visit_id):
     cur = db.cursor()
 
     visit = cur.execute("""
-        SELECT v.visit_id, p.name, p.id_number, p.insurance, v.created_at
+        SELECT v.visit_id,
+               p.name,
+               p.id_number,
+               p.insurance,
+               v.created_at,
+               v.created_by,
+               v.closed_by
         FROM visits v
         JOIN patients p ON p.id=v.patient_id
         WHERE v.visit_id=?
@@ -4392,9 +5112,22 @@ def lab_results_pdf(visit_id):
 
             c.setFont("Helvetica", 9)
             status_line = f"Status: {l['status']}"
+            abn = False
             if l["result_text"]:
                 status_line += f" | Result: {l['result_text']}"
+                rt = str(l["result_text"]).lower()
+                if ("high" in rt or "low" in rt or "crit" in rt or "abnormal" in rt
+                    or "positive" in rt or "pos " in rt or "pos." in rt
+                    or "مرتفع" in rt or "منخفض" in rt or "ايجابي" in rt or "إيجابي" in rt):
+                    abn = True
+            # Color abnormal results in red
+            if abn:
+                c.setFillColor(colors.red)
+            else:
+                c.setFillColor(colors.black)
             c.drawString(2*cm, y, status_line[:130])
+            # Reset for the rest of the page
+            c.setFillColor(colors.black)
             y -= 0.35*cm
 
             details = []
@@ -4537,65 +5270,89 @@ def home_med_pdf(visit_id):
     db = get_db()
     cur = db.cursor()
 
+    # 1) نجيب بيانات الزيارة + الحقول اللازمة لاستخراج الطبيب (created_by / closed_by)
     visit = cur.execute("""
-        SELECT v.visit_id, p.name, p.id_number, p.insurance, v.created_at
+        SELECT v.visit_id,
+               p.name,
+               p.id_number,
+               p.insurance,
+               v.created_at,
+               v.created_by,
+               v.closed_by
         FROM visits v
-        JOIN patients p ON p.id=v.patient_id
-        WHERE v.visit_id=?
+        JOIN patients p ON p.id = v.patient_id
+        WHERE v.visit_id = ?
     """, (visit_id,)).fetchone()
 
+    # 2) نجيب نص الـ Home Medication من discharge_summaries
     summary = cur.execute("""
         SELECT home_medication
         FROM discharge_summaries
-        WHERE visit_id=?
+        WHERE visit_id = ?
     """, (visit_id,)).fetchone()
 
     if not visit:
         return "Not found", 404
 
+    # 3) استخراج اسم الطبيب + GD باستخدام الهيلبرز الموجودة
+    doctor_name = _resolve_doctor_name_for_visit(cur, visit, visit_id)
+    doctor_display = _doctor_display_with_gd(cur, doctor_name)
+
     home_med = summary["home_medication"] if summary and summary["home_medication"] else ""
 
+    # 4) بناء الـ PDF
     buffer = io.BytesIO()
     c = canvas.Canvas(buffer, pagesize=A4)
     width, height = A4
-    y = height - 2*cm
+    y = height - 2 * cm
 
     c.setFont("Helvetica-Bold", 16)
-    c.drawString(2*cm, y, "Home Medication")
-    y -= 1.0*cm
+    c.drawString(2 * cm, y, "Home Medication")
+    y -= 1.0 * cm
 
     c.setFont("Helvetica", 11)
-    c.drawString(2*cm, y, f"Visit ID: {visit['visit_id']}")
-    y -= 0.7*cm
-    c.drawString(2*cm, y, f"Patient: {visit['name']}")
-    y -= 0.6*cm
-    c.drawString(2*cm, y, f"ID: {visit['id_number'] or '-'}    INS: {visit['insurance'] or '-'}")
-    y -= 0.6*cm
-    c.drawString(2*cm, y, f"Date: {visit['created_at']}")
-    y -= 1.0*cm
+    c.drawString(2 * cm, y, f"Visit ID: {visit['visit_id']}")
+    y -= 0.7 * cm
+    c.drawString(2 * cm, y, f"Patient: {visit['name']}")
+    y -= 0.6 * cm
+    c.drawString(
+        2 * cm,
+        y,
+        f"ID: {visit['id_number'] or '-'}    INS: {visit['insurance'] or '-'}",
+    )
+    y -= 0.6 * cm
+    c.drawString(2 * cm, y, f"Date: {visit['created_at']}")
+    y -= 1.0 * cm
 
     c.setFont("Helvetica-Bold", 12)
-    c.drawString(2*cm, y, "Medication:")
-    y -= 0.6*cm
+    c.drawString(2 * cm, y, "Medication:")
+    y -= 0.6 * cm
 
     c.setFont("Helvetica", 10)
     if not home_med.strip():
-        c.drawString(2.2*cm, y, "None")
+        c.drawString(2.2 * cm, y, "None")
     else:
         y = draw_wrapped_lines(
             c,
             home_med,
-            x=2.2*cm,
+            x=2.2 * cm,
             y=y,
             max_chars=95,
-            line_height=0.45*cm,
+            line_height=0.45 * cm,
             page_height=height,
             font_name="Helvetica",
             font_size=10,
         )
 
+    # 5) سطر الطبيب + رقم GD + التوقيع (نفس أسلوب Patient Summary)
+    sig_y = 2.0 * cm
+    c.setFont("Helvetica", 9)
+    c.drawString(2 * cm, sig_y, f"Doctor: {doctor_display}")
+    c.drawString(width / 2, sig_y, "Signature: ______________________")
+
+    # 6) الفوتر
     c.setFont("Helvetica-Oblique", 8)
-    c.drawString(2*cm, 1.2*cm, APP_FOOTER_TEXT)
+    c.drawString(2 * cm, 1.2 * cm, APP_FOOTER_TEXT)
 
     c.showPage()
     c.save()
@@ -4604,7 +5361,7 @@ def home_med_pdf(visit_id):
     return Response(
         buffer.getvalue(),
         mimetype="application/pdf",
-        headers={"Content-Disposition": "inline; filename=home_medication.pdf"}
+        headers={"Content-Disposition": "inline; filename=home_medication.pdf"},
     )
 
 # ============================================================
@@ -4680,8 +5437,4242 @@ def sticker_zpl(visit_id):
 # Templates (Single-file)
 # ============================================================
 
-TEMPLATES = {'base.html': '\n<!doctype html>\n<html>\n<head>\n  <meta charset="utf-8">\n  <title>ED Downtime</title>\n  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">\n  <meta http-equiv="refresh" content="2700">\n  <style>\n    body { background:#f7f7f7; }\n    .nav-link { font-weight:600; }\n    .badge-triage-no { background:#999; }\n    .badge-triage-yes { background:#198754; }\n    .cat-red { background:#dc3545; }\n    .cat-yellow { background:#ffc107; color:#000; }\n    .cat-green { background:#198754; }\n    .cat-orange { background:#fd7e14; }\n    .cat-none { background:#6c757d; }\n\n    .wait-cell { font-weight:600; text-align:center; }\n    .wait-short { background:#d1e7dd; }\n    .wait-medium { background:#fff3cd; }\n    .wait-long { background:#f8d7da; }\n    .wait-none { background:#e9ecef; }\n\n    .loc-pill {\n      display:inline-block;\n      padding:2px 8px;\n      border-radius:999px;\n      background:#e7f1ff;\n      color:#0d6efd;\n      border:1px solid #cfe2ff;\n      font-size:0.75rem;\n    }\n    .bed-empty { background:#e9ecef; }\n    .bed-occupied { background:#d1e7dd; }\n    .bed-dirty { background:#f8d7da; }\n\n    .allergy-pill {\n      font-size:0.7rem;\n      border-radius:999px;\n      padding:1px 6px;\n    }\n    .allergy-yes { background:#f8d7da; color:#842029; }\n    .allergy-nkda { background:#d1e7dd; color:#0f5132; }\n    .allergy-unknown { background:#e9ecef; color:#495057; }\n\n    .banner-allergy {\n      border-left:4px solid #dc3545;\n      background:#f8d7da;\n    }\n    .banner-no-allergy {\n      border-left:4px solid #6c757d;\n      background:#f1f3f5;\n    }\n\n    .task-pill {\n      font-size:0.7rem;\n      border-radius:999px;\n    }\n    .task-done {\n      background:#198754;\n      color:#fff;\n    }\n    .task-pending {\n      background:#e9ecef;\n      color:#495057;\n    }\n\n    /* ED Board layout tuning */\n    .ed-board-card {\n      border-radius: 0.75rem;\n      border: 1px solid #dee2e6;\n    }\n    .ed-board-table thead th {\n      font-size: 0.75rem;\n      text-transform: uppercase;\n      letter-spacing: 0.03em;\n      background-color: #f8f9fa;\n      position: sticky;\n      top: 0;\n      z-index: 1;\n    }\n    .ed-board-table tbody td {\n      font-size: 0.82rem;\n      vertical-align: middle;\n    }\n    .ed-board-table tbody tr:hover {\n      background-color: #f1f3f5;\n    }\n    .ed-board-table td.col-queue,\n    .ed-board-table td.col-age,\n    .ed-board-table td.col-es,\n    .ed-board-table td.col-status,\n    .ed-board-table td.col-user {\n      text-align: center;\n      white-space: nowrap;\n    }\n    .ed-board-table td.col-visit,\n    .ed-board-table td.col-id,\n    .ed-board-table td.col-insurance {\n      white-space: nowrap;\n    }\n    .ed-board-table td.col-payment {\n      max-width: 220px;\n      white-space: nowrap;\n      overflow: hidden;\n      text-overflow: ellipsis;\n    }\n    .wait-cell {\n      text-align: center;\n    }\n    .wait-pill {\n      display: inline-block;\n      padding: 2px 10px;\n      border-radius: 999px;\n      font-size: 0.78rem;\n      font-weight: 600;\n    }\n    .wait-pill.wait-short {\n      background:#d1e7dd;\n      color:#0f5132;\n    }\n    .wait-pill.wait-medium {\n      background:#fff3cd;\n      color:#664d03;\n    }\n    .wait-pill.wait-long {\n      background:#f8d7da;\n      color:#842029;\n    }\n    .wait-pill.wait-none {\n      background:#e9ecef;\n      color:#495057;\n    }\n\n    .ed-actions {\n      display: flex;\n      flex-direction: column;\n      gap: 2px;\n    }\n    .ed-actions-row {\n      display: flex;\n      flex-wrap: wrap;\n      gap: 4px;\n    }\n    .ed-actions-row .btn {\n      font-size: 0.72rem;\n      padding: 1px 8px;\n    }\n    .ed-actions-row .btn-outline-primary,\n    .ed-actions-row .btn-outline-success,\n    .ed-actions-row .btn-outline-secondary {\n      border-radius: 999px;\n    }\n    \n  </style>\n</head>\n<body>\n<nav class="navbar navbar-light bg-white border-bottom px-3">\n  <span class="navbar-brand fw-bold">ED Downtime</span>\n\n  <div class="d-flex gap-3 align-items-center">\n    <a class="nav-link" href="{{ url_for(\'ed_board\') }}">ED Board</a>\n    <a class="nav-link" href="{{ url_for(\'search_patients\') }}">Search</a>\n    <a class="nav-link position-relative" href="{{ url_for(\'chat_page\') }}">Live Chat{% if nav_chat_recent %}<span class="badge rounded-pill bg-info text-dark ms-1">{{ nav_chat_recent }}</span>{% endif %}</a>\n    {% if session.get(\'role\') in [\'admin\',\'doctor\',\'nurse\'] %}\n      <a class="nav-link" href="{{ url_for(\'reports\') }}">Reports</a>\n    {% endif %}\n    {% if session.get(\'role\') in [\'lab\',\'admin\',\'doctor\',\'nurse\'] %}\n      <a class="nav-link position-relative" href="{{ url_for(\'lab_board\') }}">Lab Board{% if nav_lab_pending %}<span class="badge rounded-pill bg-danger ms-1">{{ nav_lab_pending }}</span>{% endif %}</a>\n    {% endif %}\n    {% if session.get(\'role\') in [\'radiology\',\'admin\',\'doctor\',\'nurse\'] %}\n      <a class="nav-link position-relative" href="{{ url_for(\'radiology_board\') }}">Radiology Board{% if nav_rad_pending %}<span class="badge rounded-pill bg-warning text-dark ms-1">{{ nav_rad_pending }}</span>{% endif %}</a>\n    {% endif %}\n    {% if session.get(\'role\') in [\'reception\',\'admin\'] %}\n      <a class="nav-link" href="{{ url_for(\'register_patient\') }}">Register</a>\n    {% endif %}\n    {% if session.get(\'role\')==\'admin\' %}\n      <a class="nav-link" href="{{ url_for(\'admin_users\') }}">Users</a>\n      <a class="nav-link" href="{{ url_for(\'admin_reset_password\') }}">Reset Password</a>\n      <a class="nav-link" href="{{ url_for(\'admin_logs\') }}">Logs</a>\n      <a class="nav-link" href="{{ url_for(\'admin_backup\') }}">Backup DB</a>\n      <a class="nav-link text-primary" href="{{ url_for(\'admin_backup_now\') }}">Backup Now</a>\n      <a class="nav-link text-danger" href="{{ url_for(\'admin_restore\') }}">Restore DB</a>\n    {% endif %}\n    <span class="text-muted">User: {{ session.get(\'username\') }} ({{ session.get(\'role\') }})</span>\n    <a class="text-danger nav-link" href="{{ url_for(\'logout\') }}">Logout</a>\n  </div>\n  <button class="btn btn-sm btn-outline-secondary" onclick="location.reload()">🔄 Manual Refresh</button>\n</nav>\n\n<div class="container-fluid py-3 px-3">\n  {% block content %}{% endblock %}\n</div>\n\n<footer class="text-center text-muted small py-3">\n  {{ footer_text }}\n</footer>\n\n<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>\n</body>\n</html>\n', 'login.html': '\n{% extends "base.html" %}\n{% block content %}\n<div class="row justify-content-center mt-5">\n  <div class="col-md-4">\n    <h4 class="mb-3 text-center">Login</h4>\n    {% with messages = get_flashed_messages(with_categories=true) %}\n      {% for category, msg in messages %}\n        <div class="alert alert-{{ category }}">{{ msg }}</div>\n      {% endfor %}\n    {% endwith %}\n    <form method="POST">\n  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">\n      <input class="form-control mb-2" name="username" placeholder="username">\n      <input class="form-control mb-2" name="password" placeholder="password" type="password">\n      <button class="btn btn-primary w-100">Login</button>\n    </form>\n    <div class="text-muted small mt-2">\n    </div>\n  </div>\n</div>\n{% endblock %}\n', 'admin_users.html': '\n{% extends "base.html" %}\n{% block content %}\n<h4 class="mb-3">Users Management</h4>\n\n{% with messages = get_flashed_messages(with_categories=true) %}\n  {% for category, msg in messages %}\n    <div class="alert alert-{{ category }}">{{ msg }}</div>\n  {% endfor %}\n{% endwith %}\n\n<form method="POST" class="card p-3 mb-3">\n  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">\n  <div class="row g-2">\n    <div class="col-md-4"><input class="form-control" name="username" placeholder="Username"></div>\n    <div class="col-md-4"><input class="form-control" name="password" placeholder="Password"></div>\n    <div class="col-md-3">\n      <select class="form-select" name="role">\n        <option value="reception">reception</option>\n        <option value="nurse">nurse</option>\n        <option value="doctor">doctor</option>\n        <option value="lab">lab</option>\n        <option value="radiology">radiology</option>\n        <option value="admin">admin</option>\n      </select>\n    </div>\n    <div class="col-md-1 d-grid"><button class="btn btn-primary">Add</button></div>\n  </div>\n</form>\n\n<table class="table table-sm table-striped bg-white align-middle">\n  <thead>\n    <tr>\n      <th>ID</th>\n      <th>Username</th>\n      <th>Role</th>\n      <th>Created</th>\n      <th>Status</th>\n      <th style="width:180px;">Actions</th>\n    </tr>\n  </thead>\n  <tbody>\n    {% for u in users %}\n      <tr>\n        <td>{{ u.id }}</td>\n        <td>{{ u.username }}</td>\n        <td>{{ u.role }}</td>\n        <td>{{ u.created_at }}</td>\n        <td>\n          {% if u.is_active %}\n            <span class="badge bg-success">Active</span>\n          {% else %}\n            <span class="badge bg-secondary">Inactive</span>\n          {% endif %}\n        </td>\n        <td>\n          <div class="d-flex gap-1">\n            <form method="POST"\n                  action="{{ url_for(\'admin_toggle_user\', user_id=u.id) }}"\n                  onsubmit="return confirm(\'Are you sure you want to change this user\'s active status?\');">\n              <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">\n              {% if u.is_active %}\n                <button class="btn btn-sm btn-outline-danger">Deactivate</button>\n              {% else %}\n                <button class="btn btn-sm btn-outline-success">Activate</button>\n              {% endif %}\n            </form>\n          </div>\n        </td>\n      </tr>\n    {% endfor %}\n  </tbody>\n</table>\n{% endblock %}\n', 'admin_reset_password.html': '\n{% extends "base.html" %}\n{% block content %}\n<h4 class="mb-3">Admin Password Reset</h4>\n\n{% with messages = get_flashed_messages(with_categories=true) %}\n  {% for category, msg in messages %}\n    <div class="alert alert-{{ category }}">{{ msg }}</div>\n  {% endfor %}\n{% endwith %}\n\n<form method="POST" class="card p-3 bg-white mb-3">\n  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">\n  <div class="row g-2 align-items-end">\n    <div class="col-md-5">\n      <label class="form-label fw-bold">Select User</label>\n      <select class="form-select" name="user_id" required>\n        <option value="">-- choose --</option>\n        {% for u in users %}\n          <option value="{{ u.id }}">{{ u.username }} ({{ u.role }})</option>\n        {% endfor %}\n      </select>\n    </div>\n    <div class="col-md-5">\n      <label class="form-label fw-bold">New Password</label>\n      <input class="form-control" name="new_password" type="text" required>\n    </div>\n    <div class="col-md-2 d-grid">\n      <button class="btn btn-primary">Reset</button>\n    </div>\n  </div>\n</form>\n\n<a class="btn btn-outline-danger btn-sm" href="{{ url_for(\'admin_reset_admin_default\') }}">\n  Reset admin to default (admin12)\n</a>\n{% endblock %}\n', 'admin_logs.html': '\n{% extends "base.html" %}\n{% block content %}\n<h4 class="mb-3">Activity Logs (Last 1000)</h4>\n\n<form method="GET" class="card p-3 mb-3 bg-white">\n  <div class="row g-2 align-items-end">\n    <div class="col-md-3">\n      <label class="form-label fw-bold">Visit ID</label>\n      <input class="form-control" name="visit_id" value="{{ visit_f or \'\' }}" placeholder="visit id">\n    </div>\n    <div class="col-md-3">\n      <label class="form-label fw-bold">User</label>\n      <select class="form-select" name="user">\n        <option value="">ALL</option>\n        {% for u in users %}\n          <option value="{{u.username}}" {% if user_f==u.username %}selected{% endif %}>{{u.username}}</option>\n        {% endfor %}\n      </select>\n    </div>\n    <div class="col-md-2">\n      <label class="form-label fw-bold">From</label>\n      <input class="form-control" type="date" name="date_from" value="{{ dfrom or \'\' }}">\n    </div>\n    <div class="col-md-2">\n      <label class="form-label fw-bold">To</label>\n      <input class="form-control" type="date" name="date_to" value="{{ dto or \'\' }}">\n    </div>\n    <div class="col-md-2 d-grid">\n      <button class="btn btn-primary">Filter</button>\n    </div>\n  </div>\n\n  <div class="mt-2 d-flex gap-2">\n    <a class="btn btn-outline-success btn-sm"\n       href="{{ url_for(\'export_logs_csv\', visit_id=visit_f, user=user_f, date_from=dfrom, date_to=dto) }}">Export CSV</a>\n    <a class="btn btn-outline-danger btn-sm"\n       href="{{ url_for(\'export_logs_pdf\', visit_id=visit_f, user=user_f, date_from=dfrom, date_to=dto) }}">Export PDF</a>\n  </div>\n</form>\n\n<table class="table table-sm table-striped bg-white">\n  <thead><tr><th>Time</th><th>User</th><th>Action</th><th>Visit</th><th>Details</th></tr></thead>\n  <tbody>\n  {% for l in logs %}\n    <tr>\n      <td>{{ l.created_at }}</td>\n      <td>{{ l.username }}</td>\n      <td>{{ l.action }}</td>\n      <td>{{ l.visit_id or \'-\' }}</td>\n      <td>{{ l.details or \'-\' }}</td>\n    </tr>\n  {% endfor %}\n  </tbody>\n</table>\n{% endblock %}\n', 'admin_restore.html': '\n{% extends "base.html" %}\n{% block content %}\n<h4 class="mb-3">Restore Database from Backup</h4>\n\n{% with messages = get_flashed_messages(with_categories=true) %}\n  {% for category, msg in messages %}\n    <div class="alert alert-{{ category }}">{{ msg }}</div>\n  {% endfor %}\n{% endwith %}\n\n<div class="card p-3 bg-white">\n  <p class="text-danger small mb-2">\n    ⚠️ Warning: restoring a backup will overwrite the current database file.\n    A safety copy (*.before_restore.bak) will be created automatically.\n  </p>\n\n  <h6 class="fw-bold mt-2">Available backup files</h6>\n  {% if backups %}\n    <div class="table-responsive mb-3">\n      <table class="table table-sm table-hover align-middle mb-0">\n        <thead>\n          <tr>\n            <th>#</th>\n            <th>File name</th>\n            <th>Created / Modified</th>\n            <th>Size (KB)</th>\n            <th>Download</th>\n            <th>Restore</th>\n          </tr>\n        </thead>\n        <tbody>\n          {% for b in backups %}\n          <tr>\n            <td>{{ loop.index }}</td>\n            <td>\n              <a href="{{ url_for(\'admin_backup_file\', filename=b.name) }}">\n                {{ b.name }}\n              </a>\n            </td>\n            <td>{{ b.mtime }}</td>\n            <td>{{ "%.1f"|format(b.size_kb) }}</td>\n            <td>\n              <a class="btn btn-sm btn-outline-primary"\n                 href="{{ url_for(\'admin_backup_file\', filename=b.name) }}">\n                Download\n              </a>\n            </td>\n            <td>\n              <a class="btn btn-sm btn-outline-danger"\n                 href="{{ url_for(\'admin_restore_file\', filename=b.name) }}">\n                Restore this backup\n              </a>\n            </td>\n          </tr>\n          {% endfor %}\n        </tbody>\n      </table>\n    </div>\n  {% else %}\n    <p class="text-muted small">No backup .db files found in the backups folder yet.</p>\n  {% endif %}\n\n  <form method="POST" enctype="multipart/form-data" class="mt-2">\n  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">\n    <div class="mb-2">\n      <label class="form-label fw-bold">Select backup .db file</label>\n      <input type="file" name="file" class="form-control" required>\n    </div>\n    <button class="btn btn-danger mt-2">Restore Now</button>\n    <a class="btn btn-secondary mt-2" href="{{ url_for(\'ed_board\') }}">Cancel</a>\n  </form>\n</div>\n{% endblock %}\n', 'admin_restore_confirm.html': '\n{% extends "base.html" %}\n{% block content %}\n<h4 class="mb-3">Confirm Restore from Backup</h4>\n\n{% with messages = get_flashed_messages(with_categories=true) %}\n  {% for category, msg in messages %}\n    <div class="alert alert-{{ category }}">{{ msg }}</div>\n  {% endfor %}\n{% endwith %}\n\n<div class="card p-3 bg-white">\n  <p class="text-danger small mb-2">\n    ⚠️ You are about to restore the database from backup file:\n    <strong>{{ backup_name }}</strong>\n  </p>\n  <p class="text-muted small mb-2">\n    This will overwrite the current database. A safety copy (*.before_restore.bak) will be created automatically.\n  </p>\n\n  <form method="POST">\n  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">\n    <div class="mb-2">\n      <label class="form-label fw-bold">Re-enter your password to confirm</label>\n      <input type="password" name="password" class="form-control" required autofocus>\n    </div>\n    <button class="btn btn-danger mt-2">Confirm Restore</button>\n    <a class="btn btn-secondary mt-2" href="{{ url_for(\'admin_restore\') }}">Cancel</a>\n  </form>\n</div>\n{% endblock %}\n', 'register.html': '\n{% extends "base.html" %}\n{% block content %}\n<h4 class="mb-3">Register Patient</h4>\n\n{% with messages = get_flashed_messages(with_categories=true) %}\n  {% for category, msg in messages %}\n    <div class="alert alert-{{ category }}">{{ msg }}</div>\n  {% endfor %}\n{% endwith %}\n\n<form method="POST" enctype="multipart/form-data" class="card p-3 bg-white" id="register-form">\n  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">\n  <div class="row g-2">\n    <div class="col-md-6">\n      <label class="form-label fw-bold">Name</label>\n      <input class="form-control" name="name" required>\n    </div>\n\n    <div class="col-md-6">\n      <label class="form-label fw-bold">ID Number</label>\n      <input class="form-control" name="id_number">\n    </div>\n\n    <div class="col-md-4">\n      <label class="form-label fw-bold">Phone</label>\n      <input class="form-control" name="phone">\n    </div>\n\n    <div class="col-md-4">\n      <label class="form-label fw-bold">Insurance</label>\n      <input class="form-control" name="insurance">\n    </div>\n\n    <div class="col-md-4">\n      <label class="form-label fw-bold">Insurance No</label>\n      <input class="form-control" name="insurance_no">\n    </div>\n\n    <div class="col-md-4">\n      <label class="form-label fw-bold">DOB</label>\n      <input class="form-control" name="dob" placeholder="YYYY-MM-DD">\n    </div>\n\n    <div class="col-md-2">\n      <label class="form-label fw-bold">Sex</label>\n      <select class="form-select" name="sex">\n        <option value=""></option>\n        <option>M</option>\n        <option>F</option>\n      </select>\n    </div>\n\n    <div class="col-md-6">\n      <label class="form-label fw-bold">Nationality</label>\n      <input class="form-control" name="nationality">\n    </div>\n\n    <div class="col-md-4">\n      <label class="form-label fw-bold">Visit type</label>\n      <select class="form-select" name="visit_type">\n        <option value="NEW">New visit</option>\n        <option value="TREATMENT">Treatment</option>\n        <option value="FOLLOW_UP">Follow-up</option>\n        <option value="PROCEDURE">Procedure / Dressing</option>\n      </select>\n    </div>\n\n    {# hidden field that will be filled automatically from insurance block #}\n    <input type="hidden" name="payment_details" id="payment_details">\n  </div>\n\n  <hr class="mt-3 mb-2">\n\n  <h5 class="mb-2">Insurance / Contract Scheme (optional)</h5>\n\n  <div class="row g-2">\n    <div class="col-md-4">\n      <label class="form-label fw-bold">Ins. Provider</label>\n      <input class="form-control" id="ins_provider">\n    </div>\n\n    <div class="col-md-4">\n      <label class="form-label fw-bold">Insur. Card No</label>\n      <input class="form-control" id="ins_card_no">\n    </div>\n\n    <div class="col-md-4">\n      <label class="form-label fw-bold">DHA Member ID</label>\n      <input class="form-control" id="dha_member_id">\n    </div>\n\n    <div class="col-md-4">\n      <label class="form-label fw-bold">Ins. Plan</label>\n      <input class="form-control" id="ins_plan">\n    </div>\n\n    <div class="col-md-4">\n      <label class="form-label fw-bold">Policy No</label>\n      <input class="form-control" id="policy_no">\n    </div>\n\n    <div class="col-md-4">\n      <label class="form-label fw-bold">Policy Name</label>\n      <input class="form-control" id="policy_name">\n    </div>\n\n    <div class="col-md-3">\n      <label class="form-label fw-bold">Valid From</label>\n      <input type="date" class="form-control" id="valid_from">\n    </div>\n\n    <div class="col-md-3">\n      <label class="form-label fw-bold">Valid To</label>\n      <input type="date" class="form-control" id="valid_to">\n    </div>\n\n    <div class="col-md-6">\n      <label class="form-label fw-bold">Consultation Deductible %</label>\n      <input class="form-control" id="consult_deduct" placeholder="e.g. 20%">\n    </div>\n\n    <div class="col-md-12">\n      <label class="form-label fw-bold d-block">Contract Scheme Details</label>\n      <div class="small text-muted">Enter percentage or fixed amount (AED) for each service - you may leave any field blank.</div>\n    </div>\n\n    <div class="col-md-4">\n      <label class="form-label">Laboratory</label>\n      <div class="input-group mb-1">\n        <span class="input-group-text">%</span>\n        <input class="form-control" id="lab_percent" placeholder="e.g. 20">\n      </div>\n      <div class="input-group">\n        <span class="input-group-text">AED</span>\n        <input class="form-control" id="lab_amount" placeholder="e.g. 50">\n      </div>\n    </div>\n\n    <div class="col-md-4">\n      <label class="form-label">Radiology</label>\n      <div class="input-group mb-1">\n        <span class="input-group-text">%</span>\n        <input class="form-control" id="radiology_percent" placeholder="e.g. 20">\n      </div>\n      <div class="input-group">\n        <span class="input-group-text">AED</span>\n        <input class="form-control" id="radiology_amount" placeholder="e.g. 50">\n      </div>\n    </div>\n\n    <div class="col-md-4">\n      <label class="form-label">Investigation</label>\n      <div class="input-group mb-1">\n        <span class="input-group-text">%</span>\n        <input class="form-control" id="investigation_percent" placeholder="e.g. 20">\n      </div>\n      <div class="input-group">\n        <span class="input-group-text">AED</span>\n        <input class="form-control" id="investigation_amount" placeholder="e.g. 50">\n      </div>\n    </div>\n\n    <div class="col-md-4">\n      <label class="form-label">Inpatient</label>\n      <div class="input-group mb-1">\n        <span class="input-group-text">%</span>\n        <input class="form-control" id="inpatient_percent" placeholder="e.g. 10">\n      </div>\n      <div class="input-group">\n        <span class="input-group-text">AED</span>\n        <input class="form-control" id="inpatient_amount" placeholder="e.g. 100">\n      </div>\n    </div>\n\n    <div class="col-md-4">\n      <label class="form-label">Pharmacy</label>\n      <div class="input-group mb-1">\n        <span class="input-group-text">%</span>\n        <input class="form-control" id="pharmacy_percent" placeholder="e.g. 10">\n      </div>\n      <div class="input-group">\n        <span class="input-group-text">AED</span>\n        <input class="form-control" id="pharmacy_amount" placeholder="e.g. 20">\n      </div>\n    </div>\n\n    <div class="col-md-4">\n      <label class="form-label">Dental</label>\n      <div class="input-group mb-1">\n        <span class="input-group-text">%</span>\n        <input class="form-control" id="dental_percent" placeholder="e.g. 20">\n      </div>\n      <div class="input-group">\n        <span class="input-group-text">AED</span>\n        <input class="form-control" id="dental_amount" placeholder="e.g. 50">\n      </div>\n    </div>\n  </div>\n\n  <div class="row g-2 mt-3">\n    <div class="col-md-6">\n      <label class="form-label fw-bold">Attachment (Eligibility / ID)</label>\n      <input type="file" class="form-control" name="eligibility_file">\n    </div>\n  </div>\n\n  <button class="btn btn-primary mt-3">Save & Create Visit</button>\n</form>\n\n<script>\n  (function () {\n    const form = document.getElementById("register-form");\n    if (!form) return;\n\n    form.addEventListener("submit", function () {\n      const get = function (id) {\n        const el = document.getElementById(id);\n        return el && el.value ? el.value.trim() : "";\n      };\n\n      const parts = [];\n      const add = function (label, id) {\n        const v = get(id);\n        if (v) { parts.push(label + ": " + v); }\n      };\n\n      add("Provider", "ins_provider");\n      add("Card", "ins_card_no");\n      add("DHA", "dha_member_id");\n      add("Plan", "ins_plan");\n      add("PolicyNo", "policy_no");\n      add("PolicyName", "policy_name");\n\n      const vFrom = get("valid_from");\n      const vTo   = get("valid_to");\n      if (vFrom || vTo) {\n        parts.push("Valid " + (vFrom || "?") + " → " + (vTo || "?"));\n      }\n\n      add("Consult%", "consult_deduct");\n\n      add("Lab%", "lab_percent");\n      add("LabAmt", "lab_amount");\n\n      add("Rad%", "radiology_percent");\n      add("RadAmt", "radiology_amount");\n\n      add("Inv%", "investigation_percent");\n      add("InvAmt", "investigation_amount");\n\n      add("Inp%", "inpatient_percent");\n      add("InpAmt", "inpatient_amount");\n\n      add("Pharm%", "pharmacy_percent");\n      add("PharmAmt", "pharmacy_amount");\n\n      add("Dent%", "dental_percent");\n      add("DentAmt", "dental_amount");\n\n      document.getElementById("payment_details").value = parts.join(" | ");\n    });\n  })();\n</script>\n\n{% endblock %}\n', 'search.html': '\n{% extends "base.html" %}\n{% block content %}\n<h4 class="mb-3">Search Patients</h4>\n\n<form class="card p-3 mb-3 bg-white" method="GET">\n  <div class="row g-2 align-items-end">\n    <div class="col-md-4">\n      <label class="form-label fw-bold">Free Search</label>\n      <input class="form-control" name="q" placeholder="Search by name / visit / ID / insurance no" value="{{ q }}">\n    </div>\n    <div class="col-md-2">\n      <label class="form-label fw-bold">Visit ID</label>\n      <input class="form-control" name="visit_id" value="{{ visit_f or \'\' }}">\n    </div>\n    <div class="col-md-2">\n      <label class="form-label fw-bold">User</label>\n      <select class="form-select" name="user">\n        <option value="">ALL</option>\n        {% for u in users %}\n          <option value="{{u.created_by}}" {% if user_f==u.created_by %}selected{% endif %}>{{u.created_by}}</option>\n        {% endfor %}\n      </select>\n    </div>\n    <div class="col-md-2">\n      <label class="form-label fw-bold">From</label>\n      <input class="form-control" type="date" name="date_from" value="{{ dfrom or \'\' }}">\n    </div>\n    <div class="col-md-2">\n      <label class="form-label fw-bold">To</label>\n      <input class="form-control" type="date" name="date_to" value="{{ dto or \'\' }}">\n    </div>\n    <div class="col-md-12 mt-2 d-grid">\n      <button class="btn btn-primary btn-sm">Filter</button>\n    </div>\n  </div>\n</form>\n\n\n{% if q and not results %}<div class="text-muted">No results</div>{% endif %}\n\n<table class="table table-sm bg-white">\n  <thead>\n    <tr>\n      <th>Visit</th><th>Queue</th><th>Name</th><th>ID</th><th>INS</th><th>INS No</th>\n      <th>Phone</th><th>Payment</th><th>Triage</th><th>CAT</th><th>Status</th><th>Actions</th>\n    </tr>\n  </thead>\n  <tbody>\n  {% for r in results %}\n    <tr>\n      <td>{{ r.visit_id }}</td>\n      <td class="fw-bold">{{ r.queue_no }}</td>\n      <td>{{ r.name }}</td>\n      <td>{{ r.id_number }}</td>\n      <td>{{ r.insurance }}</td>\n      <td>{{ r.insurance_no }}</td>\n      <td>{{ r.phone }}</td>\n      <td>{{ r.payment_details or \'-\' }}</td>\n      <td>{{ r.triage_status }}</td>\n      <td>\n        {% set cat = (r.triage_cat or \'\').lower() %}\n        {% if cat == \'es1\' %}<span class="badge cat-red">ES1</span>\n        {% elif cat == \'es2\' %}<span class="badge cat-orange">ES2</span>\n        {% elif cat == \'es3\' %}<span class="badge cat-yellow">ES3</span>\n        {% elif cat == \'es4\' %}<span class="badge cat-green">ES4</span>\n        {% elif cat == \'es5\' %}<span class="badge cat-none">ES5</span>\n        {% else %}<span class="badge cat-none">-</span>{% endif %}\n      </td>\n      <td>{{ r.status }}</td>\n      <td><a class="btn btn-sm btn-outline-primary" href="{{ url_for(\'patient_details\', visit_id=r.visit_id) }}">Open</a></td>\n    </tr>\n  {% endfor %}\n  </tbody>\n</table>\n{% endblock %}\n\n<nav class="d-flex justify-content-between align-items-center mt-2">\n  <div class="small text-muted">\n    Page {{page}} / {{pages}} - Total: {{total}}\n  </div>\n  <ul class="pagination pagination-sm mb-0">\n    <li class="page-item {% if page<=1 %}disabled{% endif %}">\n      <a class="page-link" href="{{ url_for(\'ed_board\', status=status_filter, cat=cat_filter, visit_id=visit_f, user=user_f, date_from=dfrom, date_to=dto, per_page=per_page, page=page-1) }}">Prev</a>\n    </li>\n    <li class="page-item {% if page>=pages %}disabled{% endif %}">\n      <a class="page-link" href="{{ url_for(\'ed_board\', status=status_filter, cat=cat_filter, visit_id=visit_f, user=user_f, date_from=dfrom, date_to=dto, per_page=per_page, page=page+1) }}">Next</a>\n    </li>\n  </ul>\n  <button class="btn btn-sm btn-outline-secondary" onclick="location.reload()">🔄 Manual Refresh</button>\n</nav>\n\n', 'ed_board.html': '\n{% extends "base.html" %}\n{% block content %}\n<div class="card shadow-sm mb-3 ed-board-card w-100">\n  <div class="card-header d-flex flex-wrap justify-content-between align-items-center py-2">\n    <div>\n      <h5 class="mb-0">ED Board</h5>\n      <div class="small text-muted">\n        Realtime overview for active ED visits with triage colors &amp; wait times.\n      </div>\n    </div>\n    <div class="d-flex gap-2 align-items-center mt-2 mt-md-0">\n      {% if total %}\n        <span class="badge bg-light text-dark border small">\n          Total: <span class="fw-bold">{{ total }}</span>\n        </span>\n      {% endif %}\n      <a class="btn btn-sm btn-outline-primary" href="{{ url_for(\'export_ed_board_csv\') }}">\n        ⬇︎ Export CSV\n      </a>\n    </div>\n  </div>\n\n  <div class="card-body pb-2">\n\n    {% if status_counts or triage_counts %}\n    <div class="row g-2 mb-3">\n      <div class="col-lg-5 col-md-6">\n        <div class="border rounded-3 px-2 py-2 bg-light">\n          <div class="small fw-bold text-muted mb-1">By status</div>\n          {% set sc = status_counts or {} %}\n          <div class="d-flex flex-wrap gap-1">\n            <span class="badge rounded-pill bg-success-subtle text-success border border-success">\n              OPEN: <span class="fw-bold">{{ sc.get(\'OPEN\', 0) }}</span>\n            </span>\n            <span class="badge rounded-pill bg-primary-subtle text-primary border border-primary">\n              IN_TREATMENT: <span class="fw-bold">{{ sc.get(\'IN_TREATMENT\', 0) }}</span>\n            </span>\n            <span class="badge rounded-pill bg-info-subtle text-info border border-info">\n              ADMITTED: <span class="fw-bold">{{ sc.get(\'ADMITTED\', 0) }}</span>\n            </span>\n            <span class="badge rounded-pill bg-secondary-subtle text-secondary border border-secondary">\n              DISCHARGED: <span class="fw-bold">{{ sc.get(\'DISCHARGED\', 0) }}</span>\n            </span>\n            <span class="badge rounded-pill bg-warning-subtle text-warning border border-warning">\n              TRANSFERRED: <span class="fw-bold">{{ sc.get(\'TRANSFERRED\', 0) }}</span>\n            </span>\n            <span class="badge rounded-pill bg-dark-subtle text-dark border border-dark">\n              LAMA: <span class="fw-bold">{{ sc.get(\'LAMA\', 0) }}</span>\n            </span>\n            <span class="badge rounded-pill bg-danger-subtle text-danger border border-danger">\n              EXPIRED: <span class="fw-bold">{{ sc.get(\'EXPIRED\', 0) }}</span>\n            </span>\n            <span class="badge rounded-pill bg-light text-muted border">\n              CANCELLED: <span class="fw-bold">{{ sc.get(\'CANCELLED\', 0) }}</span>\n            </span>\n          </div>\n        </div>\n      </div>\n      <div class="col-lg-7 col-md-6">\n        <div class="border rounded-3 px-2 py-2 bg-light">\n          <div class="small fw-bold text-muted mb-1">By triage (ES)</div>\n          {% set tc = triage_counts or {} %}\n          <div class="d-flex flex-wrap gap-1">\n            <span class="badge cat-red">ES1: <span class="fw-bold">{{ tc.get(\'ES1\', 0) }}</span></span>\n            <span class="badge cat-orange">ES2: <span class="fw-bold">{{ tc.get(\'ES2\', 0) }}</span></span>\n            <span class="badge cat-yellow">ES3: <span class="fw-bold">{{ tc.get(\'ES3\', 0) }}</span></span>\n            <span class="badge cat-green">ES4: <span class="fw-bold">{{ tc.get(\'ES4\', 0) }}</span></span>\n            <span class="badge cat-none">ES5: <span class="fw-bold">{{ tc.get(\'ES5\', 0) }}</span></span>\n          </div>\n        </div>\n      </div>\n    </div>\n    {% endif %}\n\n    <form class="mb-3" method="GET">\n      <div class="row g-2 align-items-end">\n        <div class="col-md-2 col-sm-6">\n          <label class="form-label fw-bold small">Status</label>\n          <select name="status" class="form-select form-select-sm" onchange="this.form.submit()">\n            <option value="ALL" {% if status_filter==\'ALL\' %}selected{% endif %}>ALL</option>\n            <option value="OPEN" {% if status_filter==\'OPEN\' %}selected{% endif %}>OPEN</option>\n            <option value="IN_TREATMENT" {% if status_filter==\'IN_TREATMENT\' %}selected{% endif %}>IN_TREATMENT</option>\n            <option value="ADMITTED" {% if status_filter==\'ADMITTED\' %}selected{% endif %}>ADMITTED</option>\n            <option value="DISCHARGED" {% if status_filter==\'DISCHARGED\' %}selected{% endif %}>DISCHARGED</option>\n            <option value="TRANSFERRED" {% if status_filter==\'TRANSFERRED\' %}selected{% endif %}>TRANSFERRED</option>\n            <option value="LAMA" {% if status_filter==\'LAMA\' %}selected{% endif %}>LAMA</option>\n            <option value="EXPIRED" {% if status_filter==\'EXPIRED\' %}selected{% endif %}>EXPIRED</option>\n            <option value="CANCELLED" {% if status_filter==\'CANCELLED\' %}selected{% endif %}>CANCELLED</option>\n          </select>\n        </div>\n\n        <div class="col-md-2 col-sm-6">\n          <label class="form-label fw-bold small">Triage ES</label>\n          <select name="cat" class="form-select form-select-sm" onchange="this.form.submit()">\n            <option value="ALL" {% if cat_filter==\'ALL\' %}selected{% endif %}>All ES</option>\n            <option value="ES1" {% if cat_filter==\'ES1\' %}selected{% endif %}>ES1</option>\n            <option value="ES2" {% if cat_filter==\'ES2\' %}selected{% endif %}>ES2</option>\n            <option value="ES3" {% if cat_filter==\'ES3\' %}selected{% endif %}>ES3</option>\n            <option value="ES4" {% if cat_filter==\'ES4\' %}selected{% endif %}>ES4</option>\n            <option value="ES5" {% if cat_filter==\'ES5\' %}selected{% endif %}>ES5</option>\n          </select>\n        </div>\n\n        <div class="col-md-2 col-sm-6">\n          <label class="form-label fw-bold small">Visit ID</label>\n          <input class="form-control form-control-sm"\n                 name="visit_id"\n                 value="{{ visit_f or \'\' }}"\n                 placeholder="ED-...">\n        </div>\n\n        <div class="col-md-2 col-sm-6">\n          <label class="form-label fw-bold small">User</label>\n          <select class="form-select form-select-sm" name="user" onchange="this.form.submit()">\n            <option value="">ALL</option>\n            {% for u in users %}\n              <option value="{{ u.created_by }}" {% if user_f==u.created_by %}selected{% endif %}>{{ u.created_by }}</option>\n            {% endfor %}\n          </select>\n        </div>\n\n        <div class="col-md-2 col-sm-6">\n          <label class="form-label fw-bold small">From</label>\n          <input class="form-control form-control-sm"\n                 type="date"\n                 name="date_from"\n                 value="{{ dfrom or \'\' }}">\n        </div>\n\n        <div class="col-md-2 col-sm-6">\n          <label class="form-label fw-bold small">To</label>\n          <div class="d-flex gap-1">\n            <input class="form-control form-control-sm"\n                   type="date"\n                   name="date_to"\n                   value="{{ dto or \'\' }}">\n            <button class="btn btn-sm btn-outline-secondary">Go</button>\n          </div>\n        </div>\n      </div>\n    </form>\n\n    <div class="table-responsive">\n      <div class="table-responsive">\n        <table class="table table-sm table-hover align-middle mb-1 ed-board-table">\n        <thead class="table-light">\n          <tr>\n            <th>Queue</th>\n            <th>Visit</th>\n            <th>Patient</th>\n            <th>Age</th>\n            <th>ID</th>\n            <th>Insurance</th>\n            <th>Payment</th>\n            <th>Triage</th>\n            <th>ES</th>\n            <th>Wait / LOS</th>\n            <th>Status</th>\n            <th>User</th>\n            <th>Created</th>\n            <th style="width:260px;">Actions</th>\n          </tr>\n        </thead>\n        <tbody>\n          {% if not visits %}\n            <tr>\n              <td colspan="14" class="text-center text-muted small py-3">\n                No visits found for current filters.\n              </td>\n            </tr>\n          {% else %}\n            {% for v in visits %}\n            <tr class="{% if v.triage_cat==\'ES1\' %}table-danger{% elif v.triage_cat==\'ES2\' %}table-warning{% elif v.triage_cat==\'ES3\' %}table-light{% elif v.triage_cat==\'ES4\' %}table-primary{% elif v.triage_cat==\'ES5\' %}table-success{% endif %}">\n              <td class="fw-bold text-center small col-queue">{{ v.queue_no }}</td>\n              <td class="fw-bold small text-nowrap col-visit">{{ v.visit_id }}</td>\n              <td>\n                <div class="fw-bold">{{ v.name }}</div>\n                <div class="small text-muted">\n                  {% set vt = (v.visit_type or \'NEW\') %}\n                  {% if vt == \'NEW\' %}\n                    New visit\n                  {% elif vt == \'TREATMENT\' %}\n                    Treatment\n                  {% elif vt in [\'FOLLOW_UP\',\'FOLLOW-UP\',\'FOLLOWUP\'] %}\n                    Follow-up\n                  {% elif vt == \'PROCEDURE\' %}\n                    Procedure / Dressing\n                  {% else %}\n                    {{ vt }}\n                  {% endif %}\n                </div>\n              </td>\n              <td class="text-center small col-age">{{ v.age or \'-\' }}</td>\n              <td class="text-nowrap small col-id">\n                {{ v.id_number }}\n                {% if v.id_attachment %}\n                  <a href="{{ url_for(\'uploaded_file\', filename=v.id_attachment) }}"\n                     target="_blank"\n                     class="ms-1 text-decoration-none"\n                     title="View ID / attachments">📎</a>\n                {% endif %}\n              </td>\n              <td class="text-nowrap small col-insurance">{{ v.insurance }}</td>\n              <td class="col-payment">\n                {% if v.payment_details %}\n                  <span class="text-muted">Recorded</span>\n                {% else %}\n                  -\n                {% endif %}\n              </td>\n              <td>\n                {% if v.triage_status==\'YES\' %}\n                  <span class="badge badge-triage-yes">YES</span>\n                {% else %}\n                  <span class="badge badge-triage-no">NO</span>\n                {% endif %}\n              </td>\n              <td>\n                {% set cat = (v.triage_cat or \'\').lower() %}\n                {% if cat == \'es1\' %}<span class="badge cat-red">ES1</span>\n                {% elif cat == \'es2\' %}<span class="badge cat-orange">ES2</span>\n                {% elif cat == \'es3\' %}<span class="badge cat-yellow">ES3</span>\n                {% elif cat == \'es4\' %}<span class="badge cat-green">ES4</span>\n                {% elif cat == \'es5\' %}<span class="badge cat-none">ES5</span>\n                {% else %}<span class="badge cat-none">-</span>{% endif %}\n              </td>\n              <td class="wait-cell">\n                {% if v.waiting_text %}\n                  {% set wl = v.waiting_level or \'none\' %}\n                  <span class="wait-pill {% if wl == \'short\' %}wait-short{% elif wl == \'medium\' %}wait-medium{% elif wl == \'long\' %}wait-long{% else %}wait-none{% endif %}">\n                    {{ v.waiting_text }}\n                  </span>\n                {% else %}\n                  <span class="text-muted">-</span>\n                {% endif %}\n              </td>\n              <td class="text-center small col-status">{{ v.status }}</td>\n              <td class="text-center small col-user">{{ v.created_by }}</td>\n              <td class="text-nowrap small text-muted col-created">{{ v.created_at }}</td>\n              <td>\n                <div class="ed-actions">\n                  <div class="ed-actions-row">\n                    <a class="btn btn-sm btn-outline-primary"\n                       href="{{ url_for(\'patient_details\', visit_id=v.visit_id) }}">\n                       Open\n                    </a>\n                    <a class="btn btn-sm btn-outline-secondary"\n                       target="_blank"\n                       href="{{ url_for(\'sticker_html\', visit_id=v.visit_id) }}">\n                       Sticker\n                    </a>\n                  </div>\n                  <div class="ed-actions-row">\n                    {% if session.get(\'role\') in [\'nurse\',\'doctor\',\'admin\'] %}\n                      <a class="btn btn-sm btn-outline-success"\n                         href="{{ url_for(\'triage\', visit_id=v.visit_id) }}">\n                         Triage\n                      </a>\n                    {% endif %}\n                    {% if session.get(\'role\') != \'reception\' %}\n                      <a class="btn btn-sm btn-outline-primary"\n                         target="_blank"\n                         href="{{ url_for(\'patient_summary_pdf\', visit_id=v.visit_id) }}">\n                         Summary PDF\n                      </a>\n                    {% endif %}\n                  </div>\n                </div>\n              </td>\n            </tr>\n            {% endfor %}\n          {% endif %}\n        </tbody>\n      </table>\n      </div>\n    </div>\n\n  </div> <!-- /card-body -->\n\n  <div class="card-footer d-flex justify-content-between align-items-center py-2">\n    <div class="small text-muted">\n      Page {{ page }} / {{ pages }} - Total: {{ total }}\n    </div>\n    <div class="d-flex align-items-center gap-2">\n      <ul class="pagination pagination-sm mb-0">\n        <li class="page-item {% if page <= 1 %}disabled{% endif %}">\n          <a class="page-link"\n             href="{{ url_for(\'ed_board\',\n                              status=status_filter,\n                              cat=cat_filter,\n                              visit_id=visit_f,\n                              user=user_f,\n                              date_from=dfrom,\n                              date_to=dto,\n                              page=page-1) }}">\n            Prev\n          </a>\n        </li>\n        <li class="page-item {% if page >= pages %}disabled{% endif %}">\n          <a class="page-link"\n             href="{{ url_for(\'ed_board\',\n                              status=status_filter,\n                              cat=cat_filter,\n                              visit_id=visit_f,\n                              user=user_f,\n                              date_from=dfrom,\n                              date_to=dto,\n                              page=page+1) }}">\n            Next\n          </a>\n        </li>\n      </ul>\n      <button class="btn btn-sm btn-outline-secondary" onclick="location.reload()">🔄 Manual Refresh</button>\n    </div>\n  </div>\n</div>\n{% endblock %}\n', 'patient_details.html': '\n{% extends "base.html" %}\n{% block content %}\n\n<div class="d-flex justify-content-between align-items-start mb-3 flex-wrap gap-2">\n  <div>\n    <h4 class="mb-0">Patient Details</h4>\n    <div class="text-muted small">Visit {{ visit.visit_id }}</div>\n  </div>\n  <div class="text-end">\n    <div class="mb-1">\n      {% set cat = (visit.triage_cat or \'\').lower() %}\n      {% if cat == \'es1\' %}<span class="badge bg-danger">ES1</span>\n      {% elif cat == \'es2\' %}<span class="badge bg-warning text-dark">ES2</span>\n      {% elif cat == \'es3\' %}<span class="badge bg-info text-dark">ES3</span>\n      {% elif cat == \'es4\' %}<span class="badge bg-primary">ES4</span>\n      {% elif cat == \'es5\' %}<span class="badge bg-success">ES5</span>\n      {% else %}<span class="badge bg-secondary">No ES</span>\n      {% endif %}\n    </div>\n    <div>\n      {% set st = (visit.status or \'\').upper() %}\n      {% set st_class = \'secondary\' %}\n      {% if st == \'OPEN\' %}{% set st_class = \'success\' %}{% endif %}\n      {% if st in [\'DISCHARGED\',\'TRANSFERRED\',\'LAMA\',\'EXPIRED\',\'CANCELLED\'] %}{% set st_class = \'danger\' %}{% endif %}\n      <span class="badge bg-{{ st_class }}">{{ visit.status or \'-\' }}</span>\n    </div>\n  </div>\n\n</div>\n\n<div class="alert d-flex justify-content-between align-items-center px-3 py-2 mb-3 {% if (visit.allergy_status or \'\').upper() == \'YES\' %}banner-allergy{% else %}banner-no-allergy{% endif %}">\n  <div class="d-flex align-items-center gap-2">\n    <span class="badge {% if (visit.allergy_status or \'\').upper() == \'YES\' %}bg-danger{% else %}bg-secondary{% endif %}">\n      ALLERGY\n    </span>\n    <div class="small">\n      {% set alg_status = (visit.allergy_status or \'\').upper() %}\n      {% if alg_status == \'YES\' %}\n        <strong>{{ visit.allergy_details or \'Allergy documented\' }}</strong>\n      {% elif alg_status == \'NKDA\' %}\n        NKDA (No known drug allergy)\n      {% elif alg_status %}\n        {{ alg_status }}\n      {% else %}\n        No allergy info recorded.\n      {% endif %}\n    </div>\n  </div>\n  <div class="small text-muted text-end">\n    Loc: {{ visit.location or \'-\' }}\n    {% if visit.bed_no %}\n      · Bed: {{ visit.bed_no }} ({{ visit.bed_status or \'EMPTY\' }})\n    {% endif %}\n  </div>\n</div>\n\n{% with messages = get_flashed_messages(with_categories=true) %}\n\n  {% for category, msg in messages %}\n    <div class="alert alert-{{ category }}">{{ msg }}</div>\n  {% endfor %}\n{% endwith %}\n\n<div class="card mb-3">\n  <div class="card-body">\n    <div class="row g-3">\n      <div class="col-md-6">\n        <h6 class="fw-bold text-muted mb-2">Patient &amp; Contact</h6>\n        <dl class="row mb-0 small">\n          <dt class="col-4">Name</dt>\n          <dd class="col-8 fw-semibold">{{ visit.name }}</dd>\n\n          <dt class="col-4">ID</dt>\n          <dd class="col-8">{{ visit.id_number or \'-\' }}</dd>\n\n          <dt class="col-4">Phone</dt>\n          <dd class="col-8">{{ visit.phone or \'-\' }}</dd>\n\n          <dt class="col-4">Nationality</dt>\n          <dd class="col-8">{{ visit.nationality or \'-\' }}</dd>\n\n          <dt class="col-4">Visit type</dt>\n          <dd class="col-8">\n            {% set vt = (visit.visit_type or \'NEW\') %}\n            {% if vt == \'NEW\' %}\n              New visit\n            {% elif vt == \'TREATMENT\' %}\n              Treatment\n            {% elif vt in [\'FOLLOW_UP\',\'FOLLOW-UP\',\'FOLLOWUP\'] %}\n              Follow-up\n            {% elif vt == \'PROCEDURE\' %}\n              Procedure / Dressing\n            {% else %}\n              {{ vt }}\n            {% endif %}\n          </dd>\n        </dl>\n      </div>\n      <div class="col-md-6">\n        <h6 class="fw-bold text-muted mb-2">Insurance &amp; Financial</h6>\n        <dl class="row mb-0 small">\n          <dt class="col-4">Insurance</dt>\n          <dd class="col-8">{{ visit.insurance or \'-\' }}</dd>\n\n          <dt class="col-4">Insurance No</dt>\n          <dd class="col-8">{{ visit.insurance_no or \'-\' }}</dd>\n\n          <dt class="col-4">Payment</dt>\n          <dd class="col-8">{{ visit.payment_details or \'-\' }}</dd>\n        </dl>\n      </div>\n    </div>\n\n    <hr class="my-3">\n\n    <div class="row g-3">\n      <div class="col-md-6">\n        <h6 class="fw-bold text-muted mb-2">Clinical Information</h6>\n        <div class="small mb-2">\n          <span class="fw-semibold">Patient Complaint:</span>\n          <div>{{ visit.comment or \'-\' }}</div>\n        </div>\n        <div class="small mb-2">\n          <span class="fw-semibold">Allergy:</span>\n          <div>\n            {{ visit.allergy_status or \'-\' }}\n            {% if visit.allergy_details %}\n              - {{ visit.allergy_details }}\n            {% endif %}\n          </div>\n        </div>\n        <div class="small mb-2">\n          <span class="fw-semibold">Triage Status:</span>\n          <span class="ms-1">{{ visit.triage_status }}</span>\n        </div>\n      </div>\n      <div class="col-md-6">\n        <h6 class="fw-bold text-muted mb-2">Vital Signs</h6>\n        <div class="d-flex flex-wrap gap-1 small">\n          <span class="badge text-bg-light">PR: {{ visit.pulse_rate or \'-\' }} bpm</span>\n          <span class="badge text-bg-light">RR: {{ visit.resp_rate or \'-\' }}/min</span>\n          <span class="badge text-bg-light">BP: {{ visit.bp_systolic or \'-\' }}/{{ visit.bp_diastolic or \'-\' }}</span>\n          <span class="badge text-bg-light">Temp: {{ visit.temperature or \'-\' }} °C</span>\n          <span class="badge text-bg-light">SpO2: {{ visit.spo2 or \'-\' }}%</span>\n          <span class="badge text-bg-light">Pain: {{ visit.pain_score or \'-\' }}/10</span>\n          <span class="badge text-bg-light">Consciousness: {{ visit.consciousness_level or \'-\' }}</span>\n          <span class="badge text-bg-light">Wt: {{ visit.weight or \'-\' }} kg</span>\n          <span class="badge text-bg-light">Ht: {{ visit.height or \'-\' }} cm</span>\n        </div>\n      </div>\n    </div>\n\n    {% if visit.status == \'CANCELLED\' %}\n    <hr class="my-3">\n    <div class="row g-2 small">\n      <div class="col-md-6">\n        <span class="fw-semibold">Cancel Reason:</span>\n        <span class="ms-1">{{ visit.cancel_reason or \'-\' }}</span>\n      </div>\n      <div class="col-md-6">\n        <span class="fw-semibold">Cancelled By:</span>\n        <span class="ms-1">{{ visit.cancelled_by or \'-\' }}</span>\n      </div>\n    </div>\n    {% endif %}\n  </div>\n</div>\n\n<div class="card p-3 bg-white mb-3">\n  <div class="d-flex justify-content-between align-items-center mb-2">\n    <h6 class="fw-bold mb-0">Location / Bed</h6>\n    <div class="small text-muted">Greaseboard-style slot</div>\n  </div>\n  <div class="row g-2 align-items-end small">\n    <div class="col-md-3 col-4">\n      <label class="form-label mb-1">Location</label>\n      <div>{{ visit.location or \'-\' }}</div>\n    </div>\n    <div class="col-md-2 col-4">\n      <label class="form-label mb-1">Bed</label>\n      <div>{{ visit.bed_no or \'-\' }}</div>\n    </div>\n    <div class="col-md-3 col-4">\n      <label class="form-label mb-1">Bed Status</label>\n      <div>{{ visit.bed_status or \'-\' }}</div>\n    </div>\n    <div class="col-md-4">\n      {% if session.get(\'role\') in [\'reception\',\'nurse\',\'doctor\',\'admin\'] %}\n      <form class="row g-1 align-items-end" method="POST" action="{{ url_for(\'update_location_bed\', visit_id=visit.visit_id) }}">\n        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">\n        <div class="col-4">\n          <label class="form-label mb-1 small">Loc</label>\n          <input type="text" class="form-control form-control-sm" name="location" value="{{ visit.location or \'\' }}" placeholder="WR / R1 / FT">\n        </div>\n        <div class="col-3">\n          <label class="form-label mb-1 small">Bed</label>\n          <input type="text" class="form-control form-control-sm" name="bed_no" value="{{ visit.bed_no or \'\' }}">\n        </div>\n        <div class="col-3">\n          <label class="form-label mb-1 small">Status</label>\n          {% set bs = (visit.bed_status or \'\').upper() %}\n          <select class="form-select form-select-sm" name="bed_status">\n            <option value="" {% if not bs %}selected{% endif %}>-</option>\n            <option value="EMPTY" {% if bs == \'EMPTY\' %}selected{% endif %}>EMPTY</option>\n            <option value="OCCUPIED" {% if bs == \'OCCUPIED\' %}selected{% endif %}>OCCUPIED</option>\n            <option value="DIRTY" {% if bs == \'DIRTY\' %}selected{% endif %}>DIRTY</option>\n          </select>\n        </div>\n        <div class="col-2">\n          <button class="btn btn-sm btn-primary w-100">Save</button>\n        </div>\n      </form>\n      {% endif %}\n    </div>\n  </div>\n</div>\n\n{% if session.get(\'role\') == \'reception\' %}\n<div class="card p-3 bg-white mb-3">\n  <h6 class="fw-bold mb-2">Investigations (Read-only for Reception)</h6>\n  <div class="row">\n    <div class="col-md-6 mb-2">\n      <strong>Lab Results:</strong>\n      {% if lab_reqs %}\n        <ul class="small mb-0">\n          {% for l in lab_reqs %}\n            {% if l.status == \'REPORTED\' %}\n              <li>{{ l.test_name }}: {{ l.result_text or \'-\' }}</li>\n            {% else %}\n              <li>{{ l.test_name }} - {{ l.status }}</li>\n            {% endif %}\n          {% endfor %}\n        </ul>\n      {% else %}\n        <div class="small text-muted">No lab requests for this visit.</div>\n      {% endif %}\n    </div>\n    <div class="col-md-6 mb-2">\n      <strong>Radiology Reports:</strong>\n      {% if rad_reqs %}\n        <ul class="small mb-0">\n          {% for r in rad_reqs %}\n            {% if r.status == \'REPORTED\' %}\n              <li>{{ r.test_name }}: {{ r.report_text or \'-\' }}</li>\n            {% else %}\n              <li>{{ r.test_name }} - {{ r.status }}</li>\n            {% endif %}\n          {% endfor %}\n        </ul>\n      {% else %}\n        <div class="small text-muted">No radiology requests for this visit.</div>\n      {% endif %}\n    </div>\n  </div>\n  <div class="small text-muted mt-1">\n    * View only - reception cannot edit results.\n  </div>\n</div>\n{% endif %}\n\n<div class="card p-3 bg-white mb-3">\n  <h6 class="fw-bold mb-2">Quick Actions</h6>\n  <div class="d-flex gap-2 flex-wrap">\n    {% if session.get(\'role\') in [\'reception\',\'admin\'] %}\n      <a class="btn btn-sm btn-outline-warning" href="{{ url_for(\'edit_patient\', visit_id=visit.visit_id) }}">Edit Patient</a>\n    {% endif %}\n\n    <a class="btn btn-sm btn-outline-secondary"\n       target="_blank"\n       href="{{ url_for(\'triage_pdf\', visit_id=visit.visit_id) }}">\n      Print Triage PDF\n    </a>\n    <a class="btn btn-sm btn-outline-secondary"\n       target="_blank"\n       href="{{ url_for(\'lab_results_pdf\', visit_id=visit.visit_id) }}">\n      Print Lab Results PDF\n    </a>\n    <a class="btn btn-sm btn-outline-secondary"\n       target="_blank"\n       href="{{ url_for(\'radiology_results_pdf\', visit_id=visit.visit_id) }}">\n      Print Radiology PDF\n    </a>\n    <a class="btn btn-sm btn-outline-secondary"\n       target="_blank"\n       href="{{ url_for(\'auto_summary_pdf\', visit_id=visit.visit_id) }}">\n      Auto-Summary PDF\n    </a>\n\n    {% if session.get(\'role\') in [\'nurse\',\'doctor\',\'admin\'] %}\n      <a class="btn btn-sm btn-success" href="{{ url_for(\'triage\', visit_id=visit.visit_id) }}">Triage</a>\n    {% endif %}\n\n    {% if session.get(\'role\') != \'reception\' %}\n      <a class="btn btn-sm btn-primary" href="{{ url_for(\'clinical_orders_page\', visit_id=visit.visit_id) }}">Clinical Orders</a>\n    {% endif %}\n\n    {% if session.get(\'role\') in [\'nurse\',\'doctor\',\'admin\'] %}\n      <a class="btn btn-sm btn-outline-dark" target="_blank" href="{{ url_for(\'auto_summary_pdf\', visit_id=visit.visit_id) }}">Auto Summary</a>\n      <a class="btn btn-sm btn-outline-primary" target="_blank" href="{{ url_for(\'patient_summary_pdf\', visit_id=visit.visit_id) }}"\n>ED Visit Summary - Patient Copy</a>\n    {% endif %}\n\n    {% if session.get(\'role\') in [\'reception\',\'nurse\',\'doctor\',\'admin\'] %}\n      <a class="btn btn-sm btn-outline-secondary" target="_blank" href="{{ url_for(\'home_med_pdf\', visit_id=visit.visit_id) }}">Home Medication</a>\n    {% endif %}\n\n    <a class="btn btn-sm btn-outline-dark" target="_blank" href="{{ url_for(\'sticker_html\', visit_id=visit.visit_id) }}">Sticker</a>\n    <a class="btn btn-sm btn-outline-secondary" target="_blank" href="{{ url_for(\'sticker_zpl\', visit_id=visit.visit_id) }}">ZPL</a>\n  </div>\n</div>\n\n{% if session.get(\'role\') in [\'reception\',\'admin\'] and visit.status == \'OPEN\' and orders_count == 0 %}\n<div class="card p-3 bg-white mb-3">\n  <h6 class="fw-bold mb-2">Cancel Visit</h6>\n  <p class="small text-muted mb-2">You can cancel an OPEN visit with no clinical orders.</p>\n  <form method="POST" action="{{ url_for(\'cancel_visit\', visit_id=visit.visit_id) }}">\n    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">\n    <div class="row g-2 align-items-end">\n      <div class="col-md-6">\n        <label class="form-label fw-bold small mb-1">Reason</label>\n        <input class="form-control" name="reason" required>\n      </div>\n      <div class="col-md-3">\n        <button class="btn btn-outline-danger w-100"\n                onclick="return confirm(\'Are you sure you want to cancel this visit?\');">\n          Cancel Visit\n        </button>\n      </div>\n    </div>\n  </form>\n</div>\n{% endif %}\n\n{% if session.get(\'role\') in [\'doctor\',\'admin\'] %}\n<form method="POST" action="{{ url_for(\'close_visit\', visit_id=visit.visit_id) }}" class="card p-3 bg-white mb-3">\n  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">\n  <h6 class="fw-bold">Update Status</h6>\n  <div class="row g-2 align-items-end">\n    <div class="col-md-4">\n      <label class="form-label fw-bold small mb-1">New Status</label>\n      <select class="form-select" name="status">\n        <option>DISCHARGED</option>\n        <option>ADMITTED</option>\n        <option>TRANSFERRED</option>\n        <option>LAMA</option>\n        <option>EXPIRED</option>\n        <option>IN_TREATMENT</option>\n        <option>CANCELLED</option>\n      </select>\n    </div>\n    <div class="col-md-3">\n      <button class="btn btn-danger w-100"\n              onclick="return confirm(\'Are you sure you want to update visit status?\');">\n        Update Status\n      </button>\n    </div>\n  </div>\n</form>\n{% endif %}\n\n<div class="card p-3 bg-white mb-3">\n  <h6 class="fw-bold mb-2">Attach Patient ID</h6>\n  <form method="POST" enctype="multipart/form-data" action="{{ url_for(\'upload_id\', visit_id=visit.visit_id) }}">\n    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">\n    <div class="row g-2 align-items-end">\n      <div class="col-md-6">\n        <input type="file" name="file" class="form-control">\n      </div>\n      <div class="col-md-3">\n        <button class="btn btn-primary btn-sm w-100">Upload</button>\n      </div>\n    </div>\n  </form>\n</div>\n\n{% endblock %}\n', 'edit_patient.html': '\n{% extends "base.html" %}\n{% block content %}\n<h4 class="mb-3">Edit Patient - Visit {{ r.visit_id }}</h4>\n\n<form method="POST" class="card p-3 bg-white">\n  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">\n  <div class="row g-2">\n    <div class="col-md-6"><label class="form-label fw-bold">Name</label><input class="form-control" name="name" value="{{ r.name }}" required></div>\n    <div class="col-md-6"><label class="form-label fw-bold">ID Number</label><input class="form-control" name="id_number" value="{{ r.id_number }}"></div>\n    <div class="col-md-4"><label class="form-label fw-bold">Phone</label><input class="form-control" name="phone" value="{{ r.phone }}"></div>\n    <div class="col-md-4"><label class="form-label fw-bold">Insurance</label><input class="form-control" name="insurance" value="{{ r.insurance }}"></div>\n    <div class="col-md-4"><label class="form-label fw-bold">Insurance No</label><input class="form-control" name="insurance_no" value="{{ r.insurance_no }}"></div>\n    <div class="col-md-4"><label class="form-label fw-bold">DOB</label><input class="form-control" name="dob" value="{{ r.dob }}"></div>\n    <div class="col-md-2"><label class="form-label fw-bold">Sex</label>\n      <select class="form-select" name="sex">\n        <option value="" {% if not r.sex %}selected{% endif %}></option>\n        <option value="M" {% if r.sex==\'M\' %}selected{% endif %}>M</option>\n        <option value="F" {% if r.sex==\'F\' %}selected{% endif %}>F</option>\n      </select>\n    </div>\n    <div class="col-md-6"><label class="form-label fw-bold">Nationality</label><input class="form-control" name="nationality" value="{{ r.nationality }}"></div>\n    <div class="col-md-12"><label class="form-label fw-bold">Payment Details</label><input class="form-control" name="payment_details" value="{{ r.payment_details }}"></div>\n  </div>\n  <div class="mt-3 d-flex gap-2">\n    <button class="btn btn-success">Save Changes</button>\n    <a class="btn btn-secondary" href="{{ url_for(\'patient_details\', visit_id=r.visit_id) }}">Cancel</a>\n  </div>\n</form>\n{% endblock %}\n', 'triage.html': '\n{% extends "base.html" %}\n{% block content %}\n<h4 class="mb-3">Triage - Visit {{ visit.visit_id }}\n  {% if visit.triage_cat %}\n    {% set es = visit.triage_cat %}\n    {% set es_class = \'danger\' if es==\'ES1\' else \'warning\' if es==\'ES2\' else \'info\' if es==\'ES3\' else \'primary\' if es==\'ES4\' else \'success\' %}\n    <span class="badge bg-{{ es_class }} ms-2">{{ es }}</span>\n  {% endif %}\n</h4>\n\n{% with messages = get_flashed_messages(with_categories=true) %}\n  {% for category, msg in messages %}\n    <div class="alert alert-{{ category }}">{{ msg }}</div>\n  {% endfor %}\n{% endwith %}\n\n<form method="POST" class="card p-3 bg-white">\n  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">\n  <div class="mb-2"><strong>Patient:</strong> {{ visit.name }} | ID: {{ visit.id_number }} | INS: {{ visit.insurance }}</div>\n\n  <label class="form-label fw-bold mt-2">Patient\'s Complaint</label>\n  <input class="form-control" name="comment" value="{{ visit.comment or \'\' }}" required>\n\n  <label class="form-label fw-bold mt-2">Allergy</label>\n  <div class="row g-2">\n    <div class="col-md-4">\n      <select class="form-select" name="allergy_status" id="allergy_status">\n        {% set al = visit.allergy_status or \'\' %}\n        <option value="" {% if al==\'\' %}selected{% endif %}>-- Select --</option>\n        <option value="No" {% if al==\'No\' %}selected{% endif %}>No</option>\n        <option value="Yes" {% if al==\'Yes\' %}selected{% endif %}>Yes</option>\n      </select>\n    </div>\n    <div class="col-md-8"\n         id="allergy_details_group"\n         style="display: {% if (visit.allergy_status or \'\') == \'Yes\' %}block{% else %}none{% endif %};">\n      <input class="form-control"\n             name="allergy_details"\n             placeholder="Cause of allergy (drug / food / other)"\n             value="{{ visit.allergy_details or \'\' }}">\n    </div>\n  </div>\n\n  <hr class="my-3">\n\n  <h6 class="fw-bold">Vital Signs</h6>\n  <div class="row g-2">\n    <div class="col-md-4">\n      <label class="form-label">Pulse Rate (bpm)</label>\n      <input class="form-control" name="pulse_rate" value="{{ visit.pulse_rate or \'\' }}">\n    </div>\n    <div class="col-md-4">\n      <label class="form-label">Resp Rate (/min)</label>\n      <input class="form-control" name="resp_rate" value="{{ visit.resp_rate or \'\' }}">\n    </div>\n    <div class="col-md-4">\n      <label class="form-label">Temp (°C)</label>\n      <input class="form-control" name="temperature" value="{{ visit.temperature or \'\' }}">\n    </div>\n    <div class="col-md-4">\n      <label class="form-label">BP Systolic</label>\n      <input class="form-control" name="bp_systolic" value="{{ visit.bp_systolic or \'\' }}">\n    </div>\n    <div class="col-md-4">\n      <label class="form-label">BP Diastolic</label>\n      <input class="form-control" name="bp_diastolic" value="{{ visit.bp_diastolic or \'\' }}">\n    </div>\n    <div class="col-md-4">\n      <label class="form-label">SpO₂ (%)</label>\n      <input class="form-control" name="spo2" value="{{ visit.spo2 or \'\' }}">  <!-- may be required based on complaint -->\n    </div>\n    <div class="col-md-4">\n      <label class="form-label">Weight (kg)</label>\n      <input class="form-control" name="weight" value="{{ visit.weight or \'\' }}">\n    </div>\n    <div class="col-md-4">\n      <label class="form-label">Height (cm)</label>\n      <input class="form-control" name="height" value="{{ visit.height or \'\' }}">\n    </div>\n    <div class="col-md-6">\n      <label class="form-label">Level of Consciousness</label>\n      <select class="form-select" name="consciousness_level">\n        {% set cl = visit.consciousness_level or \'\' %}\n        <option value="" {% if cl==\'\' %}selected{% endif %}>-- Select --</option>\n        <option value="Alert" {% if cl==\'Alert\' %}selected{% endif %}>Alert</option>\n        <option value="Verbal" {% if cl==\'Verbal\' %}selected{% endif %}>Verbal</option>\n        <option value="Pain" {% if cl==\'Pain\' %}selected{% endif %}>Pain</option>\n        <option value="Unresponsive" {% if cl==\'Unresponsive\' %}selected{% endif %}>Unresponsive</option>\n      </select>\n      <div class="form-text">AVPU scale</div>\n    </div>\n    <div class="col-md-6">\n      <label class="form-label">Pain Score (0-10)</label>\n      <input class="form-control" name="pain_score" value="{{ visit.pain_score or \'\' }}" required>\n    </div>\n  </div>\n\n  <hr class="my-3">\n\n  <label class="form-label fw-bold mt-2">Triage Category (ES)</label>\n  <select class="form-select" name="triage_cat" required>\n    <option value="">-- Select --</option>\n    <option value="ES1" {% if visit.triage_cat==\'ES1\' %}selected{% endif %}>ES1</option>\n    <option value="ES2" {% if visit.triage_cat==\'ES2\' %}selected{% endif %}>ES2</option>\n    <option value="ES3" {% if visit.triage_cat==\'ES3\' %}selected{% endif %}>ES3</option>\n    <option value="ES4" {% if visit.triage_cat==\'ES4\' %}selected{% endif %}>ES4</option>\n    <option value="ES5" {% if visit.triage_cat==\'ES5\' %}selected{% endif %}>ES5</option>\n  </select>\n\n  <div class="mt-3 d-flex gap-2">\n    <button class="btn btn-success">Save Triage</button>\n    <a class="btn btn-outline-secondary"\n       target="_blank"\n       href="{{ url_for(\'triage_pdf\', visit_id=visit.visit_id) }}">\n      Print Triage PDF\n    </a>\n  </div>\n</form>\n\n<script>\ndocument.addEventListener(\'DOMContentLoaded\', function () {\n  const allergySelect = document.getElementById(\'allergy_status\');\n  const detailsGroup = document.getElementById(\'allergy_details_group\');\n  if (!allergySelect || !detailsGroup) return;\n\n  function toggleDetails() {\n    if (allergySelect.value === \'Yes\') {\n      detailsGroup.style.display = \'block\';\n    } else {\n      detailsGroup.style.display = \'none\';\n    }\n  }\n\n  allergySelect.addEventListener(\'change\', toggleDetails);\n  toggleDetails();\n});\n</script>\n{% endblock %}\n', 'lab_board.html': '\n{% extends "base.html" %}\n{% block content %}\n<h4 class="mb-3">Lab Board</h4>\n\n{% with messages = get_flashed_messages(with_categories=true) %}\n  {% for category, msg in messages %}\n    <div class="alert alert-{{ category }}">{{ msg }}</div>\n  {% endfor %}\n{% endwith %}\n\n<form method="GET" class="card p-2 mb-3 bg-white">\n  <div class="row g-2 align-items-end">\n    <div class="col-md-3 col-sm-4">\n      <label class="form-label fw-bold small mb-1">Status</label>\n      <select name="status" class="form-select form-select-sm">\n        <option value="PENDING" {% if status_filter==\'PENDING\' %}selected{% endif %}>Pending / Received</option>\n        <option value="REPORTED" {% if status_filter==\'REPORTED\' %}selected{% endif %}>Reported</option>\n        <option value="ALL" {% if status_filter==\'ALL\' %}selected{% endif %}>All</option>\n      </select>\n    </div>\n    <div class="col-md-3 col-sm-8">\n      <label class="form-label fw-bold small mb-1">Search</label>\n      <input type="text"\n             name="q"\n             value="{{ q or \'\' }}"\n             class="form-control form-control-sm"\n             placeholder="Name / ID / Visit / Test">\n    </div>\n    <div class="col-md-2 col-sm-6">\n      <label class="form-label fw-bold small mb-1">From (requested)</label>\n      <input type="date" name="date_from" value="{{ date_from or \'\' }}"\n             class="form-control form-control-sm">\n    </div>\n    <div class="col-md-2 col-sm-6">\n      <label class="form-label fw-bold small mb-1">To (requested)</label>\n      <input type="date" name="date_to" value="{{ date_to or \'\' }}"\n             class="form-control form-control-sm">\n    </div>\n    <div class="col-md-2 col-sm-6">\n      <label class="form-label fw-bold small mb-1">&nbsp;</label>\n      <div class="d-flex gap-1">\n        <button class="btn btn-sm btn-primary flex-fill">Search / Filter</button>\n        <a class="btn btn-sm btn-outline-secondary"\n           href="{{ url_for(\'export_labs_csv\', status=status_filter, q=q, date_from=date_from, date_to=date_to) }}">\n          ⬇︎ CSV\n        </a>\n      </div>\n    </div>\n  </div>\n</form>\n\n{% if status_counts is defined %}\n<div class="card p-2 mb-2">\n  <div class="small d-flex flex-wrap align-items-center gap-3">\n    <span class="text-muted">Summary:</span>\n    <span>\n      Pending: {{ pending_count }}\n      <span class="text-muted">(\n        Requested: {{ status_counts.get(\'REQUESTED\', 0) }},\n        Received: {{ status_counts.get(\'RECEIVED\', 0) }}\n      )</span>\n    </span>\n    <span>\n      Reported: {{ status_counts.get(\'REPORTED\', 0) }}\n    </span>\n  </div>\n</div>\n{% endif %}\n\n<table class="table table-sm table-striped table-hover bg-white align-middle">\n  <thead class="table-light">\n    <tr>\n      <th style="width:60px;">#</th>\n      <th>Visit</th>\n      <th>Patient</th>\n      <th>ID</th>\n      <th>Test</th>\n      <th>Status</th>\n      <th>Age / TAT</th>\n      <th>Result</th>\n      <th style="width:220px;">Actions</th>\n    </tr>\n  </thead>\n  <tbody>\n  {% if not rows %}\n    <tr>\n      <td colspan="9" class="text-center text-muted small py-3">\n        No lab requests found for current filter.\n      </td>\n    </tr>\n  {% else %}\n    {# Group by visit so each visit/patient appears once in main rows #}\n    {% for group in rows|groupby(\'visit_id\') %}\n      {% set r0 = group.list[0] %}\n      <tr class="lab-group-row" data-visit="{{ group.grouper }}">\n        <td>{{ loop.index }}</td>\n        <td class="fw-bold">\n          <a href="javascript:void(0)" class="lab-toggle" data-visit="{{ group.grouper }}">\n            {{ group.grouper }}\n          </a>\n        </td>\n        <td>\n          <a href="javascript:void(0)" class="lab-toggle" data-visit="{{ group.grouper }}">\n            {{ r0.name }}\n          </a>\n        </td>\n        <td>\n          <a href="javascript:void(0)" class="lab-toggle" data-visit="{{ group.grouper }}">\n            {{ r0.id_number or \'-\' }}\n          </a>\n        </td>\n        <td colspan="5" class="text-muted small">\n          Click patient name / visit / ID to show tests for this visit.\n        </td>\n      </tr>\n\n      {% for r in group.list %}\n      <tr class="lab-test-row d-none" data-visit="{{ group.grouper }}">\n        <td></td>\n        <td></td>\n        <td></td>\n        <td></td>\n        <td>{{ r.test_name }}</td>\n        <td>\n          {% if r.status == \'REQUESTED\' %}\n            <span class="badge bg-secondary">Requested</span>\n          {% elif r.status == \'COLLECTED\' %}\n            <span class="badge bg-info text-dark">Collected</span>\n          {% elif r.status == \'RECEIVED\' %}\n            <span class="badge bg-warning text-dark">Received in lab</span>\n          {% elif r.status == \'IN_LAB\' %}\n            <span class="badge bg-primary">In lab</span>\n          {% elif r.status == \'REPORTED\' %}\n            <span class="badge bg-success">Reported</span>\n          {% else %}\n            <span class="badge bg-light text-muted">{{ r.status }}</span>\n          {% endif %}\n        </td>\n        <td>\n          {% if r.age_minutes is not none %}\n            {% if r.age_level == \'long\' %}\n              <span class="badge text-bg-danger">{{ r.age_text }}</span>\n            {% elif r.age_level == \'medium\' %}\n              <span class="badge text-bg-warning text-dark">{{ r.age_text }}</span>\n            {% elif r.age_level == \'short\' %}\n              <span class="badge text-bg-light text-muted">{{ r.age_text }}</span>\n            {% else %}\n              <span class="badge text-bg-light text-muted">{{ r.age_text }}</span>\n            {% endif %}\n          {% else %}\n            <span class="text-muted">-</span>\n          {% endif %}\n        </td>\n        <td style="max-width:260px; white-space:pre-wrap; font-size:0.85rem;">\n          {{ r.result_text or \'-\' }}\n        </td>\n        <td>\n          <div class="d-flex flex-column gap-1">\n            {% if session.get(\'role\') in [\'lab\',\'admin\'] %}\n              {% if r.status == \'REQUESTED\' %}\n                <form method="POST"\n                      action="{{ url_for(\'lab_collect_sample\', rid=r.id) }}">\n                  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">\n                  <button class="btn btn-sm btn-outline-primary w-100">\n                    🩸 Collect sample\n                  </button>\n                </form>\n              {% elif r.status == \'COLLECTED\' %}\n                <form method="POST"\n                      action="{{ url_for(\'lab_receive_sample\', rid=r.id) }}">\n                  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">\n                  <button class="btn btn-sm btn-outline-primary w-100">\n                    ✅ Receive in lab\n                  </button>\n                </form>\n              {% elif r.status == \'RECEIVED\' %}\n                <form method="POST"\n                      action="{{ url_for(\'lab_start_in_lab\', rid=r.id) }}">\n                  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">\n                  <button class="btn btn-sm btn-outline-primary w-100">\n                    ▶ Start in lab\n                  </button>\n                </form>\n              {% endif %}\n\n              {# Result entry allowed once sample at least collected #}\n              {% if r.status in [\'COLLECTED\',\'RECEIVED\',\'IN_LAB\',\'REPORTED\'] %}\n                <button class="btn btn-sm btn-outline-secondary w-100 mt-1"\n                        type="button"\n                        data-bs-toggle="modal"\n                        data-bs-target="#labResultModal"\n                        data-rid="{{ r.id }}"\n                        data-visit="{{ r.visit_id }}"\n                        data-patient="{{ r.name }}"\n                        data-test="{{ r.test_name }}"\n                        data-result="{{ (r.result_text or \'\')|e }}"\n                        data-url="{{ url_for(\'lab_report_result\', rid=r.id) }}">\n                  ✏️ Edit / Add Result\n                </button>\n              {% endif %}\n\n              {% if r.status == \'REPORTED\' %}\n                <div class="mt-1">\n                  <span class="badge text-bg-light text-muted">\n                    Reported by {{ r.reported_by or \'?\' }}\n                  </span>\n                </div>\n              {% endif %}\n            {% endif %}\n\n            {% if session.get(\'role\') in [\'lab\',\'admin\'] %}\n              <form method="POST"\n                    enctype="multipart/form-data"\n                    action="{{ url_for(\'lab_upload_result_file\', rid=r.id) }}"\n                    class="d-flex gap-1 mt-1">\n                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">\n                <input type="file" name="file" class="form-control form-control-sm">\n                <button class="btn btn-sm btn-outline-secondary">Upload</button>\n              </form>\n            {% endif %}\n          </div>\n        </td>\n      </tr>\n      {% endfor %}\n    {% endfor %}\n  {% endif %}\n</tbody>\n\n</table>\n\n<div class="small text-muted mt-2">Showing latest 500 requests (before filters & limits).</div>\n\n<!-- Lab Result Modal -->\n<div class="modal fade" id="labResultModal" tabindex="-1" aria-hidden="true">\n  <div class="modal-dialog modal-lg modal-dialog-scrollable">\n    <div class="modal-content">\n      <form method="POST" id="labResultForm">\n        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">\n        <div class="modal-header">\n          <h5 class="modal-title">Lab Result</h5>\n          <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>\n        </div>\n        <div class="modal-body">\n          <div class="small text-muted mb-2" id="labResultMeta"></div>\n          <div class="mb-2">\n            <label class="form-label small">Result</label>\n            <textarea class="form-control" name="result_text" id="labResultText" rows="5"\n                      placeholder="Enter result..."></textarea>\n          </div>\n        </div>\n        <div class="modal-footer">\n          <button type="button" class="btn btn-sm btn-outline-secondary" data-bs-dismiss="modal">Close</button>\n          <button type="submit" class="btn btn-sm btn-primary">Save Result</button>\n        </div>\n      </form>\n    </div>\n  </div>\n</div>\n\n<script>\n  document.addEventListener(\'DOMContentLoaded\', function () {\n    var labModal = document.getElementById(\'labResultModal\');\n    if (labModal) {\n      labModal.addEventListener(\'show.bs.modal\', function (event) {\n        var button = event.relatedTarget;\n        if (!button) return;\n        var visit = button.getAttribute(\'data-visit\') || \'\';\n        var patient = button.getAttribute(\'data-patient\') || \'\';\n        var test = button.getAttribute(\'data-test\') || \'\';\n        var result = button.getAttribute(\'data-result\') || \'\';\n        var url = button.getAttribute(\'data-url\') || \'\';\n\n        var form = document.getElementById(\'labResultForm\');\n        var textArea = document.getElementById(\'labResultText\');\n        var meta = document.getElementById(\'labResultMeta\');\n\n        if (form) form.action = url;\n        if (textArea) textArea.value = result;\n        if (meta) meta.textContent = \'Visit \' + visit + \' - \' + patient + \' - \' + test;\n      });\n    }\n\n    // Toggle tests per visit/patient\n    var toggleButtons = document.querySelectorAll(\'.lab-toggle\');\n    toggleButtons.forEach(function (btn) {\n      btn.addEventListener(\'click\', function (e) {\n        e.preventDefault();\n        var visit = btn.getAttribute(\'data-visit\');\n        if (!visit) return;\n        var rows = document.querySelectorAll(\'tr.lab-test-row[data-visit="\' + visit + \'"]\');\n        if (!rows.length) return;\n\n        var anyHidden = false;\n        rows.forEach(function (row) {\n          if (row.classList.contains(\'d-none\')) {\n            anyHidden = true;\n          }\n        });\n\n        rows.forEach(function (row) {\n          if (anyHidden) {\n            row.classList.remove(\'d-none\');\n          } else {\n            row.classList.add(\'d-none\');\n          }\n        });\n      });\n    });\n  });\n</script>\n\n\n{% endblock %}\n', 'radiology_board.html': '\n{% extends "base.html" %}\n{% block content %}\n<div class="d-flex justify-content-between align-items-center mb-2">\n  <div>\n    <h4 class="mb-0">Radiology Board</h4>\n    <div class="small text-muted">Imaging requests, status and reports.</div>\n  </div>\n  <div class="text-end small">\n    <div>\n      Pending / Done:\n      <span class="badge bg-warning-subtle text-warning border border-warning">\n        {{ pending_count or 0 }}\n      </span>\n    </div>\n    <div>\n      Reported:\n      <span class="badge bg-success-subtle text-success border border-success">\n        {{ reported_count or 0 }}\n      </span>\n    </div>\n  </div>\n</div>\n\n{% with messages = get_flashed_messages(with_categories=true) %}\n  {% for category, msg in messages %}\n    <div class="alert alert-{{ category }}">{{ msg }}</div>\n  {% endfor %}\n{% endwith %}\n\n{% if status_counts or modality_counts %}\n<div class="row g-2 mb-2">\n  <div class="col-lg-5 col-md-6">\n    <div class="card card-body py-2">\n      <div class="small fw-bold text-muted mb-1">By status</div>\n      {% set sc = status_counts or {} %}\n      <div class="d-flex flex-wrap gap-1">\n        <span class="badge rounded-pill bg-secondary-subtle text-secondary border border-secondary">\n          REQUESTED: <span class="fw-bold">{{ sc.get(\'REQUESTED\', 0) }}</span>\n        </span>\n        <span class="badge rounded-pill bg-warning-subtle text-warning border border-warning">\n          DONE: <span class="fw-bold">{{ sc.get(\'DONE\', 0) }}</span>\n        </span>\n        <span class="badge rounded-pill bg-success-subtle text-success border border-success">\n          REPORTED: <span class="fw-bold">{{ sc.get(\'REPORTED\', 0) }}</span>\n        </span>\n      </div>\n    </div>\n  </div>\n  <div class="col-lg-7 col-md-6">\n    <div class="card card-body py-2">\n      <div class="small fw-bold text-muted mb-1">By modality (simple)</div>\n      {% set mc = modality_counts or {} %}\n      <div class="d-flex flex-wrap gap-1">\n        <span class="badge rounded-pill bg-primary-subtle text-primary border border-primary">\n          XR: <span class="fw-bold">{{ mc.get(\'XR\', 0) }}</span>\n        </span>\n        <span class="badge rounded-pill bg-success-subtle text-success border border-success">\n          US: <span class="fw-bold">{{ mc.get(\'US\', 0) }}</span>\n        </span>\n        <span class="badge rounded-pill bg-warning-subtle text-warning border border-warning">\n          CT: <span class="fw-bold">{{ mc.get(\'CT\', 0) }}</span>\n        </span>\n        <span class="badge rounded-pill bg-info-subtle text-info border border-info">\n          MRI: <span class="fw-bold">{{ mc.get(\'MRI\', 0) }}</span>\n        </span>\n        <span class="badge rounded-pill bg-light text-muted border">\n          Other: <span class="fw-bold">{{ mc.get(\'Other\', 0) }}</span>\n        </span>\n      </div>\n    </div>\n  </div>\n</div>\n{% endif %}\n\n<form method="GET" class="card p-2 mb-3 bg-white">\n  <div class="row g-2 align-items-end">\n    <div class="col-md-3 col-sm-4">\n      <label class="form-label fw-bold small mb-1">Status</label>\n      <select name="status" class="form-select form-select-sm">\n        <option value="PENDING" {% if status_filter==\'PENDING\' %}selected{% endif %}>Pending / Done</option>\n        <option value="REPORTED" {% if status_filter==\'REPORTED\' %}selected{% endif %}>Reported</option>\n        <option value="ALL" {% if status_filter==\'ALL\' %}selected{% endif %}>All</option>\n      </select>\n    </div>\n    <div class="col-md-3 col-sm-6">\n      <label class="form-label fw-bold small mb-1">Search</label>\n      <input type="text"\n             name="q"\n             value="{{ q or \'\' }}"\n             class="form-control form-control-sm"\n             placeholder="Name / ID / Visit / Study">\n    </div>\n    <div class="col-md-2 col-sm-6">\n      <label class="form-label fw-bold small mb-1">From (requested)</label>\n      <input type="date" name="date_from" value="{{ date_from or \'\' }}"\n             class="form-control form-control-sm">\n    </div>\n    <div class="col-md-2 col-sm-6">\n      <label class="form-label fw-bold small mb-1">To (requested)</label>\n      <input type="date" name="date_to" value="{{ date_to or \'\' }}"\n             class="form-control form-control-sm">\n    </div>\n    <div class="col-md-2 col-sm-6">\n      <label class="form-label fw-bold small mb-1">&nbsp;</label>\n      <div class="d-flex gap-1">\n        <button class="btn btn-sm btn-primary flex-fill">Search / Filter</button>\n        <a class="btn btn-sm btn-outline-secondary"\n           href="{{ url_for(\'export_radiology_csv\', status=status_filter, q=q, date_from=date_from, date_to=date_to) }}">\n          ⬇︎ CSV\n        </a>\n      </div>\n    </div>\n  </div>\n</form>\n\n<div class="table-responsive">\n<table class="table table-sm table-striped table-hover bg-white align-middle">\n  <thead class="table-light">\n    <tr>\n      <th style="width:60px;">#</th>\n      <th>Visit</th>\n      <th>Patient</th>\n      <th>ID</th>\n      <th>Study</th>\n      <th>Modality</th>\n      <th>Requested</th>\n      <th>Age / TAT</th>\n      <th>Status</th>\n      <th>Report</th>\n      <th style="width:260px;">Actions</th>\n    </tr>\n  </thead>\n  <tbody>\n  {% if not rows %}\n    <tr>\n      <td colspan="11" class="text-center text-muted small py-3">\n        No radiology requests found for current filter.\n      </td>\n    </tr>\n  {% else %}\n    {# Group radiology requests by visit so each visit/patient appears once #}\n    {% for group in rows|groupby(\'visit_id\') %}\n      {% set r0 = group.list[0] %}\n      <tr class="rad-group-row" data-visit="{{ group.grouper }}">\n        <td>{{ loop.index }}</td>\n        <td class="fw-bold">\n          <a href="javascript:void(0)" class="rad-toggle" data-visit="{{ group.grouper }}">\n            {{ group.grouper }}\n          </a>\n        </td>\n        <td>\n          <a href="javascript:void(0)" class="rad-toggle" data-visit="{{ group.grouper }}">\n            {{ r0.name }}\n          </a>\n        </td>\n        <td>\n          <a href="javascript:void(0)" class="rad-toggle" data-visit="{{ group.grouper }}">\n            {{ r0.id_number or \'-\' }}\n          </a>\n        </td>\n        <td colspan="7" class="text-muted small">\n          Click patient name / visit / ID to show imaging studies for this visit.\n        </td>\n      </tr>\n\n      {% for r in group.list %}\n      <tr class="{% if r.status == \'REQUESTED\' %}table-warning{% elif r.status in [\'DONE\',\'REPORTED\'] %}table-light{% endif %} rad-test-row d-none"\n          data-visit="{{ group.grouper }}">\n        <td></td>\n        <td></td>\n        <td></td>\n        <td></td>\n        <td>{{ r.test_name }}</td>\n        <td>{{ r.modality or \'-\' }}</td>\n        <td class="small text-muted">{{ r.requested_at or \'\' }}</td>\n        <td>\n          {% if r.age_text %}\n            <span class="badge text-bg-light text-muted">{{ r.age_text }}</span>\n          {% else %}\n            <span class="text-muted">-</span>\n          {% endif %}\n        </td>\n        <td>\n          {% if r.status == \'REQUESTED\' %}\n            <span class="badge bg-secondary">Requested</span>\n          {% elif r.status == \'SCHEDULED\' %}\n            <span class="badge bg-info text-dark">Scheduled</span>\n          {% elif r.status == \'DONE\' %}\n            <span class="badge bg-success">Done</span>\n          {% elif r.status == \'REPORTED\' %}\n            <span class="badge bg-success">Reported</span>\n          {% else %}\n            <span class="badge bg-light text-muted">{{ r.status }}</span>\n          {% endif %}\n        </td>\n        <td style="max-width:260px; white-space:pre-wrap; font-size:0.85rem;">\n          {{ r.report_text or \'-\' }}\n        </td>\n        <td>\n          <div class="d-flex flex-column gap-1">\n            {% if session.get(\'role\') in [\'radiology\',\'admin\'] %}\n              <button class="btn btn-sm btn-outline-secondary w-100"\n                      type="button"\n                      data-bs-toggle="modal"\n                      data-bs-target="#radReportModal"\n                      data-rid="{{ r.id }}"\n                      data-visit="{{ r.visit_id }}"\n                      data-patient="{{ r.name }}"\n                      data-test="{{ r.test_name }}"\n                      data-report="{{ (r.report_text or \'\')|e }}"\n                      data-url="{{ url_for(\'radiology_report_result\', rid=r.id) }}">\n                ✏️ Edit / Add Report\n              </button>\n            {% endif %}\n\n            {% if session.get(\'role\') in [\'radiology\',\'admin\'] %}\n              <form method="POST"\n                    enctype="multipart/form-data"\n                    action="{{ url_for(\'radiology_upload_result_file\', rid=r.id) }}"\n                    class="d-flex gap-1 mt-1">\n                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">\n                <input type="file" name="file" class="form-control form-control-sm">\n                <button class="btn btn-sm btn-outline-secondary">Upload</button>\n              </form>\n            {% endif %}\n\n            {% if r.status == \'REPORTED\' %}\n              <span class="small text-muted mt-1">\n                {{ r.reported_at or \'\' }} | {{ r.reported_by or \'\' }}\n              </span>\n            {% endif %}\n          </div>\n        </td>\n      </tr>\n      {% endfor %}\n    {% endfor %}\n  {% endif %}\n</tbody>\n\n</table>\n</div>\n\n<div class="small text-muted mt-2">\n  Showing latest 500 radiology requests (before filters & limits).\n</div>\n\n<!-- Radiology Report Modal -->\n<div class="modal fade" id="radReportModal" tabindex="-1" aria-hidden="true">\n  <div class="modal-dialog modal-lg modal-dialog-scrollable">\n    <div class="modal-content">\n      <form method="POST" id="radReportForm">\n        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">\n        <div class="modal-header">\n          <h5 class="modal-title">Radiology Report</h5>\n          <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>\n        </div>\n        <div class="modal-body">\n          <div class="small text-muted mb-2" id="radReportMeta"></div>\n          <div class="mb-2">\n            <label class="form-label small">Report Text</label>\n            <textarea\n              name="report_text"\n              id="radReportText"\n              rows="12"\n              class="form-control form-control-sm"\n              placeholder="Type or paste the radiology report here..."></textarea>\n          </div>\n          <div class="alert alert-info small">\n            <ul class="mb-0 ps-3">\n              <li>Keep structured (Findings / Impression) where possible.</li>\n              <li>Patient &amp; visit details appear above for double-checking.</li>\n            </ul>\n          </div>\n        </div>\n        <div class="modal-footer">\n          <button type="button" class="btn btn-sm btn-outline-secondary" data-bs-dismiss="modal">Close</button>\n          <button type="submit" class="btn btn-sm btn-primary">Save Report</button>\n        </div>\n      </form>\n    </div>\n  </div>\n</div>\n\n<script>\ndocument.addEventListener(\'DOMContentLoaded\', function () {\n  var radModal = document.getElementById(\'radReportModal\');\n  if (radModal) {\n    radModal.addEventListener(\'show.bs.modal\', function (event) {\n      var button = event.relatedTarget;\n      if (!button) return;\n\n      var rid = button.getAttribute(\'data-rid\') || \'\';\n      var visit = button.getAttribute(\'data-visit\') || \'\';\n      var patient = button.getAttribute(\'data-patient\') || \'\';\n      var test = button.getAttribute(\'data-test\') || \'\';\n      var report = button.getAttribute(\'data-report\') || \'\';\n      var url = button.getAttribute(\'data-url\') || \'\';\n\n      var form = document.getElementById(\'radReportForm\');\n      var textArea = document.getElementById(\'radReportText\');\n      var meta = document.getElementById(\'radReportMeta\');\n\n      if (form) form.action = url;\n      if (textArea) textArea.value = report;\n      if (meta) meta.textContent = \'Visit \' + visit + \' - \' + patient + \' - \' + test;\n    });\n  }\n\n  // Toggle radiology studies per visit/patient\n  var toggleButtons = document.querySelectorAll(\'.rad-toggle\');\n  toggleButtons.forEach(function (btn) {\n    btn.addEventListener(\'click\', function (e) {\n      e.preventDefault();\n      var visit = btn.getAttribute(\'data-visit\');\n      if (!visit) return;\n      var rows = document.querySelectorAll(\'tr.rad-test-row[data-visit="\' + visit + \'"]\');\n      if (!rows.length) return;\n\n      var anyHidden = false;\n      rows.forEach(function (row) {\n        if (row.classList.contains(\'d-none\')) {\n          anyHidden = true;\n        }\n      });\n\n      rows.forEach(function (row) {\n        if (anyHidden) {\n          row.classList.remove(\'d-none\');\n        } else {\n          row.classList.add(\'d-none\');\n        }\n      });\n    });\n  });\n});\n</script>\n\n\n{% endblock %}\n', 'clinical_orders.html': '\n{% extends "base.html" %}\n{% block content %}\n<h4 class="mb-2">Clinical Orders - Visit {{ visit.visit_id }}</h4>\n<div class="mb-3 text-muted">\n  Patient: {{ visit.name }} | ID: {{ visit.id_number }} | Insurance: {{ visit.insurance }}\n</div>\n\n{% with messages = get_flashed_messages(with_categories=true) %}\n  {% for category, msg in messages %}\n    <div class="alert alert-{{ category }}">{{ msg }}</div>\n  {% endfor %}\n{% endwith %}\n\n<div class="mb-3 d-flex flex-wrap gap-2">\n  <a class="btn btn-sm btn-outline-secondary"\n     target="_blank"\n     href="{{ url_for(\'lab_results_pdf\', visit_id=visit.visit_id) }}">\n    Print Lab Results PDF\n  </a>\n\n  <a class="btn btn-sm btn-outline-secondary"\n     target="_blank"\n     href="{{ url_for(\'radiology_results_pdf\', visit_id=visit.visit_id) }}">\n    Print Radiology Reports PDF\n  </a>\n\n  <a class="btn btn-sm btn-outline-dark"\n     target="_blank"\n     href="{{ url_for(\'auto_summary_pdf\', visit_id=visit.visit_id) }}">\n    Auto ED Course Summary PDF\n  </a>\n</div>\n\n<div class="row g-3">\n  <div class="col-lg-7">\n    <div class="card p-3 bg-white">\n      <h6 class="fw-bold mb-2">Add New Clinical Order</h6>\n\n      <div class="mb-3 d-flex flex-wrap gap-2">\n        <button type="button" class="btn btn-sm btn-outline-primary" onclick="applyBundle(\'chest_pain\')">Chest Pain Bundle</button>\n        <button type="button" class="btn btn-sm btn-outline-danger" onclick="applyBundle(\'stroke\')">Stroke Bundle</button>\n        <button type="button" class="btn btn-sm btn-outline-dark" onclick="applyBundle(\'trauma\')">Trauma Bundle</button>\n        \n        <button type="button" class="btn btn-sm btn-outline-success" onclick="applyBundle(\'abdominal_pain\')">Abdominal Pain Bundle</button>\n        <button type="button" class="btn btn-sm btn-outline-info" onclick="applyBundle(\'sob\')">SOB Bundle</button>\n        <button type="button" class="btn btn-sm btn-outline-warning" onclick="applyBundle(\'sepsis\')">Sepsis Bundle</button>\n        <button type="button" class="btn btn-sm btn-outline-primary" onclick="applyBundle(\'fever\')">Fever Bundle</button>\n        <button type="button" class="btn btn-sm btn-outline-dark" onclick="applyBundle(\'gi_bleed\')">GI Bleed Bundle</button>\n        <button type="button" class="btn btn-sm btn-outline-danger" onclick="applyBundle(\'anaphylaxis\')">Anaphylaxis Bundle</button>\n<button type="button" class="btn btn-sm btn-outline-secondary" onclick="clearAllBundles()">Clear Selections</button>\n      </div>\n\n      {% if session.get(\'role\') not in [\'reception\'] %}\n      <form method="POST" action="{{ url_for(\'add_clinical_order\', visit_id=visit.visit_id) }}">\n  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">\n        <label class="form-label fw-bold">Diagnosis / Chief Complaint</label>\n        <textarea class="form-control mb-3" name="diagnosis" rows="2" placeholder="Write diagnosis or chief complaint..."></textarea>\n\n        <label class="form-label fw-bold">Radiology Orders</label>\n        <div class="border rounded p-2 mb-2" style="max-height:180px; overflow:auto;">\n          {% set rad_list = [\n            "X-Ray Chest PA/AP","X-Ray Abdomen","X-Ray Pelvis","X-Ray Skull",\n            "X-Ray C-Spine","X-Ray T-Spine","X-Ray L-Spine","X-Ray Thoraco-Lumbar",\n            "X-Ray Shoulder","X-Ray Humerus","X-Ray Elbow","X-Ray Forearm","X-Ray Wrist","X-Ray Hand",\n            "X-Ray Hip","X-Ray Femur","X-Ray Knee","X-Ray Leg/Ankle","X-Ray Foot/Toes",\n            "CT Brain Without Contrast","CT Brain With Contrast","CT Temporal Bones",\n            "CT C-Spine","CT Dorsal Spine","CT L-S Spine",\n            "CT Chest","CT Abdomen","CT Abdomen/Pelvis","CT KUB",\n            "CT Angio Brain/Neck","CT Angio Chest (PE Study)","CT Trauma Pan-Scan",\n            "MRI Brain","MRI Pituitary","MRI C-Spine","MRI T-Spine","MRI L-Spine",\n            "MRI Knee","MRI Shoulder",\n            "US Abdomen","US Hepatobiliary","US Pelvis","US KUB","US Scrotum/Testes",\n            "US DVT Lower Limb","US DVT Upper Limb","FAST Ultrasound","POCUS / Bedside US"\n          ] %}\n          {% for item in rad_list %}\n            <div class="form-check">\n              <input class="form-check-input rad-item" type="checkbox" value="{{ item }}" id="rad_{{ loop.index }}">\n              <label class="form-check-label" for="rad_{{ loop.index }}">{{ item }}</label>\n            </div>\n          {% endfor %}\n        </div>\n\n        <div class="input-group input-group-sm mb-2">\n          <input type="text" class="form-control" id="rad_other" placeholder="Search or add radiology (optional)">\n          <button class="btn btn-outline-secondary" type="button" onclick="searchOrAdd(\'rad\')">Search / Add</button>\n        </div>\n\n        <textarea class="form-control mb-3" id="radiology_text" name="radiology_orders" rows="2"\n                  placeholder="Selected radiology appear here..." readonly></textarea>\n\n        <label class="form-label fw-bold">Lab Orders</label>\n        <div class="border rounded p-2 mb-2" style="max-height:180px; overflow:auto;">\n          {% set lab_list = [\n            "CBC",\n            "CMP (Kidney/Liver)",\n            "Electrolytes",\n            "CRP",\n            "ESR",\n            "Troponin",\n            "CK-MB",\n            "PT/PTT/INR",\n            "RBS (Random Blood Sugar)",\n            "ABG",\n            "Lactate",\n            "D-Dimer",\n            "BNP",\n            "LFT",\n            "Urine Analysis",\n            "Blood Culture",\n            "BHCG (Pregnancy Test)",\n            "Type & Screen / Crossmatch",\n            "FBS (Fasting Blood Sugar)",\n            "HbA1c",\n            "Renal Function (BUN/Creatinine)",\n            "Serum Urea",\n            "Serum Creatinine",\n            "Serum Sodium",\n            "Serum Potassium",\n            "Serum Chloride",\n            "Serum Bicarbonate",\n            "Calcium",\n            "Magnesium",\n            "Phosphate",\n            "Lipase",\n            "Amylase",\n            "Total Bilirubin",\n            "Direct Bilirubin",\n            "AST",\n            "ALT",\n            "Alkaline Phosphatase",\n            "Procalcitonin",\n            "Serum Lactate (Sepsis)",\n            "TSH",\n            "Free T4",\n            "Serum Ferritin",\n            "Iron Studies",\n            "Vitamin B12",\n            "Folate",\n            "Urine Culture",\n            "Urine Microscopy",\n            "Stool Analysis",\n            "Stool Culture",\n            "CSF Analysis",\n            "CSF Culture",\n            "HIV Rapid Test",\n            "HBsAg",\n            "HCV Antibody",\n            "COVID-19 PCR",\n            "Influenza PCR"\n          ] %}\n          {% for item in lab_list %}\n            <div class="form-check">\n              <input class="form-check-input lab-item" type="checkbox" value="{{ item }}" id="lab_{{ loop.index }}">\n              <label class="form-check-label" for="lab_{{ loop.index }}">{{ item }}</label>\n            </div>\n          {% endfor %}\n        </div>\n\n        <div class="input-group input-group-sm mb-2">\n          <input type="text" class="form-control" id="lab_other" placeholder="Search or add lab (optional)">\n          <button class="btn btn-outline-secondary" type="button" onclick="searchOrAdd(\'lab\')">Search / Add</button>\n        </div>\n\n        <textarea class="form-control mb-3" id="lab_text" name="lab_orders" rows="2"\n                  placeholder="Selected labs appear here..." readonly></textarea>\n\n        <label class="form-label fw-bold">Medications</label>\n        <div class="border rounded p-2 mb-2" style="max-height:200px; overflow:auto;">\n          {% set med_list = [\n            "Paracetamol IV",\n            "Paracetamol PO",\n            "Paracetamol IV/PO",\n            "Diclofenac IM",\n            "Ibuprofen PO",\n            "Ketorolac IV/IM",\n            "Tramadol IV",\n            "Morphine IV",\n            "Fentanyl IV",\n            "Midazolam IV",\n            "Diazepam IV",\n            "Ondansetron IV",\n            "Metoclopramide IV",\n            "Domperidone PO",\n            "Ceftriaxone IV",\n            "Cefotaxime IV",\n            "Ceftazidime IV",\n            "Cefazolin IV",\n            "Piperacillin/Tazobactam (Tazocin)",\n            "Meropenem IV",\n            "Vancomycin IV",\n            "Amoxicillin/Clavulanate IV",\n            "Amoxicillin/Clavulanate PO",\n            "Azithromycin IV",\n            "Azithromycin PO",\n            "Clarithromycin PO",\n            "Metronidazole IV",\n            "Clindamycin IV",\n            "Gentamicin IV",\n            "Ciprofloxacin IV",\n            "Ciprofloxacin PO",\n            "Levofloxacin IV",\n            "Levofloxacin PO",\n            "Broad Spectrum Antibiotic (per policy)",\n            "Aspirin PO 300mg",\n            "Aspirin PO 81mg",\n            "Nitroglycerin SL",\n            "Nitroglycerin Infusion",\n            "Heparin SC/IV",\n            "Enoxaparin SC",\n            "Labetalol IV",\n            "Metoprolol IV",\n            "Furosemide IV",\n            "Hydralazine IV",\n            "Noradrenaline Infusion",\n            "Dopamine Infusion",\n            "Adrenaline Infusion",\n            "Oxygen Therapy",\n            "Salbutamol Neb",\n            "Salbutamol Nebulizer",\n            "Salbutamol MDI",\n            "Duolin Neb",\n            "Ipratropium Nebulizer",\n            "Epinephrine IM",\n            "Hydrocortisone IV",\n            "Chlorpheniramine IV/IM",\n            "Diphenhydramine IV/IM",\n            "Pantoprazole IV",\n            "Ranitidine IV",\n            "Omeprazole PO",\n            "Hyoscine (Buscopan) IV/IM",\n            "Regular Insulin IV",\n            "SC Insulin (sliding scale)",\n            "Dextrose 50% IV Bolus",\n            "Magnesium Sulfate IV",\n            "Calcium Gluconate IV",\n            "Sodium Bicarbonate IV",\n            "Potassium Chloride IV Infusion",\n            "Normal Saline 0.9%",\n            "Normal Saline 0.9% Bolus",\n            "Ringer Lactate",\n            "D5W",\n            "D5NS",\n            "D10W",\n            "Tranexamic Acid IV (if indicated)",\n            "Tetanus Toxoid IM"\n          ] %}\n          {% for item in med_list %}\n            <div class="form-check d-flex align-items-center mb-1">\n              <input class="form-check-input med-item me-2" type="checkbox" value="{{ item }}" id="med_{{ loop.index }}">\n              <label class="form-check-label flex-grow-1" for="med_{{ loop.index }}">{{ item }}</label>\n              <input type="text"\n                     class="form-control form-control-sm ms-2 med-dose"\n                     data-med="{{ item }}"\n                     placeholder="Dose">\n            </div>\n          {% endfor %}\n        </div>\n\n        <div class="input-group input-group-sm mb-2">\n          <input type="text" class="form-control" id="med_other" placeholder="Search or add medication (optional)">\n          <button class="btn btn-outline-secondary" type="button" onclick="searchOrAdd(\'med\')">Search / Add</button>\n        </div>\n\n        <textarea class="form-control mb-3" id="med_text" name="medications" rows="2"\n                  placeholder="Selected medications appear here..." readonly></textarea>\n\n        <div class="d-flex gap-2 mt-2">\n          <button class="btn btn-primary">Save Clinical Order</button>\n          <a class="btn btn-secondary" href="{{ url_for(\'patient_details\', visit_id=visit.visit_id) }}">Back</a>\n        </div>\n      </form>\n      {% else %}\n        <div class="alert alert-warning mb-0">\n          Reception role has no access to create clinical orders.\n        </div>\n      {% endif %}\n    </div>\n  </div>\n\n  <div class="col-lg-5">\n    <div class="card p-3 bg-white mb-3">\n      <div class="d-flex justify-content-between align-items-center">\n        <h6 class="fw-bold mb-2">Nursing Notes</h6>\n        <a class="btn btn-sm btn-outline-primary"\n           target="_blank"\n           href="{{ url_for(\'nursing_notes_pdf\', visit_id=visit.visit_id) }}">Print Notes PDF</a>\n      </div>\n\n      {% if session.get(\'role\') in [\'nurse\',\'doctor\',\'admin\'] %}\n      <form method="POST" action="{{ url_for(\'add_nursing_note\', visit_id=visit.visit_id) }}">\n  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">\n        <textarea class="form-control mb-2" name="note_text" rows="3" placeholder="Write nursing note..."></textarea>\n        <button class="btn btn-sm btn-primary">Save Note</button>\n      </form>\n      {% else %}\n        <div class="text-muted small">Nursing notes are read-only for this role.</div>\n      {% endif %}\n\n      <hr>\n      {% if notes %}\n        <div style="max-height:220px; overflow:auto;">\n          {% for n in notes %}\n            <div class="border rounded p-2 mb-2">\n              <div class="small fw-bold">{{ n.created_at }} | {{ n.created_by }}</div>\n              <div class="small">{{ n.note_text }}</div>\n            </div>\n          {% endfor %}\n        </div>\n      {% else %}\n        <div class="text-muted small">No nursing notes yet.</div>\n      {% endif %}\n    </div>\n\n    {% if session.get(\'role\') != \'nurse\' %}\n    <div class="card p-3 bg-white">\n      <div class="d-flex justify-content-between align-items-center">\n        <h6 class="fw-bold mb-2">Discharge Summary V5</h6>\n        <a class="btn btn-sm btn-outline-secondary"\n           target="_blank"\n           href="{{ url_for(\'discharge_summary_pdf\', visit_id=visit.visit_id) }}">Auto-Summary PDF</a>\n      </div>\n\n      <form method="POST" action="{{ url_for(\'discharge_save\', visit_id=visit.visit_id) }}">\n  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">\n        <label class="form-label fw-bold small mt-2">Diagnosis / Chief Complaint</label>\n        <textarea class="form-control mb-2" name="diagnosis_cc" rows="2"\n          placeholder="Diagnosis / chief complaint...">{{ summary.diagnosis_cc if summary else \'\' }}</textarea>\n\n        <label class="form-label fw-bold small">Final Diagnosis</label>\n        <textarea class="form-control mb-2" name="final_diagnosis" rows="2"\n          placeholder="Final diagnosis (principal and secondary)...">{{ summary.final_diagnosis if summary else \'\' }}</textarea>\n\n        <label class="form-label fw-bold small">Referral to Clinic</label>\n        <input class="form-control mb-2"\n               name="referral_clinic"\n               list="clinic_list"\n               placeholder="Select / type clinic"\n               value="{{ summary.referral_clinic if summary else \'\' }}">\n        <datalist id="clinic_list">\n          <option value="ED / Emergency">\n          <option value="General Medicine OPD">\n          <option value="General Surgery OPD">\n          <option value="Pediatrics OPD">\n          <option value="Obstetrics & Gynecology OPD">\n          <option value="Orthopedics OPD">\n          <option value="Cardiology OPD">\n          <option value="Neurology OPD">\n          <option value="ENT OPD">\n          <option value="Ophthalmology OPD">\n          <option value="Urology OPD">\n          <option value="Dermatology OPD">\n          <option value="Psychiatry OPD">\n          <option value="Dental OPD">\n          <option value="Oncology OPD">\n          <option value="Endocrinology OPD">\n          <option value="Nephrology OPD">\n          <option value="Pulmonology OPD">\n          <option value="ICU">\n          <option value="LDR">\n        </datalist>\n\n        <label class="form-label fw-bold small">Home Medication</label>\n        <div class="form-text small text-muted mb-1">\n          Template: <strong>Drug 500 mg tab – 1 tab PO – every 8h – for 3 days – PRN for pain</strong>.\n          Write <strong>one medicine per line</strong>.\n        </div>\n        <textarea class="form-control mb-2" name="home_medication" rows="2"\n          placeholder="Example: Paracetamol 500 mg tab – 1 tab PO – every 8h – for 3 days">{{ summary.home_medication if summary else \'\' }}</textarea>\n\n        <label class="form-label fw-bold small">ED / Hospital Course</label>\n        <textarea class="form-control mb-2" name="summary_text" rows="4"\n                  placeholder="Brief summary of presentation, key exam findings, treatment and response...">{{ summary.summary_text if summary else \'\' }}</textarea>\n\n        <label class="form-label fw-bold small">Investigations Summary</label>\n        <textarea class="form-control mb-2" name="investigations_summary" rows="3"\n                  placeholder="Key lab and imaging findings (only relevant/abnormal results)...">{{ summary.investigations_summary if summary else \'\' }}</textarea>\n\n        <label class="form-label fw-bold small">Procedures Performed</label>\n        <textarea class="form-control mb-2" name="procedures_text" rows="2"\n                  placeholder="e.g. Suturing, nebulisation, plaster cast, wound dressing...">{{ summary.procedures_text if summary else \'\' }}</textarea>\n\n        <label class="form-label fw-bold small">Condition on Discharge</label>\n        <input class="form-control mb-2" name="condition_on_discharge"\n               placeholder="e.g. Stable and improved" value="{{ summary.condition_on_discharge if summary else \'\' }}">\n\n        <label class="form-label fw-bold small">Follow-up & Instructions</label>\n        <textarea class="form-control mb-3" name="followup_instructions" rows="3"\n                  placeholder="Follow-up clinic and safety-net advice (return to ED if...)">{{ summary.followup_instructions if summary else \'\' }}</textarea>\n\n        <button class="btn btn-sm btn-success">Save Summary</button>\n      </form>\n    </div>\n    {% endif %}\n  </div>\n</div>\n\n<div class="card p-3 bg-white mt-3">\n  <h6 class="fw-bold mb-2">Lab Requests / Results</h6>\n  {% if not lab_reqs %}\n    <div class="text-muted small">No lab requests for this visit.</div>\n  {% else %}\n    <table class="table table-sm mb-0">\n      <thead>\n        <tr>\n          <th style="width:60px;">#</th>\n          <th>Test</th>\n          <th>Status</th>\n          <th>Result</th>\n          <th class="small">Requested</th>\n          <th style="width:120px;" class="small">Actions</th>\n        </tr>\n      </thead>\n      <tbody>\n        {% for l in lab_reqs %}\n          <tr>\n            <td>{{ l.id }}</td>\n            <td>{{ l.test_name }}</td>\n            <td>\n              {% if l.status == \'REQUESTED\' %}\n                <span class="badge bg-secondary">Waiting Sample</span>\n              {% elif l.status == \'RECEIVED\' %}\n                <span class="badge bg-warning text-dark">Sample Received</span>\n              {% elif l.status == \'REPORTED\' %}\n                <span class="badge bg-success">Result Ready</span>\n              {% else %}\n                <span class="badge bg-light text-muted">{{ l.status }}</span>\n              {% endif %}\n            </td>\n            <td style="max-width:260px;white-space:pre-wrap;font-size:0.85rem;">\n              {{ l.result_text or \'-\' }}\n            </td>\n            <td class="small text-muted">\n              {{ l.requested_at or \'-\' }}<br>\n              by {{ l.requested_by or \'-\' }}\n            </td>\n            <td class="small">\n              <div class="d-flex flex-wrap gap-1">\n                {% if l.status == \'REQUESTED\' and session.get(\'role\') in [\'nurse\',\'lab\',\'admin\'] %}\n                  <form method="POST"\n                        action="{{ url_for(\'lab_collect_sample\', rid=l.id) }}"\n                        class="d-inline">\n                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">\n                    <button class="btn btn-sm btn-outline-primary"\n                            onclick="return confirm(\'Mark sample as COLLECTED?\');">\n                      Collect sample\n                    </button>\n                  </form>\n                {% endif %}\n                {% if l.status != \'REPORTED\' and session.get(\'role\') in [\'doctor\',\'lab\',\'admin\'] %}\n                  <form method="POST"\n                        action="{{ url_for(\'lab_delete_request\', rid=l.id) }}"\n                        class="d-inline">\n                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">\n                    <button class="btn btn-sm btn-outline-danger"\n                            onclick="return confirm(\'Delete this lab request?\');">\n                      🗑\n                    </button>\n                  </form>\n                {% endif %}\n                {% if session.get(\'role\') in [\'nurse\',\'doctor\',\'lab\',\'radiology\',\'admin\'] %}\n                  <a class="btn btn-sm btn-outline-secondary"\n                     href="{{ url_for(\'lab_results_pdf\', visit_id=visit.visit_id) }}"\n                     target="_blank"\n                     title="Open lab results PDF">\n                    📄\n                  </a>\n                {% endif %}\n              </div>\n            </td>\n          </tr>\n        {% endfor %}\n      </tbody>\n    </table>\n  {% endif %}\n</div>\n\n<div class="card p-3 bg-white mt-3">\n  <h6 class="fw-bold mb-2">Radiology Requests / Reports</h6>\n  {% if not rad_reqs %}\n    <div class="text-muted small">No radiology requests for this visit.</div>\n  {% else %}\n    <table class="table table-sm mb-0">\n      <thead>\n        <tr>\n          <th style="width:60px;">#</th>\n          <th>Study</th>\n          <th>Status</th>\n          <th>Report</th>\n          <th class="small">Requested</th>\n          <th style="width:140px;" class="small">Actions</th>\n        </tr>\n      </thead>\n      <tbody>\n        {% for r in rad_reqs %}\n          <tr>\n            <td>{{ r.id }}</td>\n            <td>{{ r.test_name }}</td>\n            <td>\n              {% if r.status == \'REQUESTED\' %}\n                <span class="badge bg-secondary">Waiting</span>\n              {% elif r.status == \'DONE\' %}\n                <span class="badge bg-warning text-dark">Done</span>\n              {% elif r.status == \'REPORTED\' %}\n                <span class="badge bg-success">Report Ready</span>\n              {% else %}\n                <span class="badge bg-light text-muted">{{ r.status }}</span>\n              {% endif %}\n            </td>\n            <td style="max-width:260px;white-space:pre-wrap;font-size:0.85rem;">\n              {{ r.report_text or \'-\' }}\n            </td>\n            <td class="small text-muted">\n              {{ r.requested_at or \'-\' }}<br>\n              by {{ r.requested_by or \'-\' }}\n            </td>\n            <td class="small">\n              <div class="d-flex flex-wrap gap-1">\n                {% if r.status == \'REQUESTED\' and session.get(\'role\') in [\'nurse\',\'radiology\',\'admin\'] %}\n                  <form method="POST"\n                        action="{{ url_for(\'radiology_mark_done\', rid=r.id) }}"\n                        class="d-inline">\n                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">\n                    <button class="btn btn-sm btn-outline-primary"\n                            onclick="return confirm(\'Mark study as DONE?\');">\n                      Mark done\n                    </button>\n                  </form>\n                {% endif %}\n                {% if r.status != \'REPORTED\' and session.get(\'role\') in [\'doctor\',\'radiology\',\'admin\'] %}\n                  <form method="POST"\n                        action="{{ url_for(\'radiology_delete_request\', rid=r.id) }}"\n                        class="d-inline">\n                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">\n                    <button class="btn btn-sm btn-outline-danger"\n                            onclick="return confirm(\'Delete this radiology request?\');">\n                      🗑\n                    </button>\n                  </form>\n                {% endif %}\n                {% if session.get(\'role\') in [\'nurse\',\'doctor\',\'lab\',\'radiology\',\'admin\'] %}\n                  <a class="btn btn-sm btn-outline-secondary"\n                     href="{{ url_for(\'radiology_results_pdf\', visit_id=visit.visit_id) }}"\n                     target="_blank"\n                     title="Open radiology report PDF">\n                    📄\n                  </a>\n                {% endif %}\n              </div>\n            </td>\n          </tr>\n        {% endfor %}\n      </tbody>\n    </table>\n  {% endif %}\n</div>\n\n<div class="card p-3 bg-white mt-3">\n  <h6 class="fw-bold mb-2">Previous Clinical Orders</h6>\n\n  {% if not orders %}\n    <div class="text-muted small">No clinical orders yet.</div>\n  {% else %}\n    {% for o in orders %}\n      <div class="border rounded p-2 mb-2">\n        <div class="d-flex justify-content-between align-items-center">\n          <div class="fw-bold">\n            Order #{{ o.id }}\n            <span class="text-muted small ms-2">{{ o.created_at }} by {{ o.created_by }}</span>\n            {% if o.updated_at %}\n              <span class="text-muted small ms-2">| Updated: {{ o.updated_at }} by {{ o.updated_by }}</span>\n            {% endif %}\n          </div>\n\n          <div class="d-flex gap-1">\n            <a class="btn btn-sm btn-outline-secondary"\n               target="_blank"\n               href="{{ url_for(\'clinical_order_pdf\', visit_id=visit.visit_id, oid=o.id) }}">Print PDF</a>\n\n            {% if session.get(\'role\') in [\'nurse\',\'doctor\',\'admin\'] %}\n              <form method="post" class="d-inline" action="{{ url_for(\'delete_clinical_order\', visit_id=visit.visit_id, oid=o.id) }}" onsubmit="return confirm(\'Delete this order?\');">\n                <button class="btn btn-sm btn-outline-danger">Delete</button>\n              </form>\n\n              <button class="btn btn-sm btn-outline-dark"\n                      data-bs-toggle="collapse"\n                      data-bs-target="#edit{{ o.id }}">Edit</button>\n            {% endif %}\n          </div>\n        </div>\n\n        <div class="mt-2 small">\n          <div><strong>Diagnosis / Chief Complaint:</strong><br>{{ o.diagnosis or \'-\' }}</div>\n          <div class="mt-1"><strong>Radiology:</strong><br>{{ o.radiology_orders or \'-\' }}</div>\n          <div class="mt-1"><strong>Lab:</strong><br>{{ o.lab_orders or \'-\' }}</div>\n          <div class="mt-1"><strong>Medications:</strong><br>{{ o.medications or \'-\' }}</div>\n        </div>\n\n        <div class="collapse mt-2" id="edit{{ o.id }}">\n          <form method="POST"\n                action="{{ url_for(\'update_clinical_order\', visit_id=visit.visit_id, oid=o.id) }}"\n                class="bg-light p-2 rounded">\n  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">\n            <label class="form-label fw-bold small">Diagnosis / Chief Complaint</label>\n            <textarea class="form-control mb-2" name="diagnosis" rows="2">{{ o.diagnosis or \'\' }}</textarea>\n\n            <label class="form-label fw-bold small">Radiology Orders</label>\n            <textarea class="form-control mb-2" name="radiology_orders" rows="2">{{ o.radiology_orders or \'\' }}</textarea>\n\n            <label class="form-label fw-bold small">Lab Orders</label>\n            <textarea class="form-control mb-2" name="lab_orders" rows="2">{{ o.lab_orders or \'\' }}</textarea>\n\n            <label class="form-label fw-bold small">Medications</label>\n            <textarea class="form-control mb-2" name="medications" rows="2">{{ o.medications or \'\' }}</textarea>\n\n            <button class="btn btn-sm btn-success">Save Changes</button>\n          </form>\n        </div>\n      </div>\n    {% endfor %}\n  {% endif %}\n</div>\n\n<script>\nfunction syncChecked(className, targetId){\n  const checked = Array.from(document.querySelectorAll(\'.\'+className+\':checked\')).map(cb => cb.value);\n  document.getElementById(targetId).value = checked.join(", ");\n}\n\nfunction syncMedications(){\n  const parts = [];\n  document.querySelectorAll(\'.med-item\').forEach(cb => {\n    if (!cb.checked) return;\n    const label = cb.value;\n    let dose = "";\n    const container = cb.closest(\'.form-check\');\n    if (container) {\n      const doseInput = container.querySelector(\'.med-dose\');\n      if (doseInput && doseInput.value) {\n        dose = doseInput.value.trim();\n      }\n    }\n    if (dose) {\n      parts.push(label + " (" + dose + ")");\n    } else {\n      parts.push(label);\n    }\n  });\n  const target = document.getElementById(\'med_text\');\n  if (target) {\n    target.value = parts.join(", ");\n  }\n}\n\ndocument.addEventListener(\'change\', function(e){\n  if(e.target.classList.contains(\'rad-item\')) syncChecked(\'rad-item\',\'radiology_text\');\n  if(e.target.classList.contains(\'lab-item\')) syncChecked(\'lab-item\',\'lab_text\');\n  if(e.target.classList.contains(\'med-item\')) syncMedications();\n});\n\ndocument.addEventListener(\'input\', function(e){\n  if(e.target.classList.contains(\'med-dose\')) syncMedications();\n});\n\nfunction searchOrAdd(prefix){\n  const input = document.getElementById(prefix+\'_other\');\n  if(!input) return;\n  const val = (input.value || \'\').trim();\n  if(!val) return;\n\n  const classMap = { rad: \'rad-item\', lab: \'lab-item\', med: \'med-item\' };\n  const cls = classMap[prefix] || null;\n  let found = false;\n\n  if (cls) {\n    const q = val.toLowerCase();\n    const checkboxes = Array.from(document.querySelectorAll(\'.\' + cls));\n    for (let i = 0; i < checkboxes.length; i++) {\n      const cb = checkboxes[i];\n      const label = (cb.value || \'\').toLowerCase();\n      if (label.includes(q)) {\n        cb.checked = true;\n        found = true;\n        try { cb.scrollIntoView({behavior:\'smooth\', block:\'center\'}); } catch(e) {}\n        break;\n      }\n    }\n  }\n\n  if (found) {\n    if (prefix === \'rad\') {\n      syncChecked(\'rad-item\',\'radiology_text\');\n    } else if (prefix === \'lab\') {\n      syncChecked(\'lab-item\',\'lab_text\');\n    } else if (prefix === \'med\') {\n      syncMedications();\n    }\n  } else {\n    addOther(prefix, val);\n  }\n\n  input.value = \'\';\n}\n\nfunction addOther(prefix, value){\n  const input = document.getElementById(prefix+\'_other\');\n  const raw = (typeof value === \'string\') ? value : (input ? input.value : \'\');\n  const val = (raw || \'\').trim();\n  if(!val) return;\n\n  const tId = prefix===\'rad\' ? \'radiology_text\' : prefix===\'lab\' ? \'lab_text\' : \'med_text\';\n  const t = document.getElementById(tId);\n  if (!t) return;\n  const cur = t.value ? t.value.split(\',\').map(x=>x.trim()).filter(Boolean) : [];\n  if(!cur.includes(val)) cur.push(val);\n  t.value = cur.join(\', \');\n}\n\n[\'rad_other\',\'lab_other\',\'med_other\'].forEach(id=>{\n  const el = document.getElementById(id);\n  if(el){\n    el.addEventListener(\'keydown\', (e)=>{\n      if(e.key===\'Enter\'){\n        e.preventDefault();\n        searchOrAdd(id.split(\'_\')[0]);\n      }\n    });\n  }\n});\n\nconst bundles = {\n  chest_pain: {\n    radiology: ["X-Ray Chest"],\n    labs: ["Troponin","CK-MB","CBC","Electrolytes","PT/PTT/INR","D-Dimer","RBS (Random Blood Sugar)"],\n    meds: ["Aspirin PO 300mg","Nitroglycerin SL","Morphine IV","Ondansetron IV","Normal Saline 0.9%"]\n  },\n  stroke: {\n    radiology: ["CT Brain Without Contrast","CT Angio Brain/Neck"],\n    labs: ["CBC","Electrolytes","PT/PTT/INR","RBS (Random Blood Sugar)"],\n    meds: ["Normal Saline 0.9%","Labetalol IV"]\n  },\n  trauma: {\n    radiology: ["CT Trauma Pan-Scan","X-Ray Chest","X-Ray Pelvis","FAST Ultrasound"],\n    labs: ["CBC","CMP (Kidney/Liver)","PT/PTT/INR","Lactate","Type & Screen / Crossmatch","ABG"],\n    meds: ["Tetanus Toxoid IM","Cefazolin IV","Morphine IV","Ringer Lactate","Normal Saline 0.9%"]\n  },\nabdominal_pain: {\n  radiology: ["US Abdomen","CT Abdomen/Pelvis"],\n  labs: ["CBC","CRP","Electrolytes","LFT","Lipase","Urine Analysis","BHCG (Pregnancy Test)"],\n  meds: ["Paracetamol IV/PO","Ondansetron IV","Hyoscine (Buscopan) IV/IM","Normal Saline 0.9%"]\n},\nsob: {\n  radiology: ["X-Ray Chest","CT Chest"],\n  labs: ["CBC","Electrolytes","ABG","D-Dimer","Troponin","BNP","RBS (Random Blood Sugar)"],\n  meds: ["Oxygen Therapy","Salbutamol Nebulizer","Ipratropium Nebulizer","Hydrocortisone IV","Normal Saline 0.9%"]\n},\nsepsis: {\n  radiology: ["X-Ray Chest","US Abdomen"],\n  labs: ["CBC","CRP","Lactate","Blood Culture","Urine Analysis","Electrolytes","ABG"],\n  meds: ["Broad Spectrum Antibiotic (per policy)","Normal Saline 0.9% Bolus"]\n},\nfever: {\n  radiology: ["X-Ray Chest","US Abdomen"],\n  labs: ["CBC","CRP","Urine Analysis","Blood Culture","RBS (Random Blood Sugar)"],\n  meds: ["Paracetamol IV/PO","Normal Saline 0.9%"]\n},\ngi_bleed: {\n  radiology: ["X-Ray Chest"],\n  labs: ["CBC","PT/PTT/INR","Electrolytes","Type & Screen / Crossmatch"],\n  meds: ["Pantoprazole IV","Normal Saline 0.9%","Tranexamic Acid IV (if indicated)"]\n},\nanaphylaxis: {\n  radiology: [],\n  labs: ["CBC","ABG"],\n  meds: ["Epinephrine IM","Hydrocortisone IV","Chlorpheniramine IV/IM","Normal Saline 0.9%","Salbutamol Nebulizer"]\n}\n};\n\nfunction clearAllBundles(){\n  document.querySelectorAll(\'.rad-item,.lab-item,.med-item\').forEach(cb => cb.checked=false);\n  syncChecked(\'rad-item\',\'radiology_text\');\n  syncChecked(\'lab-item\',\'lab_text\');\n  syncMedications();\n}\n\nfunction applyBundle(name){\n  clearAllBundles();\n  const b = bundles[name];\n  if(!b) return;\n\n  document.querySelectorAll(\'.rad-item\').forEach(cb => cb.checked = b.radiology.includes(cb.value));\n  document.querySelectorAll(\'.lab-item\').forEach(cb => cb.checked = b.labs.includes(cb.value));\n  document.querySelectorAll(\'.med-item\').forEach(cb => cb.checked = b.meds.includes(cb.value));\n\n  syncChecked(\'rad-item\',\'radiology_text\');\n  syncChecked(\'lab-item\',\'lab_text\');\n  syncMedications();\n}\n</script>\n\n{% endblock %}\n', 'sticker.html': '\n<!doctype html>\n<html>\n<head>\n  <meta charset="utf-8">\n  <title>Sticker</title>\n  <style>\n    @page {\n      size: 5cm 3cm;\n      margin: 0;\n    }\n    body { margin:0; padding:0; font-family: Arial; }\n    .label {\n      width: 5cm; height: 3cm;\n      border:1px solid #000; padding:0.06cm;\n      box-sizing:border-box;\n    }\n    .row { font-size:6pt; margin:0.01cm 0; white-space: normal; word-wrap: break-word; }\n    .title { font-weight:bold; font-size:7pt; }\n    .barcode {\n      width: 100%;\n      max-width: 3.5cm;\n      margin-top:0.05cm;\n    }\n    #btnPrint { margin-top:10px; padding:6px 12px; font-size:12px; }\n    @media print {\n      body { margin:0; padding:0; }\n      #btnPrint { display:none; }\n    }\n  </style>\n</head>\n<body onload="window.print()">\n  <div class="label">\n    {% set name_len = v.name|length %}\n    <div class="row title" style="font-size: {{ 7 if name_len <= 20 else 6 }}pt;">NAME: {{ v.name }}</div>\n    <div class="row">AGE: {{ age or \'-\' }}</div>\n    <div class="row">ID: {{ v.id_number or \'-\' }}</div>\n    <div class="row">INS: {{ v.insurance or \'-\' }}</div>\n    <div class="row">TIME: {{ time_only }}</div>\n    <div class="row">VISIT: {{ v.visit_id }}</div>\n    <div class="row">\n      <img class="barcode"\n           src="https://barcode.tec-it.com/barcode.ashx?data={{ (v.id_number or v.visit_id)|urlencode }}&code=Code128&dpi=96&imagetype=png"\n           alt="BARCODE">\n    </div>\n  </div>\n  <button id="btnPrint" onclick="window.print()">Print Again</button>\n</body>\n</html>\n', 'chat.html': '\n{% extends "base.html" %}\n{% block content %}\n<h4 class="mb-3">Live Chat - Staff</h4>\n\n<div class="row">\n  <div class="col-md-8">\n    <div class="card bg-white">\n      <div class="card-body" style="height:400px; overflow-y:auto;" id="chat-box">\n        <div class="text-muted small">Loading messages...</div>\n      </div>\n      <div class="card-footer">\n        <div class="input-group">\n          <input type="text" id="chat-input" class="form-control" placeholder="Type your message and press Enter or click Send ...">\n          <button class="btn btn-primary" id="chat-send-btn">Send</button>\n        </div>\n        <div class="small text-muted mt-1">\n          Current channel: All staff (Public ED Room)\n        </div>\n      </div>\n    </div>\n  </div>\n</div>\n\n<script>\n(function() {\n  const chatBox = document.getElementById("chat-box");\n  const input   = document.getElementById("chat-input");\n  const sendBtn = document.getElementById("chat-send-btn");\n\n  let lastTimestamp = "";\n\n  function appendMessage(msg) {\n    const div = document.createElement("div");\n    div.className = "mb-1";\n    div.innerHTML =\n      \'<span class="badge bg-light text-dark me-1">\' +\n      (msg.username || "User") +\n      \'</span>\' +\n      \'<span class="small text-muted me-1">[\' + msg.created_at + \']</span>\' +\n      \'<span>\' + escapeHtml(msg.message) + \'</span>\';\n    chatBox.appendChild(div);\n    chatBox.scrollTop = chatBox.scrollHeight;\n  }\n\n  function escapeHtml(text) {\n    if (!text) return "";\n    return text\n      .replace(/&/g, "&amp;")\n      .replace(/</g, "&lt;")\n      .replace(/>/g, "&gt;");\n  }\n\n  function playBeep() {\n    try {\n      const ctx = new (window.AudioContext || window.webkitAudioContext)();\n      const osc = ctx.createOscillator();\n      const gain = ctx.createGain();\n      osc.type = "sine";\n      osc.frequency.value = 880;\n      gain.gain.value = 0.05;\n      osc.connect(gain);\n      gain.connect(ctx.destination);\n      osc.start();\n      setTimeout(function() {\n        osc.stop();\n        ctx.close();\n      }, 200);\n    } catch (e) {\n      console.log("Beep error", e);\n    }\n  }\n\n  async function loadMessages() {\n    try {\n      const url = lastTimestamp\n        ? "/chat/messages?after=" + encodeURIComponent(lastTimestamp)\n        : "/chat/messages";\n\n      const res = await fetch(url);\n      if (!res.ok) return;\n      const data = await res.json();\n      if (!data.ok) return;\n\n      if (data.messages && data.messages.length > 0) {\n        const isInitial = !lastTimestamp;\n        data.messages.forEach(function(m) {\n          appendMessage(m);\n          lastTimestamp = m.created_at;\n        });\n        if (!isInitial) {\n          playBeep();\n        }\n      } else if (!lastTimestamp) {\n        chatBox.innerHTML = \'<div class="text-muted small">No messages yet. Type the first message 👋</div>\';\n      }\n    } catch (e) {\n      // ignore\n    }\n  }\n\n  async function sendMessage() {\n    const text = (input.value || "").trim();\n    if (!text) return;\n\n    try {\n      const res = await fetch("/chat/send", {\n        method: "POST",\n        headers: { "Content-Type": "application/json" },\n        body: JSON.stringify({ message: text })\n      });\n      const data = await res.json();\n      if (data.ok) {\n        input.value = "";\n        loadMessages();\n      }\n    } catch (e) {\n      alert("Error sending message");\n    }\n  }\n\n  sendBtn.addEventListener("click", sendMessage);\n  input.addEventListener("keydown", function(e) {\n    if (e.key === "Enter") {\n      e.preventDefault();\n      sendMessage();\n    }\n  });\n\n  loadMessages();\n  setInterval(loadMessages, 3000);\n})();\n</script>\n{% endblock %}\n', 'depart_workflow.html': '\n{% extends "base.html" %}\n{% block content %}\n\n<div class="d-flex justify-content-between align-items-start mb-3 flex-wrap gap-2">\n  <div>\n    <h4 class="mb-0">ED Depart / Discharge</h4>\n    <div class="text-muted small">\n      Visit {{ visit.visit_id }} &mdash; {{ visit.name }} ({{ visit.id_number or \'-\' }})\n    </div>\n  </div>\n  <div class="text-end small">\n    <div class="mb-1">\n      {% set cat = (visit.triage_cat or \'\').lower() %}\n      {% if cat == \'es1\' %}<span class="badge bg-danger">ES1</span>\n      {% elif cat == \'es2\' %}<span class="badge bg-warning text-dark">ES2</span>\n      {% elif cat == \'es3\' %}<span class="badge bg-info text-dark">ES3</span>\n      {% elif cat == \'es4\' %}<span class="badge bg-primary">ES4</span>\n      {% elif cat == \'es5\' %}<span class="badge bg-success">ES5</span>\n      {% else %}<span class="badge bg-secondary">No ES</span>\n      {% endif %}\n    </div>\n    <div class="mb-1">\n      {% set st = (visit.status or \'\').upper() %}\n      {% set st_class = \'secondary\' %}\n      {% if st == \'OPEN\' %}{% set st_class = \'success\' %}{% endif %}\n      {% if st in [\'DISCHARGED\',\'TRANSFERRED\',\'LAMA\',\'EXPIRED\',\'CANCELLED\'] %}{% set st_class = \'danger\' %}{% endif %}\n      <span class="badge bg-{{ st_class }}">{{ visit.status or \'-\' }}</span>\n    </div>\n    <div class="small text-muted">\n      Loc: {{ visit.location or \'-\' }}\n      {% if visit.bed_no %}\n        · Bed: {{ visit.bed_no }} ({{ visit.bed_status or \'EMPTY\' }})\n      {% endif %}\n    </div>\n  </div>\n</div>\n\n{% with messages = get_flashed_messages(with_categories=true) %}\n  {% for category, msg in messages %}\n    <div class="alert alert-{{ category }}">{{ msg }}</div>\n  {% endfor %}\n{% endwith %}\n\n<div class="row g-3">\n  <!-- Checklist summary -->\n  <div class="col-md-4">\n    <div class="card p-3 bg-white h-100">\n      <h6 class="fw-bold mb-2">Checklist overview</h6>\n      <ul class="list-unstyled small mb-0">\n        <li class="mb-1">\n          {% if visit.task_reg %}\n            ✅ Registration completed\n          {% else %}\n            ☐ Registration pending\n          {% endif %}\n        </li>\n        <li class="mb-1">\n          {% if visit.triage_status == \'YES\' %}\n            ✅ Triage done ({{ visit.triage_cat or \'-\' }})\n          {% else %}\n            ☐ Triage pending\n          {% endif %}\n        </li>\n        <li class="mb-1">\n          {% if visit.task_ekg %}\n            ✅ ECG / EKG done\n          {% else %}\n            ☐ ECG / EKG pending\n          {% endif %}\n        </li>\n        <li class="mb-1">\n          {% if visit.task_sepsis %}\n            ✅ Sepsis screen done\n          {% else %}\n            ☐ Sepsis screen pending\n          {% endif %}\n        </li>\n        <li class="mb-1">\n          {% if orders_count %}\n            ✅ Clinical orders entered ({{ orders_count }})\n          {% else %}\n            ☐ No clinical orders yet\n          {% endif %}\n        </li>\n        <li class="mb-1">\n          {% if labs_total %}\n            {% if labs_pending %}\n              ⚠️ Lab results pending ({{ labs_pending }} / {{ labs_total }})\n            {% else %}\n              ✅ Labs cleared ({{ labs_total }})\n            {% endif %}\n          {% else %}\n            ☐ No lab requests\n          {% endif %}\n        </li>\n        <li class="mb-1">\n          {% if rads_total %}\n            {% if rads_pending %}\n              ⚠️ Radiology pending ({{ rads_pending }} / {{ rads_total }})\n            {% else %}\n              ✅ Radiology cleared ({{ rads_total }})\n            {% endif %}\n          {% else %}\n            ☐ No radiology requests\n          {% endif %}\n        </li>\n        <li class="mb-1">\n          {% if discharge_exists %}\n            ✅ Discharge summary saved\n            {% if discharge_diag %}\n              &mdash; {{ discharge_diag }}\n            {% endif %}\n          {% else %}\n            ☐ Discharge summary pending\n          {% endif %}\n        </li>\n      </ul>\n    </div>\n  </div>\n\n  <!-- Editable tasks -->\n  <div class="col-md-4">\n    <div class="card p-3 bg-white h-100">\n      <h6 class="fw-bold mb-2">Tasks / Checklist (editable)</h6>\n      <form method="POST" class="small">\n        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">\n        <div class="form-check mb-1">\n          <input class="form-check-input" type="checkbox" value="1" name="task_reg" id="task_reg"\n                 {% if visit.task_reg %}checked{% endif %}>\n          <label class="form-check-label" for="task_reg">\n            Registration completed\n          </label>\n        </div>\n        <div class="form-check mb-1">\n          <input class="form-check-input" type="checkbox" value="1" name="task_ekg" id="task_ekg"\n                 {% if visit.task_ekg %}checked{% endif %}>\n          <label class="form-check-label" for="task_ekg">\n            ECG / EKG done\n          </label>\n        </div>\n        <div class="form-check mb-1">\n          <input class="form-check-input" type="checkbox" value="1" name="task_sepsis" id="task_sepsis"\n                 {% if visit.task_sepsis %}checked{% endif %}>\n          <label class="form-check-label" for="task_sepsis">\n            Sepsis screening done\n          </label>\n        </div>\n        <button class="btn btn-sm btn-primary mt-2">\n          Save checklist\n        </button>\n      </form>\n\n      <hr class="my-3">\n\n      <div class="small">\n        <div class="fw-semibold mb-1">Quick links</div>\n        <div class="d-grid gap-1">\n          <a class="btn btn-sm btn-outline-primary"\n             href="{{ url_for(\'patient_details\', visit_id=visit.visit_id) }}">\n            Open chart\n          </a>\n          <a class="btn btn-sm btn-outline-primary"\n             href="{{ url_for(\'clinical_orders_page\', visit_id=visit.visit_id) }}">\n            Clinical orders &amp; notes\n          </a>\n          <a class="btn btn-sm btn-outline-secondary"\n             href="{{ url_for(\'lab_board\', status=\'PENDING\', q=visit.visit_id) }}">\n            Lab board (this visit)\n          </a>\n          <a class="btn btn-sm btn-outline-secondary"\n             href="{{ url_for(\'radiology_board\', status=\'PENDING\', q=visit.visit_id) }}">\n            Radiology board (this visit)\n          </a>\n        </div>\n      </div>\n    </div>\n  </div>\n\n  <!-- Discharge / PDFs / Close -->\n  <div class="col-md-4">\n    <div class="card p-3 bg-white h-100">\n      <h6 class="fw-bold mb-2">Discharge / Depart</h6>\n\n      <div class="small mb-2">\n        <div>Current status:\n          {% set st = (visit.status or \'\').upper() %}\n          {% set st_class = \'secondary\' %}\n          {% if st == \'OPEN\' %}{% set st_class = \'success\' %}{% endif %}\n          {% if st in [\'DISCHARGED\',\'TRANSFERRED\',\'LAMA\',\'EXPIRED\',\'CANCELLED\'] %}{% set st_class = \'danger\' %}{% endif %}\n          <span class="badge bg-{{ st_class }}">{{ visit.status or \'-\' }}</span>\n        </div>\n        {% if visit.closed_at %}\n          <div class="text-muted">Closed at {{ visit.closed_at }} by {{ visit.closed_by or \'-\' }}</div>\n        {% endif %}\n      </div>\n\n      <div class="d-grid gap-1 small mb-2">\n        <a class="btn btn-sm btn-outline-primary"\n           target="_blank"\n           href="{{ url_for(\'discharge_summary_pdf\', visit_id=visit.visit_id) }}">\n          Discharge summary PDF\n        </a>\n        <a class="btn btn-sm btn-outline-primary"\n           target="_blank"\n           href="{{ url_for(\'auto_summary_pdf\', visit_id=visit.visit_id) }}">\n          ED auto-summary PDF\n        </a>\n        <a class="btn btn-sm btn-outline-primary"\n           target="_blank"\n           href="{{ url_for(\'patient_summary_pdf\', visit_id=visit.visit_id) }}">\n          Patient copy PDF\n        </a>\n        <a class="btn btn-sm btn-outline-secondary"\n           target="_blank"\n           href="{{ url_for(\'home_med_pdf\', visit_id=visit.visit_id) }}">\n          Home medication PDF\n        </a>\n      </div>\n\n      {% if session.get(\'role\') in [\'doctor\',\'admin\'] %}\n      <hr class="my-2">\n      <form method="POST" action="{{ url_for(\'close_visit\', visit_id=visit.visit_id) }}" class="small">\n        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">\n        <div class="mb-2">\n          <label class="form-label small">Final status</label>\n          <select name="status" class="form-select form-select-sm">\n            {% for st in [\'DISCHARGED\',\'ADMITTED\',\'TRANSFERRED\',\'LAMA\',\'EXPIRED\',\'IN_TREATMENT\',\'CANCELLED\'] %}\n              <option value="{{ st }}" {% if (visit.status or \'\').upper() == st %}selected{% endif %}>{{ st }}</option>\n            {% endfor %}\n          </select>\n        </div>\n        <button class="btn btn-sm btn-danger w-100"\n                onclick="return confirm(\'Confirm close visit with this status?\');">\n          Close visit\n        </button>\n      </form>\n      {% else %}\n        <div class="alert alert-info small mt-2 mb-0">\n          Final close of the visit is limited to doctors / admins.\n        </div>\n      {% endif %}\n    </div>\n  </div>\n</div>\n\n{% endblock %}\n'}
+TEMPLATES = {'admin_items.html': '\n'
+                     '{% extends "base.html" %}\n'
+                     '{% block content %}\n'
+                     '<h4 class="mb-3">Admin - Orders Items (Meds / Labs / Radiology / Home Medication)</h4>\n'
+                     '\n'
+                     '{% with messages = get_flashed_messages(with_categories=true) %}\n'
+                     '  {% if messages %}\n'
+                     '    {% for category, msg in messages %}\n'
+                     '      <div class="alert alert-{{ category }} mb-2">{{ msg }}</div>\n'
+                     '    {% endfor %}\n'
+                     '  {% endif %}\n'
+                     '{% endwith %}\n'
+                     '\n'
+                     '<div class="row g-3">\n'
+                     '  <!-- Radiology items -->\n'
+                     '  <div class="col-lg-3 col-md-6">\n'
+                     '    <div class="card bg-white p-3">\n'
+                     '      <h6 class="fw-bold mb-2">Radiology Items</h6>\n'
+                     '      <form method="POST" class="mb-2 d-flex gap-2">\n'
+                     '        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">\n'
+                     '        <input type="hidden" name="kind" value="rad">\n'
+                     '        <input type="text" name="name" class="form-control form-control-sm" placeholder="Add '
+                     'radiology test">\n'
+                     '        <button class="btn btn-sm btn-primary" name="action" value="add">Add</button>\n'
+                     '      </form>\n'
+                     '      <div style="max-height: 320px; overflow:auto;">\n'
+                     '        {% if rads %}\n'
+                     '          {% for item in rads %}\n'
+                     '            <form method="POST" class="d-flex align-items-center gap-2 mb-1">\n'
+                     '              <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">\n'
+                     '              <input type="hidden" name="kind" value="rad">\n'
+                     '              <input type="hidden" name="item_id" value="{{ item.id }}">\n'
+                     '              <input type="text" name="name" class="form-control form-control-sm" value="{{ '
+                     'item.name }}">\n'
+                     '              <button class="btn btn-sm btn-outline-primary" name="action" value="rename" '
+                     'title="Save name">💾</button>\n'
+                     '              <button class="btn btn-sm btn-outline-secondary" name="action" value="toggle" '
+                     'title="Toggle active">\n'
+                     '                {% if item.is_active %}Disable{% else %}Enable{% endif %}\n'
+                     '              </button>\n'
+                     '              <button class="btn btn-sm btn-outline-danger" name="action" value="delete"\n'
+                     '                      onclick="return confirm(\'Delete this item?\');" '
+                     'title="Delete">🗑</button>\n'
+                     '            </form>\n'
+                     '          {% endfor %}\n'
+                     '        {% else %}\n'
+                     '          <div class="text-muted small">No radiology items yet.</div>\n'
+                     '        {% endif %}\n'
+                     '      </div>\n'
+                     '    </div>\n'
+                     '  </div>\n'
+                     '\n'
+                     '  <!-- Lab items -->\n'
+                     '  <div class="col-lg-3 col-md-6">\n'
+                     '    <div class="card bg-white p-3">\n'
+                     '      <h6 class="fw-bold mb-2">Lab Items</h6>\n'
+                     '      <form method="POST" class="mb-2 d-flex gap-2">\n'
+                     '        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">\n'
+                     '        <input type="hidden" name="kind" value="lab">\n'
+                     '        <input type="text" name="name" class="form-control form-control-sm" placeholder="Add lab '
+                     'test">\n'
+                     '        <button class="btn btn-sm btn-primary" name="action" value="add">Add</button>\n'
+                     '      </form>\n'
+                     '      <div style="max-height: 320px; overflow:auto;">\n'
+                     '        {% if labs %}\n'
+                     '          {% for item in labs %}\n'
+                     '            <form method="POST" class="d-flex align-items-center gap-2 mb-1">\n'
+                     '              <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">\n'
+                     '              <input type="hidden" name="kind" value="lab">\n'
+                     '              <input type="hidden" name="item_id" value="{{ item.id }}">\n'
+                     '              <input type="text" name="name" class="form-control form-control-sm" value="{{ '
+                     'item.name }}">\n'
+                     '              <button class="btn btn-sm btn-outline-primary" name="action" value="rename" '
+                     'title="Save name">💾</button>\n'
+                     '              <button class="btn btn-sm btn-outline-secondary" name="action" value="toggle" '
+                     'title="Toggle active">\n'
+                     '                {% if item.is_active %}Disable{% else %}Enable{% endif %}\n'
+                     '              </button>\n'
+                     '              <button class="btn btn-sm btn-outline-danger" name="action" value="delete"\n'
+                     '                      onclick="return confirm(\'Delete this item?\');" '
+                     'title="Delete">🗑</button>\n'
+                     '            </form>\n'
+                     '          {% endfor %}\n'
+                     '        {% else %}\n'
+                     '          <div class="text-muted small">No lab items yet.</div>\n'
+                     '        {% endif %}\n'
+                     '      </div>\n'
+                     '    </div>\n'
+                     '  </div>\n'
+                     '\n'
+                     '  <!-- Medication items (ED orders) -->\n'
+                     '  <div class="col-lg-3 col-md-6">\n'
+                     '    <div class="card bg-white p-3">\n'
+                     '      <h6 class="fw-bold mb-2">Medication Items</h6>\n'
+                     '      <form method="POST" class="mb-2 d-flex gap-2">\n'
+                     '        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">\n'
+                     '        <input type="hidden" name="kind" value="med">\n'
+                     '        <input type="text" name="name" class="form-control form-control-sm" placeholder="Add '
+                     'medication">\n'
+                     '        <button class="btn btn-sm btn-primary" name="action" value="add">Add</button>\n'
+                     '      </form>\n'
+                     '      <div style="max-height: 320px; overflow:auto;">\n'
+                     '        {% if meds %}\n'
+                     '          {% for item in meds %}\n'
+                     '            <form method="POST" class="d-flex align-items-center gap-2 mb-1">\n'
+                     '              <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">\n'
+                     '              <input type="hidden" name="kind" value="med">\n'
+                     '              <input type="hidden" name="item_id" value="{{ item.id }}">\n'
+                     '              <input type="text" name="name" class="form-control form-control-sm" value="{{ '
+                     'item.name }}">\n'
+                     '              <button class="btn btn-sm btn-outline-primary" name="action" value="rename" '
+                     'title="Save name">💾</button>\n'
+                     '              <button class="btn btn-sm btn-outline-secondary" name="action" value="toggle" '
+                     'title="Toggle active">\n'
+                     '                {% if item.is_active %}Disable{% else %}Enable{% endif %}\n'
+                     '              </button>\n'
+                     '              <button class="btn btn-sm btn-outline-danger" name="action" value="delete"\n'
+                     '                      onclick="return confirm(\'Delete this item?\');" '
+                     'title="Delete">🗑</button>\n'
+                     '            </form>\n'
+                     '          {% endfor %}\n'
+                     '        {% else %}\n'
+                     '          <div class="text-muted small">No medication items yet.</div>\n'
+                     '        {% endif %}\n'
+                     '      </div>\n'
+                     '    </div>\n'
+                     '  </div>\n'
+                     '\n'
+                     '  <!-- Home Medication templates for Discharge Summary -->\n'
+                     '  <div class="col-lg-3 col-md-6">\n'
+                     '    <div class="card bg-white p-3">\n'
+                     '      <h6 class="fw-bold mb-2">Home Medication Templates</h6>\n'
+                     '      <p class="small text-muted mb-2">\n'
+                     '        These items appear as suggestions in the <strong>Home Medication</strong> box in '
+                     'Discharge Summary.\n'
+                     '      </p>\n'
+                     '      <form method="POST" class="mb-2 d-flex gap-2">\n'
+                     '        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">\n'
+                     '        <input type="hidden" name="kind" value="home">\n'
+                     '        <input type="text" name="name" class="form-control form-control-sm" placeholder="Add '
+                     'home med template">\n'
+                     '        <button class="btn btn-sm btn-primary" name="action" value="add">Add</button>\n'
+                     '      </form>\n'
+                     '      <div style="max-height: 320px; overflow:auto;">\n'
+                     '        {% if home_meds %}\n'
+                     '          {% for item in home_meds %}\n'
+                     '            <form method="POST" class="d-flex align-items-center gap-2 mb-1">\n'
+                     '              <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">\n'
+                     '              <input type="hidden" name="kind" value="home">\n'
+                     '              <input type="hidden" name="item_id" value="{{ item.id }}">\n'
+                     '              <input type="text" name="name" class="form-control form-control-sm" value="{{ '
+                     'item.name }}">\n'
+                     '              <button class="btn btn-sm btn-outline-primary" name="action" value="rename" '
+                     'title="Save name">💾</button>\n'
+                     '              <button class="btn btn-sm btn-outline-secondary" name="action" value="toggle" '
+                     'title="Toggle active">\n'
+                     '                {% if item.is_active %}Disable{% else %}Enable{% endif %}\n'
+                     '              </button>\n'
+                     '              <button class="btn btn-sm btn-outline-danger" name="action" value="delete"\n'
+                     '                      onclick="return confirm(\'Delete this item?\');" '
+                     'title="Delete">🗑</button>\n'
+                     '            </form>\n'
+                     '          {% endfor %}\n'
+                     '        {% else %}\n'
+                     '          <div class="text-muted small">No home medication templates yet.</div>\n'
+                     '        {% endif %}\n'
+                     '      </div>\n'
+                     '    </div>\n'
+                     '  </div>\n'
+                     '</div>\n'
+                     '\n'
+                     '{% endblock %}\n',
+ 'admin_logs.html': '\n'
+                    '{% extends "base.html" %}\n'
+                    '{% block content %}\n'
+                    '<h4 class="mb-3">Activity Logs (Last 1000)</h4>\n'
+                    '\n'
+                    '<form method="GET" class="card p-3 mb-3 bg-white">\n'
+                    '  <div class="row g-2 align-items-end">\n'
+                    '    <div class="col-md-3">\n'
+                    '      <label class="form-label fw-bold">Visit ID</label>\n'
+                    '      <input class="form-control" name="visit_id" value="{{ visit_f or \'\' }}" '
+                    'placeholder="visit id">\n'
+                    '    </div>\n'
+                    '    <div class="col-md-3">\n'
+                    '      <label class="form-label fw-bold">User</label>\n'
+                    '      <select class="form-select" name="user">\n'
+                    '        <option value="">ALL</option>\n'
+                    '        {% for u in users %}\n'
+                    '          <option value="{{u.username}}" {% if user_f==u.username %}selected{% endif '
+                    '%}>{{u.username}}</option>\n'
+                    '        {% endfor %}\n'
+                    '      </select>\n'
+                    '    </div>\n'
+                    '    <div class="col-md-2">\n'
+                    '      <label class="form-label fw-bold">From</label>\n'
+                    '      <input class="form-control" type="date" name="date_from" value="{{ dfrom or \'\' }}">\n'
+                    '    </div>\n'
+                    '    <div class="col-md-2">\n'
+                    '      <label class="form-label fw-bold">To</label>\n'
+                    '      <input class="form-control" type="date" name="date_to" value="{{ dto or \'\' }}">\n'
+                    '    </div>\n'
+                    '    <div class="col-md-2 d-grid">\n'
+                    '      <button class="btn btn-primary">Filter</button>\n'
+                    '    </div>\n'
+                    '  </div>\n'
+                    '\n'
+                    '  <div class="mt-2 d-flex gap-2">\n'
+                    '    <a class="btn btn-outline-success btn-sm"\n'
+                    '       href="{{ url_for(\'export_logs_csv\', visit_id=visit_f, user=user_f, date_from=dfrom, '
+                    'date_to=dto) }}">Export CSV</a>\n'
+                    '    <a class="btn btn-outline-danger btn-sm"\n'
+                    '       href="{{ url_for(\'export_logs_pdf\', visit_id=visit_f, user=user_f, date_from=dfrom, '
+                    'date_to=dto) }}">Export PDF</a>\n'
+                    '  </div>\n'
+                    '</form>\n'
+                    '\n'
+                    '<table class="table table-sm table-striped bg-white">\n'
+                    '  '
+                    '<thead><tr><th>Time</th><th>User</th><th>Action</th><th>Visit</th><th>Details</th></tr></thead>\n'
+                    '  <tbody>\n'
+                    '  {% for l in logs %}\n'
+                    '    <tr>\n'
+                    '      <td>{{ l.created_at }}</td>\n'
+                    '      <td>{{ l.username }}</td>\n'
+                    '      <td>{{ l.action }}</td>\n'
+                    "      <td>{{ l.visit_id or '-' }}</td>\n"
+                    "      <td>{{ l.details or '-' }}</td>\n"
+                    '    </tr>\n'
+                    '  {% endfor %}\n'
+                    '  </tbody>\n'
+                    '</table>\n'
+                    '{% endblock %}\n',
+ 'admin_reset_password.html': '\n'
+                              '{% extends "base.html" %}\n'
+                              '{% block content %}\n'
+                              '<h4 class="mb-3">Admin Password Reset</h4>\n'
+                              '\n'
+                              '{% with messages = get_flashed_messages(with_categories=true) %}\n'
+                              '  {% for category, msg in messages %}\n'
+                              '    <div class="alert alert-{{ category }}">{{ msg }}</div>\n'
+                              '  {% endfor %}\n'
+                              '{% endwith %}\n'
+                              '\n'
+                              '<form method="POST" class="card p-3 bg-white mb-3">\n'
+                              '  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">\n'
+                              '  <div class="row g-2 align-items-end">\n'
+                              '    <div class="col-md-5">\n'
+                              '      <label class="form-label fw-bold">Select User</label>\n'
+                              '      <select class="form-select" name="user_id" required>\n'
+                              '        <option value="">-- choose --</option>\n'
+                              '        {% for u in users %}\n'
+                              '          <option value="{{ u.id }}">{{ u.username }} ({{ u.role }})</option>\n'
+                              '        {% endfor %}\n'
+                              '      </select>\n'
+                              '    </div>\n'
+                              '    <div class="col-md-5">\n'
+                              '      <label class="form-label fw-bold">New Password</label>\n'
+                              '      <input class="form-control" name="new_password" type="text" required>\n'
+                              '    </div>\n'
+                              '    <div class="col-md-2 d-grid">\n'
+                              '      <button class="btn btn-primary">Reset</button>\n'
+                              '    </div>\n'
+                              '  </div>\n'
+                              '</form>\n'
+                              '\n'
+                              '<a class="btn btn-outline-danger btn-sm" href="{{ '
+                              'url_for(\'admin_reset_admin_default\') }}">\n'
+                              '  Reset admin to default (admin12)\n'
+                              '</a>\n'
+                              '{% endblock %}\n',
+ 'admin_restore.html': '\n'
+                       '{% extends "base.html" %}\n'
+                       '{% block content %}\n'
+                       '<h4 class="mb-3">Restore Database from Backup</h4>\n'
+                       '\n'
+                       '{% with messages = get_flashed_messages(with_categories=true) %}\n'
+                       '  {% for category, msg in messages %}\n'
+                       '    <div class="alert alert-{{ category }}">{{ msg }}</div>\n'
+                       '  {% endfor %}\n'
+                       '{% endwith %}\n'
+                       '\n'
+                       '<div class="card p-3 bg-white">\n'
+                       '  <p class="text-danger small mb-2">\n'
+                       '    ⚠️ Warning: restoring a backup will overwrite the current database file.\n'
+                       '    A safety copy (*.before_restore.bak) will be created automatically.\n'
+                       '  </p>\n'
+                       '\n'
+                       '  <h6 class="fw-bold mt-2">Available backup files</h6>\n'
+                       '  {% if backups %}\n'
+                       '    <div class="table-responsive mb-3">\n'
+                       '      <table class="table table-sm table-hover align-middle mb-0">\n'
+                       '        <thead>\n'
+                       '          <tr>\n'
+                       '            <th>#</th>\n'
+                       '            <th>File name</th>\n'
+                       '            <th>Created / Modified</th>\n'
+                       '            <th>Size (KB)</th>\n'
+                       '            <th>Download</th>\n'
+                       '            <th>Restore</th>\n'
+                       '          </tr>\n'
+                       '        </thead>\n'
+                       '        <tbody>\n'
+                       '          {% for b in backups %}\n'
+                       '          <tr>\n'
+                       '            <td>{{ loop.index }}</td>\n'
+                       '            <td>\n'
+                       '              <a href="{{ url_for(\'admin_backup_file\', filename=b.name) }}">\n'
+                       '                {{ b.name }}\n'
+                       '              </a>\n'
+                       '            </td>\n'
+                       '            <td>{{ b.mtime }}</td>\n'
+                       '            <td>{{ "%.1f"|format(b.size_kb) }}</td>\n'
+                       '            <td>\n'
+                       '              <a class="btn btn-sm btn-outline-primary"\n'
+                       '                 href="{{ url_for(\'admin_backup_file\', filename=b.name) }}">\n'
+                       '                Download\n'
+                       '              </a>\n'
+                       '            </td>\n'
+                       '            <td>\n'
+                       '              <a class="btn btn-sm btn-outline-danger"\n'
+                       '                 href="{{ url_for(\'admin_restore_file\', filename=b.name) }}">\n'
+                       '                Restore this backup\n'
+                       '              </a>\n'
+                       '            </td>\n'
+                       '          </tr>\n'
+                       '          {% endfor %}\n'
+                       '        </tbody>\n'
+                       '      </table>\n'
+                       '    </div>\n'
+                       '  {% else %}\n'
+                       '    <p class="text-muted small">No backup .db files found in the backups folder yet.</p>\n'
+                       '  {% endif %}\n'
+                       '\n'
+                       '  <form method="POST" enctype="multipart/form-data" class="mt-2">\n'
+                       '  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">\n'
+                       '    <div class="mb-2">\n'
+                       '      <label class="form-label fw-bold">Select backup .db file</label>\n'
+                       '      <input type="file" name="file" class="form-control" required>\n'
+                       '    </div>\n'
+                       '    <button class="btn btn-danger mt-2">Restore Now</button>\n'
+                       '    <a class="btn btn-secondary mt-2" href="{{ url_for(\'ed_board\') }}">Cancel</a>\n'
+                       '  </form>\n'
+                       '</div>\n'
+                       '{% endblock %}\n',
+ 'admin_restore_confirm.html': '\n'
+                               '{% extends "base.html" %}\n'
+                               '{% block content %}\n'
+                               '<h4 class="mb-3">Confirm Restore from Backup</h4>\n'
+                               '\n'
+                               '{% with messages = get_flashed_messages(with_categories=true) %}\n'
+                               '  {% for category, msg in messages %}\n'
+                               '    <div class="alert alert-{{ category }}">{{ msg }}</div>\n'
+                               '  {% endfor %}\n'
+                               '{% endwith %}\n'
+                               '\n'
+                               '<div class="card p-3 bg-white">\n'
+                               '  <p class="text-danger small mb-2">\n'
+                               '    ⚠️ You are about to restore the database from backup file:\n'
+                               '    <strong>{{ backup_name }}</strong>\n'
+                               '  </p>\n'
+                               '  <p class="text-muted small mb-2">\n'
+                               '    This will overwrite the current database. A safety copy (*.before_restore.bak) '
+                               'will be created automatically.\n'
+                               '  </p>\n'
+                               '\n'
+                               '  <form method="POST">\n'
+                               '  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">\n'
+                               '    <div class="mb-2">\n'
+                               '      <label class="form-label fw-bold">Re-enter your password to confirm</label>\n'
+                               '      <input type="password" name="password" class="form-control" required autofocus>\n'
+                               '    </div>\n'
+                               '    <button class="btn btn-danger mt-2">Confirm Restore</button>\n'
+                               '    <a class="btn btn-secondary mt-2" href="{{ url_for(\'admin_restore\') '
+                               '}}">Cancel</a>\n'
+                               '  </form>\n'
+                               '</div>\n'
+                               '{% endblock %}\n',
+ 'admin_users.html': '\n'
+                     '{% extends "base.html" %}\n'
+                     '{% block content %}\n'
+                     '<h4 class="mb-3">Users Management</h4>\n'
+                     '\n'
+                     '{% with messages = get_flashed_messages(with_categories=true) %}\n'
+                     '  {% for category, msg in messages %}\n'
+                     '    <div class="alert alert-{{ category }}">{{ msg }}</div>\n'
+                     '  {% endfor %}\n'
+                     '{% endwith %}\n'
+                     '\n'
+                     '<form method="POST" class="card p-3 mb-3">\n'
+                     '  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">\n'
+                     '  <div class="row g-2">\n'
+                     '    <div class="col-md-3"><input class="form-control" name="username" '
+                     'placeholder="Username"></div>\n'
+                     '    <div class="col-md-3"><input class="form-control" name="password" '
+                     'placeholder="Password"></div>\n'
+                     '    <div class="col-md-3"><input class="form-control" name="gd_number" placeholder="GD Number / '
+                     'License"></div>\n'
+                     '    <div class="col-md-2">\n'
+                     '      <select class="form-select" name="role">\n'
+                     '        <option value="reception">reception</option>\n'
+                     '        <option value="nurse">nurse</option>\n'
+                     '        <option value="doctor">doctor</option>\n'
+                     '        <option value="lab">lab</option>\n'
+                     '        <option value="radiology">radiology</option>\n'
+                     '        <option value="admin">admin</option>\n'
+                     '      </select>\n'
+                     '    </div>\n'
+                     '    <div class="col-md-1 d-grid"><button class="btn btn-primary">Add</button></div>\n'
+                     '  </div>\n'
+                     '</form>\n'
+                     '\n'
+                     '<table class="table table-sm table-striped bg-white align-middle">\n'
+                     '  <thead>\n'
+                     '    <tr>\n'
+                     '      <th>ID</th>\n'
+                     '      <th>Username</th>\n'
+                     '      <th>Role</th>\n'
+                     '      <th>GD Number</th>\n'
+                     '      <th>Created</th>\n'
+                     '      <th>Status</th>\n'
+                     '      <th style="width:180px;">Actions</th>\n'
+                     '    </tr>\n'
+                     '  </thead>\n'
+                     '  <tbody>\n'
+                     '    {% for u in users %}\n'
+                     '      <tr>\n'
+                     '        <td>{{ u.id }}</td>\n'
+                     '        <td>{{ u.username }}</td>\n'
+                     '        <td>{{ u.role }}</td>\n'
+                     '        <td>{{ u.gd_number or "" }}</td>\n'
+                     '        <td>{{ u.created_at }}</td>\n'
+                     '        <td>\n'
+                     '          {% if u.is_active %}\n'
+                     '            <span class="badge bg-success">Active</span>\n'
+                     '          {% else %}\n'
+                     '            <span class="badge bg-secondary">Inactive</span>\n'
+                     '          {% endif %}\n'
+                     '        </td>\n'
+                     '        <td>\n'
+                     '          <div class="d-flex gap-1">\n'
+                     '            <form method="POST"\n'
+                     '                  action="{{ url_for(\'admin_toggle_user\', user_id=u.id) }}"\n'
+                     '                  onsubmit="return confirm(\'Are you sure you want to change this user\'s active '
+                     'status?\');">\n'
+                     '              <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">\n'
+                     '              {% if u.is_active %}\n'
+                     '                <button class="btn btn-sm btn-outline-danger">Deactivate</button>\n'
+                     '              {% else %}\n'
+                     '                <button class="btn btn-sm btn-outline-success">Activate</button>\n'
+                     '              {% endif %}\n'
+                     '            </form>\n'
+                     '          </div>\n'
+                     '        </td>\n'
+                     '      </tr>\n'
+                     '    {% endfor %}\n'
+                     '  </tbody>\n'
+                     '</table>\n'
+                     '{% endblock %}\n',
+ 'base.html': '\n'
+              '<!doctype html>\n'
+              '<html>\n'
+              '<head>\n'
+              '  <meta charset="utf-8">\n'
+              '  <title>ED Downtime</title>\n'
+              '  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" '
+              'rel="stylesheet">\n'
+              '  <meta http-equiv="refresh" content="2700">\n'
+              '  <style>\n'
+              '    body { background:#f7f7f7; }\n'
+              '    .nav-link { font-weight:600; }\n'
+              '    .badge-triage-no { background:#999; }\n'
+              '    .badge-triage-yes { background:#198754; }\n'
+              '    .cat-red { background:#dc3545; }\n'
+              '    .cat-yellow { background:#ffc107; color:#000; }\n'
+              '    .cat-green { background:#198754; }\n'
+              '    .cat-orange { background:#fd7e14; }\n'
+              '    .cat-none { background:#6c757d; }\n'
+              '\n'
+              '    .wait-cell { font-weight:600; text-align:center; }\n'
+              '    .wait-short { background:#d1e7dd; }\n'
+              '    .wait-medium { background:#fff3cd; }\n'
+              '    .wait-long { background:#f8d7da; }\n'
+              '    .wait-none { background:#e9ecef; }\n'
+              '\n'
+              '    .loc-pill {\n'
+              '      display:inline-block;\n'
+              '      padding:2px 8px;\n'
+              '      border-radius:999px;\n'
+              '      background:#e7f1ff;\n'
+              '      color:#0d6efd;\n'
+              '      border:1px solid #cfe2ff;\n'
+              '      font-size:0.75rem;\n'
+              '    }\n'
+              '    .bed-empty { background:#e9ecef; }\n'
+              '    .bed-occupied { background:#d1e7dd; }\n'
+              '    .bed-dirty { background:#f8d7da; }\n'
+              '\n'
+              '    .allergy-pill {\n'
+              '      font-size:0.7rem;\n'
+              '      border-radius:999px;\n'
+              '      padding:1px 6px;\n'
+              '    }\n'
+              '    .allergy-yes { background:#f8d7da; color:#842029; }\n'
+              '    .allergy-nkda { background:#d1e7dd; color:#0f5132; }\n'
+              '    .allergy-unknown { background:#e9ecef; color:#495057; }\n'
+              '\n'
+              '    .banner-allergy {\n'
+              '      border-left:4px solid #dc3545;\n'
+              '      background:#f8d7da;\n'
+              '    }\n'
+              '    .banner-no-allergy {\n'
+              '      border-left:4px solid #6c757d;\n'
+              '      background:#f1f3f5;\n'
+              '    }\n'
+              '\n'
+              '    .task-pill {\n'
+              '      font-size:0.7rem;\n'
+              '      border-radius:999px;\n'
+              '    }\n'
+              '    .task-done {\n'
+              '      background:#198754;\n'
+              '      color:#fff;\n'
+              '    }\n'
+              '    .task-pending {\n'
+              '      background:#e9ecef;\n'
+              '      color:#495057;\n'
+              '    }\n'
+              '\n'
+              '    /* ED Board layout tuning */\n'
+              '    .ed-board-card {\n'
+              '      border-radius: 0.75rem;\n'
+              '      border: 1px solid #dee2e6;\n'
+              '    }\n'
+              '    .ed-board-table thead th {\n'
+              '      font-size: 0.75rem;\n'
+              '      text-transform: uppercase;\n'
+              '      letter-spacing: 0.03em;\n'
+              '      background-color: #f8f9fa;\n'
+              '      position: sticky;\n'
+              '      top: 0;\n'
+              '      z-index: 1;\n'
+              '    }\n'
+              '    .ed-board-table tbody td {\n'
+              '      font-size: 0.82rem;\n'
+              '      vertical-align: middle;\n'
+              '    }\n'
+              '    .ed-board-table tbody tr:hover {\n'
+              '      background-color: #f1f3f5;\n'
+              '    }\n'
+              '    .ed-board-table td.col-queue,\n'
+              '    .ed-board-table td.col-age,\n'
+              '    .ed-board-table td.col-es,\n'
+              '    .ed-board-table td.col-status,\n'
+              '    .ed-board-table td.col-user {\n'
+              '      text-align: center;\n'
+              '      white-space: nowrap;\n'
+              '    }\n'
+              '    .ed-board-table td.col-visit,\n'
+              '    .ed-board-table td.col-id,\n'
+              '    .ed-board-table td.col-insurance {\n'
+              '      white-space: nowrap;\n'
+              '    }\n'
+              '    .ed-board-table td.col-payment {\n'
+              '      max-width: 220px;\n'
+              '      white-space: nowrap;\n'
+              '      overflow: hidden;\n'
+              '      text-overflow: ellipsis;\n'
+              '    }\n'
+              '    .wait-cell {\n'
+              '      text-align: center;\n'
+              '    }\n'
+              '    .wait-pill {\n'
+              '      display: inline-block;\n'
+              '      padding: 2px 10px;\n'
+              '      border-radius: 999px;\n'
+              '      font-size: 0.78rem;\n'
+              '      font-weight: 600;\n'
+              '    }\n'
+              '    .wait-pill.wait-short {\n'
+              '      background:#d1e7dd;\n'
+              '      color:#0f5132;\n'
+              '    }\n'
+              '    .wait-pill.wait-medium {\n'
+              '      background:#fff3cd;\n'
+              '      color:#664d03;\n'
+              '    }\n'
+              '    .wait-pill.wait-long {\n'
+              '      background:#f8d7da;\n'
+              '      color:#842029;\n'
+              '    }\n'
+              '    .wait-pill.wait-none {\n'
+              '      background:#e9ecef;\n'
+              '      color:#495057;\n'
+              '    }\n'
+              '\n'
+              '    .ed-actions {\n'
+              '      display: flex;\n'
+              '      flex-direction: column;\n'
+              '      gap: 2px;\n'
+              '    }\n'
+              '    .ed-actions-row {\n'
+              '      display: flex;\n'
+              '      flex-wrap: wrap;\n'
+              '      gap: 4px;\n'
+              '    }\n'
+              '    .ed-actions-row .btn {\n'
+              '      font-size: 0.72rem;\n'
+              '      padding: 1px 8px;\n'
+              '    }\n'
+              '    .ed-actions-row .btn-outline-primary,\n'
+              '    .ed-actions-row .btn-outline-success,\n'
+              '    .ed-actions-row .btn-outline-secondary {\n'
+              '      border-radius: 999px;\n'
+              '    }\n'
+              '    \n'
+              '  </style>\n'
+              '</head>\n'
+              '<body>\n'
+              '<nav class="navbar navbar-light bg-white border-bottom px-3">\n'
+              '  <span class="navbar-brand fw-bold">ED Downtime</span>\n'
+              '\n'
+              '  <div class="d-flex gap-3 align-items-center">\n'
+              '    <a class="nav-link" href="{{ url_for(\'ed_board\') }}">ED Board</a>\n'
+              '    <a class="nav-link" href="{{ url_for(\'search_patients\') }}">Search</a>\n'
+              '    <a class="nav-link position-relative" href="{{ url_for(\'chat_page\') }}">Live Chat{% if '
+              'nav_chat_recent %}<span class="badge rounded-pill bg-info text-dark ms-1">{{ nav_chat_recent '
+              '}}</span>{% endif %}</a>\n'
+              "    {% if session.get('role') in ['admin','doctor','nurse'] %}\n"
+              '      <a class="nav-link" href="{{ url_for(\'reports\') }}">Reports</a>\n'
+              '    {% endif %}\n'
+              "    {% if session.get('role') in ['lab','admin','doctor','nurse'] %}\n"
+              '      <a class="nav-link position-relative" href="{{ url_for(\'lab_board\') }}">Lab Board{% if '
+              'nav_lab_pending %}<span class="badge rounded-pill bg-danger ms-1">{{ nav_lab_pending }}</span>{% endif '
+              '%}</a>\n'
+              '    {% endif %}\n'
+              "    {% if session.get('role') in ['radiology','admin','doctor','nurse'] %}\n"
+              '      <a class="nav-link position-relative" href="{{ url_for(\'radiology_board\') }}">Radiology Board{% '
+              'if nav_rad_pending %}<span class="badge rounded-pill bg-warning text-dark ms-1">{{ nav_rad_pending '
+              '}}</span>{% endif %}</a>\n'
+              '    {% endif %}\n'
+              "    {% if session.get('role') in ['reception','admin'] %}\n"
+              '      <a class="nav-link" href="{{ url_for(\'register_patient\') }}">Register</a>\n'
+              '    {% endif %}\n'
+              "    {% if session.get('role')=='admin' %}\n"
+              '      <a class="nav-link" href="{{ url_for(\'admin_users\') }}">Users</a>\n'
+              '      <a class="nav-link" href="{{ url_for(\'admin_items\') }}">Orders Items</a>\n'
+              '      <a class="nav-link" href="{{ url_for(\'admin_reset_password\') }}">Reset Password</a>\n'
+              '      <a class="nav-link" href="{{ url_for(\'admin_logs\') }}">Logs</a>\n'
+              '      <a class="nav-link" href="{{ url_for(\'admin_backup\') }}">Backup DB</a>\n'
+              '      <a class="nav-link text-primary" href="{{ url_for(\'admin_backup_now\') }}">Backup Now</a>\n'
+              '      <a class="nav-link text-danger" href="{{ url_for(\'admin_restore\') }}">Restore DB</a>\n'
+              '    {% endif %}\n'
+              '    <span class="text-muted">User: {{ session.get(\'username\') }} ({{ session.get(\'role\') '
+              '}})</span>\n'
+              '    <a class="text-danger nav-link" href="{{ url_for(\'logout\') }}">Logout</a>\n'
+              '  </div>\n'
+              '  <button class="btn btn-sm btn-outline-secondary" onclick="location.reload()">🔄 Manual '
+              'Refresh</button>\n'
+              '</nav>\n'
+              '\n'
+              '<div class="container-fluid py-3 px-3">\n'
+              '  {% block content %}{% endblock %}\n'
+              '</div>\n'
+              '\n'
+              '<footer class="text-center text-muted small py-3">\n'
+              '  {{ footer_text }}\n'
+              '</footer>\n'
+              '\n'
+              '<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>\n'
+              '</body>\n'
+              '</html>\n',
+ 'chat.html': '\n'
+              '{% extends "base.html" %}\n'
+              '{% block content %}\n'
+              '<h4 class="mb-3">Live Chat - Staff</h4>\n'
+              '\n'
+              '<div class="row">\n'
+              '  <div class="col-md-8">\n'
+              '    <div class="card bg-white">\n'
+              '      <div class="card-body" style="height:400px; overflow-y:auto;" id="chat-box">\n'
+              '        <div class="text-muted small">Loading messages...</div>\n'
+              '      </div>\n'
+              '      <div class="card-footer">\n'
+              '        <div class="input-group">\n'
+              '          <input type="text" id="chat-input" class="form-control" placeholder="Type your message and '
+              'press Enter or click Send ...">\n'
+              '          <button class="btn btn-primary" id="chat-send-btn">Send</button>\n'
+              '        </div>\n'
+              '        <div class="small text-muted mt-1">\n'
+              '          Current channel: All staff (Public ED Room)\n'
+              '        </div>\n'
+              '      </div>\n'
+              '    </div>\n'
+              '  </div>\n'
+              '</div>\n'
+              '\n'
+              '<script>\n'
+              '(function() {\n'
+              '  const chatBox = document.getElementById("chat-box");\n'
+              '  const input   = document.getElementById("chat-input");\n'
+              '  const sendBtn = document.getElementById("chat-send-btn");\n'
+              '\n'
+              '  let lastTimestamp = "";\n'
+              '\n'
+              '  function appendMessage(msg) {\n'
+              '    const div = document.createElement("div");\n'
+              '    div.className = "mb-1";\n'
+              '    div.innerHTML =\n'
+              '      \'<span class="badge bg-light text-dark me-1">\' +\n'
+              '      (msg.username || "User") +\n'
+              "      '</span>' +\n"
+              '      \'<span class="small text-muted me-1">[\' + msg.created_at + \']</span>\' +\n'
+              "      '<span>' + escapeHtml(msg.message) + '</span>';\n"
+              '    chatBox.appendChild(div);\n'
+              '    chatBox.scrollTop = chatBox.scrollHeight;\n'
+              '  }\n'
+              '\n'
+              '  function escapeHtml(text) {\n'
+              '    if (!text) return "";\n'
+              '    return text\n'
+              '      .replace(/&/g, "&amp;")\n'
+              '      .replace(/</g, "&lt;")\n'
+              '      .replace(/>/g, "&gt;");\n'
+              '  }\n'
+              '\n'
+              '  function playBeep() {\n'
+              '    try {\n'
+              '      const ctx = new (window.AudioContext || window.webkitAudioContext)();\n'
+              '      const osc = ctx.createOscillator();\n'
+              '      const gain = ctx.createGain();\n'
+              '      osc.type = "sine";\n'
+              '      osc.frequency.value = 880;\n'
+              '      gain.gain.value = 0.05;\n'
+              '      osc.connect(gain);\n'
+              '      gain.connect(ctx.destination);\n'
+              '      osc.start();\n'
+              '      setTimeout(function() {\n'
+              '        osc.stop();\n'
+              '        ctx.close();\n'
+              '      }, 200);\n'
+              '    } catch (e) {\n'
+              '      console.log("Beep error", e);\n'
+              '    }\n'
+              '  }\n'
+              '\n'
+              '  async function loadMessages() {\n'
+              '    try {\n'
+              '      const url = lastTimestamp\n'
+              '        ? "/chat/messages?after=" + encodeURIComponent(lastTimestamp)\n'
+              '        : "/chat/messages";\n'
+              '\n'
+              '      const res = await fetch(url);\n'
+              '      if (!res.ok) return;\n'
+              '      const data = await res.json();\n'
+              '      if (!data.ok) return;\n'
+              '\n'
+              '      if (data.messages && data.messages.length > 0) {\n'
+              '        const isInitial = !lastTimestamp;\n'
+              '        data.messages.forEach(function(m) {\n'
+              '          appendMessage(m);\n'
+              '          lastTimestamp = m.created_at;\n'
+              '        });\n'
+              '        if (!isInitial) {\n'
+              '          playBeep();\n'
+              '        }\n'
+              '      } else if (!lastTimestamp) {\n'
+              '        chatBox.innerHTML = \'<div class="text-muted small">No messages yet. Type the first message '
+              "👋</div>';\n"
+              '      }\n'
+              '    } catch (e) {\n'
+              '      // ignore\n'
+              '    }\n'
+              '  }\n'
+              '\n'
+              '  async function sendMessage() {\n'
+              '    const text = (input.value || "").trim();\n'
+              '    if (!text) return;\n'
+              '\n'
+              '    try {\n'
+              '      const res = await fetch("/chat/send", {\n'
+              '        method: "POST",\n'
+              '        headers: { "Content-Type": "application/json" },\n'
+              '        body: JSON.stringify({ message: text })\n'
+              '      });\n'
+              '      const data = await res.json();\n'
+              '      if (data.ok) {\n'
+              '        input.value = "";\n'
+              '        loadMessages();\n'
+              '      }\n'
+              '    } catch (e) {\n'
+              '      alert("Error sending message");\n'
+              '    }\n'
+              '  }\n'
+              '\n'
+              '  sendBtn.addEventListener("click", sendMessage);\n'
+              '  input.addEventListener("keydown", function(e) {\n'
+              '    if (e.key === "Enter") {\n'
+              '      e.preventDefault();\n'
+              '      sendMessage();\n'
+              '    }\n'
+              '  });\n'
+              '\n'
+              '  loadMessages();\n'
+              '  setInterval(loadMessages, 3000);\n'
+              '})();\n'
+              '</script>\n'
+              '{% endblock %}\n',
+ 'clinical_orders.html': '\n'
+                         '{% extends "base.html" %}\n'
+                         '{% block content %}\n'
+                         '<h4 class="mb-2">Clinical Orders - Visit {{ visit.visit_id }}</h4>\n'
+                         '<div class="mb-3 text-muted">\n'
+                         '  Patient: {{ visit.name }} | ID: {{ visit.id_number }} | Insurance: {{ visit.insurance }}\n'
+                         '</div>\n'
+                         '\n'
+                         '{% with messages = get_flashed_messages(with_categories=true) %}\n'
+                         '  {% for category, msg in messages %}\n'
+                         '    <div class="alert alert-{{ category }}">{{ msg }}</div>\n'
+                         '  {% endfor %}\n'
+                         '{% endwith %}\n'
+                         '\n'
+                         '<div class="mb-3 d-flex flex-wrap gap-2">\n'
+                         '  <a class="btn btn-sm btn-outline-secondary"\n'
+                         '     target="_blank"\n'
+                         '     href="{{ url_for(\'lab_results_pdf\', visit_id=visit.visit_id) }}">\n'
+                         '    Print Lab Results PDF\n'
+                         '  </a>\n'
+                         '\n'
+                         '  <a class="btn btn-sm btn-outline-secondary"\n'
+                         '     target="_blank"\n'
+                         '     href="{{ url_for(\'radiology_results_pdf\', visit_id=visit.visit_id) }}">\n'
+                         '    Print Radiology Reports PDF\n'
+                         '  </a>\n'
+                         '\n'
+                         '  <a class="btn btn-sm btn-outline-dark"\n'
+                         '     target="_blank"\n'
+                         '     href="{{ url_for(\'auto_summary_pdf\', visit_id=visit.visit_id) }}">\n'
+                         '    Auto ED Course Summary PDF\n'
+                         '  </a>\n'
+                         '</div>\n'
+                         '\n'
+                         '<div class="row g-3">\n'
+                         '  <div class="col-lg-7">\n'
+                         '    <div class="card p-3 bg-white">\n'
+                         '      <h6 class="fw-bold mb-2">Add New Clinical Order</h6>\n'
+                         '\n'
+                                                   '      <div class="mb-3 d-flex flex-wrap gap-2">\n'
+                          '        <button type="button" class="btn btn-sm btn-outline-primary" onclick="applyBundle(\'chest_pain\')">Chest Pain Bundle</button>\n'
+                          '        <button type="button" class="btn btn-sm btn-outline-danger" onclick="applyBundle(\'stroke\')">Stroke Bundle</button>\n'
+                          '        <button type="button" class="btn btn-sm btn-outline-dark" onclick="applyBundle(\'trauma\')">Trauma Bundle</button>\n'
+                          '\n'
+                          '        <button type="button" class="btn btn-sm btn-outline-success" onclick="applyBundle(\'abdominal_pain\')">Abdominal Pain Bundle</button>\n'
+                          '        <button type="button" class="btn btn-sm btn-outline-info" onclick="applyBundle(\'sob\')">SOB Bundle</button>\n'
+                          '        <button type="button" class="btn btn-sm btn-outline-info" onclick="applyBundle(\'asthma_copd\')">Asthma / COPD Bundle</button>\n'
+                          '\n'
+                          '        <button type="button" class="btn btn-sm btn-outline-warning" onclick="applyBundle(\'sepsis\')">Sepsis Bundle</button>\n'
+                          '        <button type="button" class="btn btn-sm btn-outline-primary" onclick="applyBundle(\'fever\')">Fever Bundle</button>\n'
+                          '        <button type="button" class="btn btn-sm btn-outline-warning" onclick="applyBundle(\'peds_fever_sepsis\')">Pediatric Fever / Sepsis</button>\n'
+                          '\n'
+                          '        <button type="button" class="btn btn-sm btn-outline-dark" onclick="applyBundle(\'gi_bleed\')">GI Bleed Bundle</button>\n'
+                          '        <button type="button" class="btn btn-sm btn-outline-danger" onclick="applyBundle(\'anaphylaxis\')">Anaphylaxis Bundle</button>\n'
+                          '\n'
+                          '        <button type="button" class="btn btn-sm btn-outline-danger" onclick="applyBundle(\'cardiac_arrest\')">Cardiac Arrest / Peri-Arrest</button>\n'
+                          '        <button type="button" class="btn btn-sm btn-outline-warning" onclick="applyBundle(\'dka_hyperglycemia\')">DKA / Hyperglycemic Emergency</button>\n'
+                          '        <button type="button" class="btn btn-sm btn-outline-warning" onclick="applyBundle(\'hypoglycemia\')">Hypoglycemia</button>\n'
+                          '        <button type="button" class="btn btn-sm btn-outline-dark" onclick="applyBundle(\'poisoning_overdose\')">Poisoning / Overdose</button>\n'
+                          '\n'
+                          '        <button type="button" class="btn btn-sm btn-outline-danger" onclick="applyBundle(\'htn_emergency\')">Hypertensive Emergency / Acute Pulmonary Edema</button>\n'
+                          '        <button type="button" class="btn btn-sm btn-outline-success" onclick="applyBundle(\'renal_colic\')">Renal Colic / Flank Pain</button>\n'
+                          '        <button type="button" class="btn btn-sm btn-outline-warning" onclick="applyBundle(\'aki_electrolyte\')">AKI / Electrolyte Disturbance</button>\n'
+                          '        <button type="button" class="btn btn-sm btn-outline-secondary" onclick="applyBundle(\'obstetric\')">Obstetric / Pregnant Emergency</button>\n'
+                          '\n'
+                          '        <button type="button" class="btn btn-sm btn-outline-secondary" onclick="clearAllBundles()">Clear Selections</button>\n'
+                          '      </div>\n'
+                         '\n'
+                         "      {% if session.get('role') not in ['reception'] %}\n"
+                         '      <form method="POST" action="{{ url_for(\'add_clinical_order\', '
+                         'visit_id=visit.visit_id) }}">\n'
+                         '  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">\n'
+                         '        <label class="form-label fw-bold">Diagnosis / Chief Complaint</label>\n'
+                         '        <textarea class="form-control mb-3" name="diagnosis" rows="2" placeholder="Write '
+                         'diagnosis or chief complaint..."></textarea>\n'
+                         '\n'
+                         '        <label class="form-label fw-bold">Radiology Orders</label>\n'
+                         '        <div class="border rounded p-2 mb-2" style="max-height:180px; overflow:auto;">\n'
+                         '          {% if rad_items %}\n'
+                         '          {% for item in rad_items %}\n'
+                         '            <div class="form-check">\n'
+                         '              <input class="form-check-input rad-item" type="checkbox" value="{{ item.name '
+                         '}}" id="rad_{{ loop.index }}">\n'
+                         '              <label class="form-check-label" for="rad_{{ loop.index }}">{{ item.name '
+                         '}}</label>\n'
+                         '            </div>\n'
+                         '          {% endfor %}\n'
+                         '          {% else %}\n'
+                         '            <div class="text-muted small">No radiology items defined. Please ask admin to '
+                         'add from Admin &raquo; Orders Items.</div>\n'
+                         '          {% endif %}\n'
+                         '        </div>\n'
+                         '\n'
+                         '        <div class="input-group input-group-sm mb-2">\n'
+                         '          <input type="text" class="form-control" id="rad_other" placeholder="Search or add '
+                         'radiology (optional)">\n'
+                         '          <button class="btn btn-outline-secondary" type="button" '
+                         'onclick="searchOrAdd(\'rad\')">Search / Add</button>\n'
+                         '        </div>\n'
+                         '\n'
+                         '        <textarea class="form-control mb-3" id="radiology_text" name="radiology_orders" '
+                         'rows="2"\n'
+                         '                  placeholder="Selected radiology appear here..." readonly></textarea>\n'
+                         '\n'
+                         '        <label class="form-label fw-bold">Lab Orders</label>\n'
+                         '        <div class="border rounded p-2 mb-2" style="max-height:180px; overflow:auto;">\n'
+                         '          {% if lab_items %}\n'
+                         '          {% for item in lab_items %}\n'
+                         '            <div class="form-check">\n'
+                         '              <input class="form-check-input lab-item" type="checkbox" value="{{ item.name '
+                         '}}" id="lab_{{ loop.index }}">\n'
+                         '              <label class="form-check-label" for="lab_{{ loop.index }}">{{ item.name '
+                         '}}</label>\n'
+                         '            </div>\n'
+                         '          {% endfor %}\n'
+                         '          {% else %}\n'
+                         '            <div class="text-muted small">No lab items defined. Please ask admin to add from '
+                         'Admin &raquo; Orders Items.</div>\n'
+                         '          {% endif %}\n'
+                         '        </div>\n'
+                         '\n'
+                         '        <div class="input-group input-group-sm mb-2">\n'
+                         '          <input type="text" class="form-control" id="lab_other" placeholder="Search or add '
+                         'lab (optional)">\n'
+                         '          <button class="btn btn-outline-secondary" type="button" '
+                         'onclick="searchOrAdd(\'lab\')">Search / Add</button>\n'
+                         '        </div>\n'
+                         '\n'
+                         '        <textarea class="form-control mb-3" id="lab_text" name="lab_orders" rows="2"\n'
+                         '                  placeholder="Selected labs appear here..." readonly></textarea>\n'
+                         '\n'
+                         '        <label class="form-label fw-bold">Medications</label>\n'
+                         '        <div class="border rounded p-2 mb-2" style="max-height:200px; overflow:auto;">\n'
+                         '          {% if med_items %}\n'
+                         '          {% for item in med_items %}\n'
+                         '            <div class="form-check d-flex align-items-center mb-1">\n'
+                         '              <input class="form-check-input med-item me-2" type="checkbox" value="{{ '
+                         'item.name }}" id="med_{{ loop.index }}">\n'
+                         '              <label class="form-check-label flex-grow-1" for="med_{{ loop.index }}">{{ '
+                         'item.name }}</label>\n'
+                         '              <input type="text"\n'
+                         '                     class="form-control form-control-sm ms-2 med-dose"\n'
+                         '                     data-med="{{ item.name }}"\n'
+                         '                     placeholder="Dose">\n'
+                         '            </div>\n'
+                         '          {% endfor %}\n'
+                         '          {% else %}\n'
+                         '            <div class="text-muted small">No medication items defined. Please ask admin to '
+                         'add from Admin &raquo; Orders Items.</div>\n'
+                         '          {% endif %}\n'
+                         '        </div>\n'
+                         '\n'
+                         '        <div class="input-group input-group-sm mb-2">\n'
+                         '          <input type="text" class="form-control" id="med_other" placeholder="Search or add '
+                         'medication (optional)">\n'
+                         '          <button class="btn btn-outline-secondary" type="button" '
+                         'onclick="searchOrAdd(\'med\')">Search / Add</button>\n'
+                         '        </div>\n'
+                         '\n'
+                         '        <textarea class="form-control mb-3" id="med_text" name="medications" rows="2"\n'
+                         '                  placeholder="Selected medications appear here..." readonly></textarea>\n'
+                         '\n'
+                         '        <div class="d-flex gap-2 mt-2">\n'
+                         '          <button class="btn btn-primary">Save Clinical Order</button>\n'
+                         '          <a class="btn btn-secondary" href="{{ url_for(\'patient_details\', '
+                         'visit_id=visit.visit_id) }}">Back</a>\n'
+                         '        </div>\n'
+                         '      </form>\n'
+                         '      {% else %}\n'
+                         '        <div class="alert alert-warning mb-0">\n'
+                         '          Reception role has no access to create clinical orders.\n'
+                         '        </div>\n'
+                         '      {% endif %}\n'
+                         '    </div>\n'
+                         '  </div>\n'
+                         '\n'
+                         '  <div class="col-lg-5">\n'
+                         '    <div class="card p-3 bg-white mb-3">\n'
+                         '      <div class="d-flex justify-content-between align-items-center">\n'
+                         '        <h6 class="fw-bold mb-2">Nursing Notes</h6>\n'
+                         '        <a class="btn btn-sm btn-outline-primary"\n'
+                         '           target="_blank"\n'
+                         '           href="{{ url_for(\'nursing_notes_pdf\', visit_id=visit.visit_id) }}">Print Notes '
+                         'PDF</a>\n'
+                         '      </div>\n'
+                         '\n'
+                         "      {% if session.get('role') in ['nurse','doctor','admin'] %}\n"
+                         '      <form method="POST" action="{{ url_for(\'add_nursing_note\', visit_id=visit.visit_id) '
+                         '}}">\n'
+                         '  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">\n'
+                         '        <textarea class="form-control mb-2" name="note_text" rows="3" placeholder="Write '
+                         'nursing note..."></textarea>\n'
+                         '        <button class="btn btn-sm btn-primary">Save Note</button>\n'
+                         '      </form>\n'
+                         '      {% else %}\n'
+                         '        <div class="text-muted small">Nursing notes are read-only for this role.</div>\n'
+                         '      {% endif %}\n'
+                         '\n'
+                         '      <hr>\n'
+                         '      {% if notes %}\n'
+                         '        <div style="max-height:220px; overflow:auto;">\n'
+                         '          {% for n in notes %}\n'
+                         '            <div class="border rounded p-2 mb-2">\n'
+                         '              <div class="small fw-bold">{{ n.created_at }} | {{ n.created_by }}</div>\n'
+                         '              <div class="small">{{ n.note_text }}</div>\n'
+                         '            </div>\n'
+                         '          {% endfor %}\n'
+                         '        </div>\n'
+                         '      {% else %}\n'
+                         '        <div class="text-muted small">No nursing notes yet.</div>\n'
+                         '      {% endif %}\n'
+                         '    </div>\n'
+                         '\n'
+                         "    {% if session.get('role') != 'nurse' %}\n"
+                         '    <div class="card p-3 bg-white">\n'
+                         '      <div class="d-flex justify-content-between align-items-center">\n'
+                         '        <h6 class="fw-bold mb-2">Discharge Summary V5</h6>\n'
+                         '        <a class="btn btn-sm btn-outline-secondary"\n'
+                         '           target="_blank"\n'
+                         '           href="{{ url_for(\'discharge_summary_pdf\', visit_id=visit.visit_id) '
+                         '}}">Auto-Summary PDF</a>\n'
+                         '      </div>\n'
+                         '\n'
+                         '      <form method="POST" action="{{ url_for(\'discharge_save\', visit_id=visit.visit_id) '
+                         '}}">\n'
+                         '  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">\n'
+                         '        <label class="form-label fw-bold small mt-2">Diagnosis / Chief Complaint</label>\n'
+                         '        <textarea class="form-control mb-2" name="diagnosis_cc" rows="2"\n'
+                         '          placeholder="Diagnosis / chief complaint...">{{ summary.diagnosis_cc if summary '
+                         "else '' }}</textarea>\n"
+                         '\n'
+                         '        <label class="form-label fw-bold small">Final Diagnosis</label>\n'
+                         '        <textarea class="form-control mb-2" name="final_diagnosis" rows="2"\n'
+                         '          placeholder="Final diagnosis (principal and secondary)...">{{ '
+                         "summary.final_diagnosis if summary else '' }}</textarea>\n"
+                         '\n'
+                         '        <label class="form-label fw-bold small">Referral to Clinic</label>\n'
+                         '        <input class="form-control mb-2"\n'
+                         '               name="referral_clinic"\n'
+                         '               list="clinic_list"\n'
+                         '               placeholder="Select / type clinic"\n'
+                         '               value="{{ summary.referral_clinic if summary else \'\' }}">\n'
+                         '        <datalist id="clinic_list">\n'
+                         '          <option value="ED / Emergency">\n'
+                         '          <option value="General Medicine OPD">\n'
+                         '          <option value="General Surgery OPD">\n'
+                         '          <option value="Pediatrics OPD">\n'
+                         '          <option value="Obstetrics & Gynecology OPD">\n'
+                         '          <option value="Orthopedics OPD">\n'
+                         '          <option value="Cardiology OPD">\n'
+                         '          <option value="Neurology OPD">\n'
+                         '          <option value="ENT OPD">\n'
+                         '          <option value="Ophthalmology OPD">\n'
+                         '          <option value="Urology OPD">\n'
+                         '          <option value="Dermatology OPD">\n'
+                         '          <option value="Psychiatry OPD">\n'
+                         '          <option value="Dental OPD">\n'
+                         '          <option value="Oncology OPD">\n'
+                         '          <option value="Endocrinology OPD">\n'
+                         '          <option value="Nephrology OPD">\n'
+                         '          <option value="Pulmonology OPD">\n'
+                         '          <option value="ICU">\n'
+                         '          <option value="LDR">\n'
+                         '        </datalist>\n'
+                         '\n'
+                         '\n'
+                         '        <label class="form-label fw-bold small">Home Medication</label>\n'
+                         '        <div class="form-text small text-muted mb-1">\n'
+                         '          Template: <strong>Drug 500 mg tab – 1 tab PO – every 8h – for 3 days – PRN for '
+                         'pain</strong>.\n'
+                         '          Write <strong>one medicine per line</strong>.\n'
+                         '        </div>\n'
+                         '\n'
+                         '        <div class="mb-2 d-flex gap-2 align-items-center">\n'
+                         '          <input type="text"\n'
+                         '                 id="home_med_search"\n'
+                         '                 class="form-control form-control-sm"\n'
+                         '                 list="home_med_templates"\n'
+                         '                 placeholder="Search/Add home medication template">\n'
+                         '          <datalist id="home_med_templates">\n'
+                         '            {% for item in home_med_items or [] %}\n'
+                         '              <option value="{{ item.name }}">\n'
+                         '            {% endfor %}\n'
+                         '          </datalist>\n'
+                         '          <button type="button" class="btn btn-outline-primary btn-sm" '
+                         'onclick="addHomeMedFromSearch()">Add</button>\n'
+                         '        </div>\n'
+                         '\n'
+                         '        <textarea class="form-control mb-2" id="home_medication_text" name="home_medication" '
+                         'rows="2"\n'
+                         '          placeholder="Example: Paracetamol 500 mg tab – 1 tab PO – every 8h – for 3 '
+                         'days">{{ summary.home_medication if summary else \'\' }}</textarea>\n'
+                         '\n'
+                         '        <label class="form-label fw-bold small">ED / Hospital Course</label>\n'
+                         '        <textarea class="form-control mb-2" name="summary_text" rows="4"\n'
+                         '                  placeholder="Brief summary of presentation, key exam findings, treatment '
+                         'and response...">{{ summary.summary_text if summary else \'\' }}</textarea>\n'
+                         '\n'
+                         '        <label class="form-label fw-bold small">Investigations Summary</label>\n'
+                         '        <textarea class="form-control mb-2" name="investigations_summary" rows="3"\n'
+                         '                  placeholder="Key lab and imaging findings (only relevant/abnormal '
+                         'results)...">{{ summary.investigations_summary if summary else \'\' }}</textarea>\n'
+                         '\n'
+                         '        <label class="form-label fw-bold small">Procedures Performed</label>\n'
+                         '        <textarea class="form-control mb-2" name="procedures_text" rows="2"\n'
+                         '                  placeholder="e.g. Suturing, nebulisation, plaster cast, wound '
+                         'dressing...">{{ summary.procedures_text if summary else \'\' }}</textarea>\n'
+                         '\n'
+                         '        <label class="form-label fw-bold small">Condition on Discharge</label>\n'
+                         '        <input class="form-control mb-2" name="condition_on_discharge"\n'
+                         '               placeholder="e.g. Stable and improved" value="{{ '
+                         'summary.condition_on_discharge if summary else \'\' }}">\n'
+                         '\n'
+                         '        <label class="form-label fw-bold small">Follow-up & Instructions</label>\n'
+                         '        <textarea class="form-control mb-3" name="followup_instructions" rows="3"\n'
+                         '                  placeholder="Follow-up clinic and safety-net advice (return to ED '
+                         'if...)">{{ summary.followup_instructions if summary else \'\' }}</textarea>\n'
+                         '\n'
+                         '        <button class="btn btn-sm btn-success">Save Summary</button>\n'
+                         '      </form>\n'
+                         '    </div>\n'
+                         '    {% endif %}\n'
+                         '  </div>\n'
+                         '</div>\n'
+                         '\n'
+                         '<div class="card p-3 bg-white mt-3">\n'
+                         '  <h6 class="fw-bold mb-2">Lab Requests / Results</h6>\n'
+                         '  {% if not lab_reqs %}\n'
+                         '    <div class="text-muted small">No lab requests for this visit.</div>\n'
+                         '  {% else %}\n'
+                         '    <table class="table table-sm mb-0">\n'
+                         '      <thead>\n'
+                         '        <tr>\n'
+                         '          <th style="width:60px;">#</th>\n'
+                         '          <th>Test</th>\n'
+                         '          <th>Status</th>\n'
+                         '          <th>Result</th>\n'
+                         '          <th class="small">Requested</th>\n'
+                         '          <th style="width:120px;" class="small">Actions</th>\n'
+                         '        </tr>\n'
+                         '      </thead>\n'
+                         '      <tbody>\n'
+                         '        {% for l in lab_reqs %}\n'
+                         '          <tr>\n'
+                         '            <td>{{ l.id }}</td>\n'
+                         '            <td>{{ l.test_name }}</td>\n'
+                         '            <td>\n'
+                         "              {% if l.status == 'REQUESTED' %}\n"
+                         '                <span class="badge bg-secondary">Waiting Sample</span>\n'
+                         "              {% elif l.status == 'RECEIVED' %}\n"
+                         '                <span class="badge bg-warning text-dark">Sample Received</span>\n'
+                         "              {% elif l.status == 'REPORTED' %}\n"
+                         '                <span class="badge bg-success">Result Ready</span>\n'
+                         '              {% else %}\n'
+                         '                <span class="badge bg-light text-muted">{{ l.status }}</span>\n'
+                         '              {% endif %}\n'
+                         '            </td>\n'
+                         '            <td style="max-width:260px;white-space:pre-wrap;font-size:0.85rem;">\n'
+                         "              {{ l.result_text or '-' }}\n"
+                         '            </td>\n'
+                         '            <td class="small text-muted">\n'
+                         "              {{ l.requested_at or '-' }}<br>\n"
+                         "              by {{ l.requested_by or '-' }}\n"
+                         '            </td>\n'
+                         '            <td class="small">\n'
+                         '              <div class="d-flex flex-wrap gap-1">\n'
+                         "                {% if l.status == 'REQUESTED' and session.get('role') in "
+                         "['nurse','lab','admin'] %}\n"
+                         '                  <form method="POST"\n'
+                         '                        action="{{ url_for(\'lab_collect_sample\', rid=l.id) }}"\n'
+                         '                        class="d-inline">\n'
+                         '                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">\n'
+                         '                    <button class="btn btn-sm btn-outline-primary"\n'
+                         '                            onclick="return confirm(\'Mark sample as COLLECTED?\');">\n'
+                         '                      Collect sample\n'
+                         '                    </button>\n'
+                         '                  </form>\n'
+                         '                {% endif %}\n'
+                         "                {% if l.status != 'REPORTED' and session.get('role') in "
+                         "['doctor','lab','admin'] %}\n"
+                         '                  <form method="POST"\n'
+                         '                        action="{{ url_for(\'lab_delete_request\', rid=l.id) }}"\n'
+                         '                        class="d-inline">\n'
+                         '                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">\n'
+                         '                    <button class="btn btn-sm btn-outline-danger"\n'
+                         '                            onclick="return confirm(\'Delete this lab request?\');">\n'
+                         '                      🗑\n'
+                         '                    </button>\n'
+                         '                  </form>\n'
+                         '                {% endif %}\n'
+                         "                {% if session.get('role') in ['nurse','doctor','lab','radiology','admin'] "
+                         '%}\n'
+                         '                  <a class="btn btn-sm btn-outline-secondary"\n'
+                         '                     href="{{ url_for(\'lab_results_pdf\', visit_id=visit.visit_id) }}"\n'
+                         '                     target="_blank"\n'
+                         '                     title="Open lab results PDF">\n'
+                         '                    📄\n'
+                         '                  </a>\n'
+                         '                {% endif %}\n'
+                         '              </div>\n'
+                         '            </td>\n'
+                         '          </tr>\n'
+                         '        {% endfor %}\n'
+                         '      </tbody>\n'
+                         '    </table>\n'
+                         '  {% endif %}\n'
+                         '</div>\n'
+                         '\n'
+                         '<div class="card p-3 bg-white mt-3">\n'
+                         '  <h6 class="fw-bold mb-2">Radiology Requests / Reports</h6>\n'
+                         '  {% if not rad_reqs %}\n'
+                         '    <div class="text-muted small">No radiology requests for this visit.</div>\n'
+                         '  {% else %}\n'
+                         '    <table class="table table-sm mb-0">\n'
+                         '      <thead>\n'
+                         '        <tr>\n'
+                         '          <th style="width:60px;">#</th>\n'
+                         '          <th>Study</th>\n'
+                         '          <th>Status</th>\n'
+                         '          <th>Report</th>\n'
+                         '          <th class="small">Requested</th>\n'
+                         '          <th style="width:140px;" class="small">Actions</th>\n'
+                         '        </tr>\n'
+                         '      </thead>\n'
+                         '      <tbody>\n'
+                         '        {% for r in rad_reqs %}\n'
+                         '          <tr>\n'
+                         '            <td>{{ r.id }}</td>\n'
+                         '            <td>{{ r.test_name }}</td>\n'
+                         '            <td>\n'
+                         "              {% if r.status == 'REQUESTED' %}\n"
+                         '                <span class="badge bg-secondary">Waiting</span>\n'
+                         "              {% elif r.status == 'DONE' %}\n"
+                         '                <span class="badge bg-warning text-dark">Done</span>\n'
+                         "              {% elif r.status == 'REPORTED' %}\n"
+                         '                <span class="badge bg-success">Report Ready</span>\n'
+                         '              {% else %}\n'
+                         '                <span class="badge bg-light text-muted">{{ r.status }}</span>\n'
+                         '              {% endif %}\n'
+                         '            </td>\n'
+                         '            <td style="max-width:260px;white-space:pre-wrap;font-size:0.85rem;">\n'
+                         "              {{ r.report_text or '-' }}\n"
+                         '            </td>\n'
+                         '            <td class="small text-muted">\n'
+                         "              {{ r.requested_at or '-' }}<br>\n"
+                         "              by {{ r.requested_by or '-' }}\n"
+                         '            </td>\n'
+                         '            <td class="small">\n'
+                         '              <div class="d-flex flex-wrap gap-1">\n'
+                         "                {% if r.status == 'REQUESTED' and session.get('role') in "
+                         "['nurse','radiology','admin'] %}\n"
+                         '                  <form method="POST"\n'
+                         '                        action="{{ url_for(\'radiology_mark_done\', rid=r.id) }}"\n'
+                         '                        class="d-inline">\n'
+                         '                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">\n'
+                         '                    <button class="btn btn-sm btn-outline-primary"\n'
+                         '                            onclick="return confirm(\'Mark study as DONE?\');">\n'
+                         '                      Mark done\n'
+                         '                    </button>\n'
+                         '                  </form>\n'
+                         '                {% endif %}\n'
+                         "                {% if r.status != 'REPORTED' and session.get('role') in "
+                         "['doctor','radiology','admin'] %}\n"
+                         '                  <form method="POST"\n'
+                         '                        action="{{ url_for(\'radiology_delete_request\', rid=r.id) }}"\n'
+                         '                        class="d-inline">\n'
+                         '                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">\n'
+                         '                    <button class="btn btn-sm btn-outline-danger"\n'
+                         '                            onclick="return confirm(\'Delete this radiology request?\');">\n'
+                         '                      🗑\n'
+                         '                    </button>\n'
+                         '                  </form>\n'
+                         '                {% endif %}\n'
+                         "                {% if session.get('role') in ['nurse','doctor','lab','radiology','admin'] "
+                         '%}\n'
+                         '                  <a class="btn btn-sm btn-outline-secondary"\n'
+                         '                     href="{{ url_for(\'radiology_results_pdf\', visit_id=visit.visit_id) '
+                         '}}"\n'
+                         '                     target="_blank"\n'
+                         '                     title="Open radiology report PDF">\n'
+                         '                    📄\n'
+                         '                  </a>\n'
+                         '                {% endif %}\n'
+                         '              </div>\n'
+                         '            </td>\n'
+                         '          </tr>\n'
+                         '        {% endfor %}\n'
+                         '      </tbody>\n'
+                         '    </table>\n'
+                         '  {% endif %}\n'
+                         '</div>\n'
+                         '\n'
+                         '<div class="card p-3 bg-white mt-3">\n'
+                         '  <h6 class="fw-bold mb-2">Previous Clinical Orders</h6>\n'
+                         '\n'
+                         '  {% if not orders %}\n'
+                         '    <div class="text-muted small">No clinical orders yet.</div>\n'
+                         '  {% else %}\n'
+                         '    {% for o in orders %}\n'
+                         '      <div class="border rounded p-2 mb-2">\n'
+                         '        <div class="d-flex justify-content-between align-items-center">\n'
+                         '          <div class="fw-bold">\n'
+                         '            Order #{{ o.id }}\n'
+                         '            <span class="text-muted small ms-2">{{ o.created_at }} by {{ o.created_by '
+                         '}}</span>\n'
+                         '            {% if o.updated_at %}\n'
+                         '              <span class="text-muted small ms-2">| Updated: {{ o.updated_at }} by {{ '
+                         'o.updated_by }}</span>\n'
+                         '            {% endif %}\n'
+                         '          </div>\n'
+                         '\n'
+                         '          <div class="d-flex gap-1">\n'
+                         '            <a class="btn btn-sm btn-outline-secondary"\n'
+                         '               target="_blank"\n'
+                         '               href="{{ url_for(\'clinical_order_pdf\', visit_id=visit.visit_id, oid=o.id) '
+                         '}}">Print PDF</a>\n'
+                         '\n'
+                         "            {% if session.get('role') in ['nurse','doctor','admin'] %}\n"
+                         '              <form method="post" class="d-inline" action="{{ '
+                         'url_for(\'delete_clinical_order\', visit_id=visit.visit_id, oid=o.id) }}" onsubmit="return '
+                         'confirm(\'Delete this order?\');">\n'
+                         '                <button class="btn btn-sm btn-outline-danger">Delete</button>\n'
+                         '              </form>\n'
+                         '\n'
+                         '              <button class="btn btn-sm btn-outline-dark"\n'
+                         '                      data-bs-toggle="collapse"\n'
+                         '                      data-bs-target="#edit{{ o.id }}">Edit</button>\n'
+                         '            {% endif %}\n'
+                         '          </div>\n'
+                         '        </div>\n'
+                         '\n'
+                         '        <div class="mt-2 small">\n'
+                         "          <div><strong>Diagnosis / Chief Complaint:</strong><br>{{ o.diagnosis or '-' "
+                         '}}</div>\n'
+                         '          <div class="mt-1"><strong>Radiology:</strong><br>{{ o.radiology_orders or \'-\' '
+                         '}}</div>\n'
+                         '          <div class="mt-1"><strong>Lab:</strong><br>{{ o.lab_orders or \'-\' }}</div>\n'
+                         '          <div class="mt-1"><strong>Medications:</strong><br>{{ o.medications or \'-\' '
+                         '}}</div>\n'
+                         '        </div>\n'
+                         '\n'
+                         '        <div class="collapse mt-2" id="edit{{ o.id }}">\n'
+                         '          <form method="POST"\n'
+                         '                action="{{ url_for(\'update_clinical_order\', visit_id=visit.visit_id, '
+                         'oid=o.id) }}"\n'
+                         '                class="bg-light p-2 rounded">\n'
+                         '  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">\n'
+                         '            <label class="form-label fw-bold small">Diagnosis / Chief Complaint</label>\n'
+                         '            <textarea class="form-control mb-2" name="diagnosis" rows="2">{{ o.diagnosis or '
+                         "'' }}</textarea>\n"
+                         '\n'
+                         '            <label class="form-label fw-bold small">Radiology Orders</label>\n'
+                         '            <textarea class="form-control mb-2" name="radiology_orders" rows="2">{{ '
+                         "o.radiology_orders or '' }}</textarea>\n"
+                         '\n'
+                         '            <label class="form-label fw-bold small">Lab Orders</label>\n'
+                         '            <textarea class="form-control mb-2" name="lab_orders" rows="2">{{ o.lab_orders '
+                         "or '' }}</textarea>\n"
+                         '\n'
+                         '            <label class="form-label fw-bold small">Medications</label>\n'
+                         '            <textarea class="form-control mb-2" name="medications" rows="2">{{ o.medications '
+                         "or '' }}</textarea>\n"
+                         '\n'
+                         '            <button class="btn btn-sm btn-success">Save Changes</button>\n'
+                         '          </form>\n'
+                         '        </div>\n'
+                         '      </div>\n'
+                         '    {% endfor %}\n'
+                         '  {% endif %}\n'
+                         '</div>\n'
+                         '\n'
+                         '<script>\n'
+                         'function syncChecked(className, targetId){\n'
+                         "  const checked = Array.from(document.querySelectorAll('.'+className+':checked')).map(cb => "
+                         'cb.value);\n'
+                         '  document.getElementById(targetId).value = checked.join(", ");\n'
+                         '}\n'
+                         '\n'
+                         'function syncMedications(){\n'
+                         '  const parts = [];\n'
+                         "  document.querySelectorAll('.med-item').forEach(cb => {\n"
+                         '    if (!cb.checked) return;\n'
+                         '    const label = cb.value;\n'
+                         '    let dose = "";\n'
+                         "    const container = cb.closest('.form-check');\n"
+                         '    if (container) {\n'
+                         "      const doseInput = container.querySelector('.med-dose');\n"
+                         '      if (doseInput && doseInput.value) {\n'
+                         '        dose = doseInput.value.trim();\n'
+                         '      }\n'
+                         '    }\n'
+                         '    if (dose) {\n'
+                         '      parts.push(label + " (" + dose + ")");\n'
+                         '    } else {\n'
+                         '      parts.push(label);\n'
+                         '    }\n'
+                         '  });\n'
+                         "  const target = document.getElementById('med_text');\n"
+                         '  if (target) {\n'
+                         '    target.value = parts.join(", ");\n'
+                         '  }\n'
+                         '}\n'
+                         '\n'
+                         "document.addEventListener('change', function(e){\n"
+                         "  if(e.target.classList.contains('rad-item')) syncChecked('rad-item','radiology_text');\n"
+                         "  if(e.target.classList.contains('lab-item')) syncChecked('lab-item','lab_text');\n"
+                         "  if(e.target.classList.contains('med-item')) syncMedications();\n"
+                         '});\n'
+                         '\n'
+                         "document.addEventListener('input', function(e){\n"
+                         "  if(e.target.classList.contains('med-dose')) syncMedications();\n"
+                         '});\n'
+                         '\n'
+                         'function searchOrAdd(prefix){\n'
+                         "  const input = document.getElementById(prefix+'_other');\n"
+                         '  if(!input) return;\n'
+                         "  const val = (input.value || '').trim();\n"
+                         '  if(!val) return;\n'
+                         '\n'
+                         "  const classMap = { rad: 'rad-item', lab: 'lab-item', med: 'med-item' };\n"
+                         '  const cls = classMap[prefix] || null;\n'
+                         '  let found = false;\n'
+                         '\n'
+                         '  if (cls) {\n'
+                         '    const q = val.toLowerCase();\n'
+                         "    const checkboxes = Array.from(document.querySelectorAll('.' + cls));\n"
+                         '    for (let i = 0; i < checkboxes.length; i++) {\n'
+                         '      const cb = checkboxes[i];\n'
+                         "      const label = (cb.value || '').toLowerCase();\n"
+                         '      if (label.includes(q)) {\n'
+                         '        cb.checked = true;\n'
+                         '        found = true;\n'
+                         "        try { cb.scrollIntoView({behavior:'smooth', block:'center'}); } catch(e) {}\n"
+                         '        break;\n'
+                         '      }\n'
+                         '    }\n'
+                         '  }\n'
+                         '\n'
+                         '  if (found) {\n'
+                         "    if (prefix === 'rad') {\n"
+                         "      syncChecked('rad-item','radiology_text');\n"
+                         "    } else if (prefix === 'lab') {\n"
+                         "      syncChecked('lab-item','lab_text');\n"
+                         "    } else if (prefix === 'med') {\n"
+                         '      syncMedications();\n'
+                         '    }\n'
+                         '  } else {\n'
+                         '    addOther(prefix, val);\n'
+                         '  }\n'
+                         '\n'
+                         "  input.value = '';\n"
+                         '}\n'
+                         '\n'
+                         'function addOther(prefix, value){\n'
+                         "  const input = document.getElementById(prefix+'_other');\n"
+                         "  const raw = (typeof value === 'string') ? value : (input ? input.value : '');\n"
+                         "  const val = (raw || '').trim();\n"
+                         '  if(!val) return;\n'
+                         '\n'
+                         "  const tId = prefix==='rad' ? 'radiology_text' : prefix==='lab' ? 'lab_text' : 'med_text';\n"
+                         '  const t = document.getElementById(tId);\n'
+                         '  if (!t) return;\n'
+                         "  const cur = t.value ? t.value.split(',').map(x=>x.trim()).filter(Boolean) : [];\n"
+                         '  if(!cur.includes(val)) cur.push(val);\n'
+                         "  t.value = cur.join(', ');\n"
+                         '}\n'
+                         '\n'
+                         "['rad_other','lab_other','med_other'].forEach(id=>{\n"
+                         '  const el = document.getElementById(id);\n'
+                         '  if(el){\n'
+                         "    el.addEventListener('keydown', (e)=>{\n"
+                         "      if(e.key==='Enter'){\n"
+                         '        e.preventDefault();\n'
+                         "        searchOrAdd(id.split('_')[0]);\n"
+                         '      }\n'
+                         '    });\n'
+                         '  }\n'
+                         '});\n'
+                         '\n'
+                          'const bundles = {\n'
+                          '  chest_pain: {\n'
+                          '    diagnosis: "Chest pain – rule out ACS / PE",\n'
+                          '    radiology: ["X-Ray Chest", "CT Angio Chest (PE Study)"],\n'
+                          '    labs: ["Troponin", "CK-MB", "CBC", "Electrolytes", "PT/PTT/INR", "D-Dimer", "RBS (Random Blood Sugar)"],\n'
+                          '    meds: ["Aspirin PO 300mg", "Nitroglycerin SL", "Morphine IV", "Ondansetron IV", "Normal Saline 0.9%"]\n'
+                          '  },\n'
+                          '  stroke: {\n'
+                          '    diagnosis: "Acute stroke / TIA – onset time?",\n'
+                          '    radiology: ["CT Brain Without Contrast", "CT Angio Brain/Neck"],\n'
+                          '    labs: ["CBC", "Electrolytes", "PT/PTT/INR", "RBS (Random Blood Sugar)"],\n'
+                          '    meds: ["Normal Saline 0.9%", "Labetalol IV"]\n'
+                          '  },\n'
+                          '  trauma: {\n'
+                          '    diagnosis: "Polytrauma – primary & secondary survey",\n'
+                          '    radiology: ["CT Trauma Pan-Scan", "X-Ray Chest", "X-Ray Pelvis", "FAST Ultrasound"],\n'
+                          '    labs: ["CBC", "CMP (Kidney/Liver)", "PT/PTT/INR", "Lactate", "Type & Screen / Crossmatch", "ABG"],\n'
+                          '    meds: ["Tetanus Toxoid IM", "Cefazolin IV", "Morphine IV", "Ringer Lactate", "Normal Saline 0.9%"]\n'
+                          '  },\n'
+                          '  abdominal_pain: {\n'
+                          '    diagnosis: "Abdominal pain – rule out surgical abdomen",\n'
+                          '    radiology: ["US Abdomen", "CT Abdomen/Pelvis"],\n'
+                          '    labs: ["CBC", "CRP", "Electrolytes", "LFT", "Lipase", "Urine Analysis", "BHCG (Pregnancy Test)"],\n'
+                          '    meds: ["Paracetamol IV/PO", "Ondansetron IV", "Hyoscine (Buscopan) IV/IM", "Normal Saline 0.9%"]\n'
+                          '  },\n'
+                          '  sob: {\n'
+                          '    diagnosis: "Shortness of breath – undifferentiated",\n'
+                          '    radiology: ["X-Ray Chest", "CT Chest"],\n'
+                          '    labs: ["CBC", "Electrolytes", "ABG", "D-Dimer", "Troponin", "BNP", "RBS (Random Blood Sugar)"],\n'
+                          '    meds: ["Oxygen Therapy", "Salbutamol Nebulizer", "Ipratropium Nebulizer", "Hydrocortisone IV", "Normal Saline 0.9%"]\n'
+                          '  },\n'
+                          '  sepsis: {\n'
+                          '    diagnosis: "Suspected sepsis / septic shock",\n'
+                          '    radiology: ["X-Ray Chest", "US Abdomen"],\n'
+                          '    labs: ["CBC", "CRP", "Lactate", "Blood Culture", "Urine Analysis", "Electrolytes", "ABG"],\n'
+                          '    meds: ["Broad Spectrum Antibiotic (per policy)", "Normal Saline 0.9% Bolus"]\n'
+                          '  },\n'
+                          '  fever: {\n'
+                          '    diagnosis: "Fever – source unclear",\n'
+                          '    radiology: ["X-Ray Chest", "US Abdomen"],\n'
+                          '    labs: ["CBC", "CRP", "Urine Analysis", "Blood Culture", "RBS (Random Blood Sugar)"],\n'
+                          '    meds: ["Paracetamol IV/PO", "Normal Saline 0.9%"]\n'
+                          '  },\n'
+                          '  gi_bleed: {\n'
+                          '    diagnosis: "Upper / lower GI bleed",\n'
+                          '    radiology: ["X-Ray Chest"],\n'
+                          '    labs: ["CBC", "PT/PTT/INR", "Electrolytes", "Type & Screen / Crossmatch"],\n'
+                          '    meds: ["Pantoprazole IV", "Normal Saline 0.9%", "Tranexamic Acid IV (if indicated)"]\n'
+                          '  },\n'
+                          '  anaphylaxis: {\n'
+                          '    diagnosis: "Anaphylaxis / severe allergic reaction",\n'
+                          '    radiology: [],\n'
+                          '    labs: ["CBC", "ABG"],\n'
+                          '    meds: ["Epinephrine IM", "Hydrocortisone IV", "Chlorpheniramine IV/IM", "Normal Saline 0.9%", "Salbutamol Nebulizer"]\n'
+                          '  },\n'
+                          '  cardiac_arrest: {\n'
+                          '    diagnosis: "Cardiac arrest / peri-arrest – follow ACLS",\n'
+                          '    radiology: ["X-Ray Chest"],\n'
+                          '    labs: ["ABG", "CBC", "Electrolytes", "Lactate", "RBS (Random Blood Sugar)"],\n'
+                          '    meds: ["Epinephrine IV/IO", "Amiodarone IV", "Magnesium Sulfate IV", "Normal Saline 0.9% Bolus"]\n'
+                          '  },\n'
+                          '  dka_hyperglycemia: {\n'
+                          '    diagnosis: "DKA / Hyperglycemic emergency",\n'
+                          '    radiology: [],\n'
+                          '    labs: ["RBS (Random Blood Sugar)", "Serum Ketone", "ABG", "Electrolytes", "Serum Osmolality", "BUN", "Creatinine"],\n'
+                          '    meds: ["Normal Saline 0.9% Bolus", "Insulin IV infusion as per protocol", "Potassium replacement as needed"]\n'
+                          '  },\n'
+                          '  hypoglycemia: {\n'
+                          '    diagnosis: "Symptomatic hypoglycemia",\n'
+                          '    radiology: [],\n'
+                          '    labs: ["RBS (Random Blood Sugar)", "CBC", "Electrolytes"],\n'
+                          '    meds: ["Dextrose 50% IV bolus", "Dextrose 10% IV infusion", "Oral glucose gel (if conscious)"]\n'
+                          '  },\n'
+                          '  poisoning_overdose: {\n'
+                          '    diagnosis: "Poisoning / overdose",\n'
+                          '    radiology: ["X-Ray Chest"],\n'
+                          '    labs: ["CBC", "Electrolytes", "ABG", "Serum Osmolality", "Toxicology Screen"],\n'
+                          '    meds: ["Activated Charcoal (if indicated)", "Normal Saline 0.9%", "Specific antidote as per tox advice"]\n'
+                          '  },\n'
+                          '  asthma_copd: {\n'
+                          '    diagnosis: "Asthma / COPD exacerbation",\n'
+                          '    radiology: ["X-Ray Chest"],\n'
+                          '    labs: ["CBC", "ABG"],\n'
+                          '    meds: ["Oxygen Therapy", "Salbutamol Nebulizer", "Ipratropium Nebulizer", "Hydrocortisone IV", "Magnesium Sulfate IV"]\n'
+                          '  },\n'
+                          '  htn_emergency: {\n'
+                          '    diagnosis: "Hypertensive emergency / acute pulmonary edema",\n'
+                          '    radiology: ["X-Ray Chest"],\n'
+                          '    labs: ["CBC", "Electrolytes", "BNP", "Troponin", "ABG"],\n'
+                          '    meds: ["Nitroglycerin IV infusion", "Furosemide IV", "Labetalol IV", "Oxygen Therapy"]\n'
+                          '  },\n'
+                          '  renal_colic: {\n'
+                          '    diagnosis: "Renal colic / flank pain",\n'
+                          '    radiology: ["US KUB", "CT KUB (non-contrast)"],\n'
+                          '    labs: ["Urine Analysis", "Creatinine", "CBC"],\n'
+                          '    meds: ["NSAID IV/IM", "Opioid analgesia IV", "Normal Saline 0.9%"]\n'
+                          '  },\n'
+                          '  aki_electrolyte: {\n'
+                          '    diagnosis: "AKI / significant electrolyte disturbance",\n'
+                          '    radiology: ["US KUB"],\n'
+                          '    labs: ["Creatinine", "BUN", "Electrolytes", "ABG"],\n'
+                          '    meds: ["Normal Saline 0.9%", "Calcium Gluconate IV", "Insulin + Dextrose", "Nebulized Salbutamol", "Sodium Bicarbonate IV"]\n'
+                          '  },\n'
+                          '  obstetric: {\n'
+                          '    diagnosis: "Pregnant patient – bleeding / pain / preeclampsia",\n'
+                          '    radiology: ["US Pelvis / OB"],\n'
+                          '    labs: ["BHCG (Pregnancy Test)", "CBC", "Coagulation Profile", "LFT", "RFT"],\n'
+                          '    meds: ["MgSO4 IV as per protocol", "Antihypertensive IV/PO as per protocol", "Anti-D Immunoglobulin (if indicated)"]\n'
+                          '  },\n'
+                          '  peds_fever_sepsis: {\n'
+                          '    diagnosis: "Pediatric fever / possible sepsis",\n'
+                          '    radiology: ["X-Ray Chest"],\n'
+                          '    labs: ["CBC", "CRP", "Blood Culture", "Urine Analysis"],\n'
+                          '    meds: ["Fluid bolus 20 mL/kg", "Broad spectrum antibiotic (pediatric dose)"]\n'
+                          '  }\n'
+                          '};\n'
+                          '\n'
+                          'function clearAllBundles() {\n'
+                          "  document.querySelectorAll('.rad-item, .lab-item, .med-item').forEach(function(cb) {\n"
+                          '    cb.checked = false;\n'
+                          '  });\n'
+                          '\n'
+                          '  var diagField = document.querySelector(\'textarea[name="diagnosis"]\');\n'
+                          '  if (diagField) {\n'
+                          "    diagField.value = '';\n"
+                          '  }\n'
+                          '\n'
+                          "  var ta_radiology_text = document.getElementById('radiology_text');\n"
+                          '  if (ta_radiology_text) {\n'
+                          "    ta_radiology_text.value = '';\n"
+                          '  }\n'
+                          "  var ta_lab_text = document.getElementById('lab_text');\n"
+                          '  if (ta_lab_text) {\n'
+                          "    ta_lab_text.value = '';\n"
+                          '  }\n'
+                          "  var ta_med_text = document.getElementById('med_text');\n"
+                          '  if (ta_med_text) {\n'
+                          "    ta_med_text.value = '';\n"
+                          '  }\n'
+                          '}\n'
+                          '\n'
+                          'function applyBundle(name) {\n'
+                          '  clearAllBundles();\n'
+                          '  var b = bundles[name];\n'
+                          '  if (!b) {\n'
+                          '    return;\n'
+                          '  }\n'
+                          '\n'
+                          '  var diagField = document.querySelector(\'textarea[name="diagnosis"]\');\n'
+                          '  if (diagField && b.diagnosis) {\n'
+                          '    diagField.value = b.diagnosis;\n'
+                          '  }\n'
+                          '\n'
+                          '  function setTextarea(id, items) {\n'
+                          '    var ta = document.getElementById(id);\n'
+                          '    if (!ta || !items || !items.length) {\n'
+                          '      return;\n'
+                          '    }\n'
+                          "    ta.value = items.join(', ');\n"
+                          '  }\n'
+                          '\n'
+                          "  setTextarea('radiology_text', b.radiology || []);\n"
+                          "  setTextarea('lab_text', b.labs || []);\n"
+                          "  setTextarea('med_text', b.meds || []);\n"
+                          '\n'
+                          '  function checkByItems(selector, items) {\n'
+                          '    if (!items || !items.length) {\n'
+                          '      return;\n'
+                          '    }\n'
+                          '    var lowerItems = items.map(function(x) { return String(x).toLowerCase(); });\n'
+                          '    document.querySelectorAll(selector).forEach(function(cb) {\n'
+                          "      var val = String(cb.value || '').toLowerCase();\n"
+                          '      var matched = lowerItems.some(function(x) {\n'
+                          '        return val.indexOf(x) !== -1 || x.indexOf(val) !== -1;\n'
+                          '      });\n'
+                          '      if (matched) {\n'
+                          '        cb.checked = true;\n'
+                          '      }\n'
+                          '    });\n'
+                          '  }\n'
+                          '\n'
+                          "  checkByItems('.rad-item', b.radiology || []);\n"
+                          "  checkByItems('.lab-item', b.labs || []);\n"
+                          "  checkByItems('.med-item', b.meds || []);\n"
+                          '}\n'                         'function addHomeMedFromSearch(){\n'
+                         "  const input = document.getElementById('home_med_search');\n"
+                         '  if (!input) return;\n'
+                         "  const val = (input.value || '').trim();\n"
+                         '  if (!val) return;\n'
+                         '\n'
+                         "  const ta = document.getElementById('home_medication_text');\n"
+                         '  if (!ta) return;\n'
+                         '\n'
+                         '  const lines = ta.value ? ta.value.split(/\\r?\\n/).map(x => x.trim()).filter(Boolean) : '
+                         '[];\n'
+                         '  if (!lines.includes(val)) {\n'
+                         '    lines.push(val);\n'
+                         '  }\n'
+                         '  ta.value = lines.join("\\n");\n'
+                         "  input.value = '';\n"
+                         '  ta.focus();\n'
+                         '}\n'
+                         '\n'
+                         "document.addEventListener('DOMContentLoaded', function(){\n"
+                         "  const homeInput = document.getElementById('home_med_search');\n"
+                         '  if (homeInput) {\n'
+                         "    homeInput.addEventListener('keydown', function(e){\n"
+                         "      if (e.key === 'Enter') {\n"
+                         '        e.preventDefault();\n'
+                         '        addHomeMedFromSearch();\n'
+                         '      }\n'
+                         '    });\n'
+                         '  }\n'
+                         '});\n'
+                         '</script>\n'
+                         '\n'
+                         '<hr class="my-4">\n'
+                         '\n'
+                         '<div class="row">\n'
+                         '  <div class="col-md-6 mb-3">\n'
+                         '    <div class="card bg-white p-3">\n'
+                         '      <h6 class="fw-bold mb-2">BMI Calculator</h6>\n'
+                         '      <p class="small text-muted mb-2">\n'
+                         '        Automatically calculated from the weight and height recorded in the Triage form.\n'
+                         '      </p>\n'
+                         '      <div class="mb-1">\n'
+                         '        <span class="small">BMI (kg/m²):</span>\n'
+                         '        <span id="bmi-value" class="fw-bold ms-2">-</span>\n'
+                         '      </div>\n'
+                         '      <div class="small text-muted" id="bmi-category"></div>\n'
+                         '    </div>\n'
+                         '  </div>\n'
+                         '  <div class="col-md-6 mb-3">\n'
+                         '    <div class="card bg-white p-3">\n'
+                         '      <h6 class="fw-bold mb-2">Pediatric Dose Helper</h6>\n'
+                         '      <div class="row g-2 align-items-end">\n'
+                         '        <div class="col-4">\n'
+                         '          <label class="form-label small mb-0">Weight (kg)</label>\n'
+                         '          <input type="number" step="0.1" class="form-control form-control-sm" '
+                         'id="dose-weight">\n'
+                         '        </div>\n'
+                         '        <div class="col-4">\n'
+                         '          <label class="form-label small mb-0">Dose (mg/kg)</label>\n'
+                         '          <input type="number" step="0.1" class="form-control form-control-sm" '
+                         'id="dose-mgkg">\n'
+                         '        </div>\n'
+                         '        <div class="col-4">\n'
+                         '          <label class="form-label small mb-0">Total (mg)</label>\n'
+                         '          <input type="text" class="form-control form-control-sm" id="dose-total" readonly>\n'
+                         '        </div>\n'
+                         '      </div>\n'
+                         '      <div class="row g-2 align-items-end mt-2">\n'
+                         '        <div class="col-4">\n'
+                         '          <label class="form-label small mb-0">Conc. (mg/mL)</label>\n'
+                         '          <input type="number" step="0.01" class="form-control form-control-sm" '
+                         'id="dose-mgml">\n'
+                         '        </div>\n'
+                         '        <div class="col-4">\n'
+                         '          <label class="form-label small mb-0">Volume (mL)</label>\n'
+                         '          <input type="text" class="form-control form-control-sm" id="dose-ml" readonly>\n'
+                         '        </div>\n'
+                         '      </div>\n'
+                         '      <div class="small text-muted mt-2">\n'
+                         '        For assistance only – always double-check the dose in drug references / hospital protocols. '
+                         '\n'
+                         '      </div>\n'
+                         '    </div>\n'
+                         '  </div>\n'
+                         '</div>\n'
+                         '\n'
+                         '<script>\n'
+                         "document.addEventListener('DOMContentLoaded', function () {\n"
+                         '  var weightInput = document.querySelector(\'input[name="weight"]\');\n'
+                         '  var heightInput = document.querySelector(\'input[name="height"]\');\n'
+                         "  var bmiValueEl = document.getElementById('bmi-value');\n"
+                         "  var bmiCatEl = document.getElementById('bmi-category');\n"
+                         '\n'
+                         '  function parseNumber(val) {\n'
+                         '    if (!val) return NaN;\n'
+                         "    return parseFloat(String(val).replace(',', '.'));\n"
+                         '  }\n'
+                         '\n'
+                         '  function updateBmiFromFields() {\n'
+                         '    if (!weightInput || !heightInput || !bmiValueEl) return;\n'
+                         '    var w = parseNumber(weightInput.value);\n'
+                         '    var h = parseNumber(heightInput.value);\n'
+                         '    if (!w || !h || h <= 0) {\n'
+                         "      bmiValueEl.textContent = '-';\n"
+                         "      if (bmiCatEl) bmiCatEl.textContent = '';\n"
+                         '      return;\n'
+                         '    }\n'
+                         '    var h_m = h / 100.0;\n'
+                         '    if (h_m <= 0) {\n'
+                         "      bmiValueEl.textContent = '-';\n"
+                         "      if (bmiCatEl) bmiCatEl.textContent = '';\n"
+                         '      return;\n'
+                         '    }\n'
+                         '    var bmi = w / (h_m * h_m);\n'
+                         '    bmiValueEl.textContent = bmi.toFixed(1);\n'
+                         '\n'
+                         "    var cat = '';\n"
+                         "    if (bmi < 18.5) cat = 'نقص وزن';\n"
+                         "    else if (bmi < 25) cat = 'وزن طبيعي';\n"
+                         "    else if (bmi < 30) cat = 'زيادة وزن';\n"
+                         "    else cat = 'سمنة';\n"
+                         '\n'
+                         '    if (bmiCatEl) bmiCatEl.textContent = cat;\n'
+                         '  }\n'
+                         '\n'
+                         '  if (weightInput && heightInput) {\n'
+                         "    var doseWeightInput = document.getElementById('dose-weight');\n"
+                         '    if (doseWeightInput && weightInput.value) {\n'
+                         '      doseWeightInput.value = weightInput.value;\n'
+                         '    }\n'
+                         "    ['input', 'change'].forEach(function (ev) {\n"
+                         '      weightInput.addEventListener(ev, updateBmiFromFields);\n'
+                         '      heightInput.addEventListener(ev, updateBmiFromFields);\n'
+                         '    });\n'
+                         '    updateBmiFromFields();\n'
+                         '  }\n'
+                         '\n'
+                         '  function updateDose() {\n'
+                         "    var wEl = document.getElementById('dose-weight');\n"
+                         "    var mgkgEl = document.getElementById('dose-mgkg');\n"
+                         "    var totalEl = document.getElementById('dose-total');\n"
+                         "    var mgmlEl = document.getElementById('dose-mgml');\n"
+                         "    var volEl = document.getElementById('dose-ml');\n"
+                         '\n'
+                         '    if (!wEl || !mgkgEl || !totalEl) return;\n'
+                         '\n'
+                         '    var w = parseNumber(wEl.value);\n'
+                         '    var mgkg = parseNumber(mgkgEl.value);\n'
+                         '    if (!w || !mgkg) {\n'
+                         "      totalEl.value = '';\n"
+                         "      if (volEl) volEl.value = '';\n"
+                         '      return;\n'
+                         '    }\n'
+                         '\n'
+                         '    var total_mg = w * mgkg;\n'
+                         '    totalEl.value = total_mg.toFixed(1);\n'
+                         '\n'
+                         '    if (mgmlEl && volEl) {\n'
+                         '      var conc = parseNumber(mgmlEl.value);\n'
+                         '      if (conc && conc > 0) {\n'
+                         '        var vol = total_mg / conc;\n'
+                         '        volEl.value = vol.toFixed(2);\n'
+                         '      } else {\n'
+                         "        volEl.value = '';\n"
+                         '      }\n'
+                         '    }\n'
+                         '  }\n'
+                         '\n'
+                         "  ['dose-weight','dose-mgkg','dose-mgml'].forEach(function (id) {\n"
+                         '    var el = document.getElementById(id);\n'
+                         '    if (el) {\n'
+                         "      ['input','change'].forEach(function (ev) {\n"
+                         '        el.addEventListener(ev, updateDose);\n'
+                         '      });\n'
+                         '    }\n'
+                         '  });\n'
+                         '});\n'
+                         '</script>\n'
+                         '\n'
+                         '{% endblock %}\n',
+ 'depart_workflow.html': '\n'
+                         '{% extends "base.html" %}\n'
+                         '{% block content %}\n'
+                         '\n'
+                         '<div class="d-flex justify-content-between align-items-start mb-3 flex-wrap gap-2">\n'
+                         '  <div>\n'
+                         '    <h4 class="mb-0">ED Depart / Discharge</h4>\n'
+                         '    <div class="text-muted small">\n'
+                         "      Visit {{ visit.visit_id }} &mdash; {{ visit.name }} ({{ visit.id_number or '-' }})\n"
+                         '    </div>\n'
+                         '  </div>\n'
+                         '  <div class="text-end small">\n'
+                         '    <div class="mb-1">\n'
+                         "      {% set cat = (visit.triage_cat or '').lower() %}\n"
+                         '      {% if cat == \'es1\' %}<span class="badge bg-danger">ES1</span>\n'
+                         '      {% elif cat == \'es2\' %}<span class="badge bg-warning text-dark">ES2</span>\n'
+                         '      {% elif cat == \'es3\' %}<span class="badge bg-info text-dark">ES3</span>\n'
+                         '      {% elif cat == \'es4\' %}<span class="badge bg-primary">ES4</span>\n'
+                         '      {% elif cat == \'es5\' %}<span class="badge bg-success">ES5</span>\n'
+                         '      {% else %}<span class="badge bg-secondary">No ES</span>\n'
+                         '      {% endif %}\n'
+                         '    </div>\n'
+                         '    <div class="mb-1">\n'
+                         "      {% set st = (visit.status or '').upper() %}\n"
+                         "      {% set st_class = 'secondary' %}\n"
+                         "      {% if st == 'OPEN' %}{% set st_class = 'success' %}{% endif %}\n"
+                         "      {% if st in ['DISCHARGED','TRANSFERRED','LAMA','EXPIRED','CANCELLED'] %}{% set "
+                         "st_class = 'danger' %}{% endif %}\n"
+                         '      <span class="badge bg-{{ st_class }}">{{ visit.status or \'-\' }}</span>\n'
+                         '    </div>\n'
+                         '    <div class="small text-muted">\n'
+                         "      Loc: {{ visit.location or '-' }}\n"
+                         '      {% if visit.bed_no %}\n'
+                         "        · Bed: {{ visit.bed_no }} ({{ visit.bed_status or 'EMPTY' }})\n"
+                         '      {% endif %}\n'
+                         '    </div>\n'
+                         '  </div>\n'
+                         '</div>\n'
+                         '\n'
+                         '{% with messages = get_flashed_messages(with_categories=true) %}\n'
+                         '  {% for category, msg in messages %}\n'
+                         '    <div class="alert alert-{{ category }}">{{ msg }}</div>\n'
+                         '  {% endfor %}\n'
+                         '{% endwith %}\n'
+                         '\n'
+                         '<div class="row g-3">\n'
+                         '  <!-- Checklist summary -->\n'
+                         '  <div class="col-md-4">\n'
+                         '    <div class="card p-3 bg-white h-100">\n'
+                         '      <h6 class="fw-bold mb-2">Checklist overview</h6>\n'
+                         '      <ul class="list-unstyled small mb-0">\n'
+                         '        <li class="mb-1">\n'
+                         '          {% if visit.task_reg %}\n'
+                         '            ✅ Registration completed\n'
+                         '          {% else %}\n'
+                         '            ☐ Registration pending\n'
+                         '          {% endif %}\n'
+                         '        </li>\n'
+                         '        <li class="mb-1">\n'
+                         "          {% if visit.triage_status == 'YES' %}\n"
+                         "            ✅ Triage done ({{ visit.triage_cat or '-' }})\n"
+                         '          {% else %}\n'
+                         '            ☐ Triage pending\n'
+                         '          {% endif %}\n'
+                         '        </li>\n'
+                         '        <li class="mb-1">\n'
+                         '          {% if visit.task_ekg %}\n'
+                         '            ✅ ECG / EKG done\n'
+                         '          {% else %}\n'
+                         '            ☐ ECG / EKG pending\n'
+                         '          {% endif %}\n'
+                         '        </li>\n'
+                         '        <li class="mb-1">\n'
+                         '          {% if visit.task_sepsis %}\n'
+                         '            ✅ Sepsis screen done\n'
+                         '          {% else %}\n'
+                         '            ☐ Sepsis screen pending\n'
+                         '          {% endif %}\n'
+                         '        </li>\n'
+                         '        <li class="mb-1">\n'
+                         '          {% if orders_count %}\n'
+                         '            ✅ Clinical orders entered ({{ orders_count }})\n'
+                         '          {% else %}\n'
+                         '            ☐ No clinical orders yet\n'
+                         '          {% endif %}\n'
+                         '        </li>\n'
+                         '        <li class="mb-1">\n'
+                         '          {% if labs_total %}\n'
+                         '            {% if labs_pending %}\n'
+                         '              ⚠️ Lab results pending ({{ labs_pending }} / {{ labs_total }})\n'
+                         '            {% else %}\n'
+                         '              ✅ Labs cleared ({{ labs_total }})\n'
+                         '            {% endif %}\n'
+                         '          {% else %}\n'
+                         '            ☐ No lab requests\n'
+                         '          {% endif %}\n'
+                         '        </li>\n'
+                         '        <li class="mb-1">\n'
+                         '          {% if rads_total %}\n'
+                         '            {% if rads_pending %}\n'
+                         '              ⚠️ Radiology pending ({{ rads_pending }} / {{ rads_total }})\n'
+                         '            {% else %}\n'
+                         '              ✅ Radiology cleared ({{ rads_total }})\n'
+                         '            {% endif %}\n'
+                         '          {% else %}\n'
+                         '            ☐ No radiology requests\n'
+                         '          {% endif %}\n'
+                         '        </li>\n'
+                         '        <li class="mb-1">\n'
+                         '          {% if discharge_exists %}\n'
+                         '            ✅ Discharge summary saved\n'
+                         '            {% if discharge_diag %}\n'
+                         '              &mdash; {{ discharge_diag }}\n'
+                         '            {% endif %}\n'
+                         '          {% else %}\n'
+                         '            ☐ Discharge summary pending\n'
+                         '          {% endif %}\n'
+                         '        </li>\n'
+                         '      </ul>\n'
+                         '    </div>\n'
+                         '  </div>\n'
+                         '\n'
+                         '  <!-- Editable tasks -->\n'
+                         '  <div class="col-md-4">\n'
+                         '    <div class="card p-3 bg-white h-100">\n'
+                         '      <h6 class="fw-bold mb-2">Tasks / Checklist (editable)</h6>\n'
+                         '      <form method="POST" class="small">\n'
+                         '        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">\n'
+                         '        <div class="form-check mb-1">\n'
+                         '          <input class="form-check-input" type="checkbox" value="1" name="task_reg" '
+                         'id="task_reg"\n'
+                         '                 {% if visit.task_reg %}checked{% endif %}>\n'
+                         '          <label class="form-check-label" for="task_reg">\n'
+                         '            Registration completed\n'
+                         '          </label>\n'
+                         '        </div>\n'
+                         '        <div class="form-check mb-1">\n'
+                         '          <input class="form-check-input" type="checkbox" value="1" name="task_ekg" '
+                         'id="task_ekg"\n'
+                         '                 {% if visit.task_ekg %}checked{% endif %}>\n'
+                         '          <label class="form-check-label" for="task_ekg">\n'
+                         '            ECG / EKG done\n'
+                         '          </label>\n'
+                         '        </div>\n'
+                         '        <div class="form-check mb-1">\n'
+                         '          <input class="form-check-input" type="checkbox" value="1" name="task_sepsis" '
+                         'id="task_sepsis"\n'
+                         '                 {% if visit.task_sepsis %}checked{% endif %}>\n'
+                         '          <label class="form-check-label" for="task_sepsis">\n'
+                         '            Sepsis screening done\n'
+                         '          </label>\n'
+                         '        </div>\n'
+                         '        <button class="btn btn-sm btn-primary mt-2">\n'
+                         '          Save checklist\n'
+                         '        </button>\n'
+                         '      </form>\n'
+                         '\n'
+                         '      <hr class="my-3">\n'
+                         '\n'
+                         '      <div class="small">\n'
+                         '        <div class="fw-semibold mb-1">Quick links</div>\n'
+                         '        <div class="d-grid gap-1">\n'
+                         '          <a class="btn btn-sm btn-outline-primary"\n'
+                         '             href="{{ url_for(\'patient_details\', visit_id=visit.visit_id) }}">\n'
+                         '            Open chart\n'
+                         '          </a>\n'
+                         '          <a class="btn btn-sm btn-outline-primary"\n'
+                         '             href="{{ url_for(\'clinical_orders_page\', visit_id=visit.visit_id) }}">\n'
+                         '            Clinical orders &amp; notes\n'
+                         '          </a>\n'
+                         '          <a class="btn btn-sm btn-outline-secondary"\n'
+                         '             href="{{ url_for(\'lab_board\', status=\'PENDING\', q=visit.visit_id) }}">\n'
+                         '            Lab board (this visit)\n'
+                         '          </a>\n'
+                         '          <a class="btn btn-sm btn-outline-secondary"\n'
+                         '             href="{{ url_for(\'radiology_board\', status=\'PENDING\', q=visit.visit_id) '
+                         '}}">\n'
+                         '            Radiology board (this visit)\n'
+                         '          </a>\n'
+                         '        </div>\n'
+                         '      </div>\n'
+                         '    </div>\n'
+                         '  </div>\n'
+                         '\n'
+                         '  <!-- Discharge / PDFs / Close -->\n'
+                         '  <div class="col-md-4">\n'
+                         '    <div class="card p-3 bg-white h-100">\n'
+                         '      <h6 class="fw-bold mb-2">Discharge / Depart</h6>\n'
+                         '\n'
+                         '      <div class="small mb-2">\n'
+                         '        <div>Current status:\n'
+                         "          {% set st = (visit.status or '').upper() %}\n"
+                         "          {% set st_class = 'secondary' %}\n"
+                         "          {% if st == 'OPEN' %}{% set st_class = 'success' %}{% endif %}\n"
+                         "          {% if st in ['DISCHARGED','TRANSFERRED','LAMA','EXPIRED','CANCELLED'] %}{% set "
+                         "st_class = 'danger' %}{% endif %}\n"
+                         '          <span class="badge bg-{{ st_class }}">{{ visit.status or \'-\' }}</span>\n'
+                         '        </div>\n'
+                         '        {% if visit.closed_at %}\n'
+                         '          <div class="text-muted">Closed at {{ visit.closed_at }} by {{ visit.closed_by or '
+                         "'-' }}</div>\n"
+                         '        {% endif %}\n'
+                         '      </div>\n'
+                         '\n'
+                         '      <div class="d-grid gap-1 small mb-2">\n'
+                         '        <a class="btn btn-sm btn-outline-primary"\n'
+                         '           target="_blank"\n'
+                         '           href="{{ url_for(\'discharge_summary_pdf\', visit_id=visit.visit_id) }}">\n'
+                         '          Discharge summary PDF\n'
+                         '        </a>\n'
+                         '        <a class="btn btn-sm btn-outline-primary"\n'
+                         '           target="_blank"\n'
+                         '           href="{{ url_for(\'auto_summary_pdf\', visit_id=visit.visit_id) }}">\n'
+                         '          ED auto-summary PDF\n'
+                         '        </a>\n'
+                         '        <a class="btn btn-sm btn-outline-primary"\n'
+                         '           target="_blank"\n'
+                         '           href="{{ url_for(\'patient_summary_pdf\', visit_id=visit.visit_id) }}">\n'
+                         '          Patient copy PDF\n'
+                         '        </a>\n'
+                         '        <a class="btn btn-sm btn-outline-secondary"\n'
+                         '           target="_blank"\n'
+                         '           href="{{ url_for(\'home_med_pdf\', visit_id=visit.visit_id) }}">\n'
+                         '          Home medication PDF\n'
+                         '        </a>\n'
+                         '      </div>\n'
+                         '\n'
+                         "      {% if session.get('role') in ['doctor','admin'] %}\n"
+                         '      <hr class="my-2">\n'
+                         '      <form method="POST" action="{{ url_for(\'close_visit\', visit_id=visit.visit_id) }}" '
+                         'class="small">\n'
+                         '        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">\n'
+                         '        <div class="mb-2">\n'
+                         '          <label class="form-label small">Final status</label>\n'
+                         '          <select name="status" class="form-select form-select-sm">\n'
+                         '            {% for st in '
+                         "['DISCHARGED','ADMITTED','TRANSFERRED','LAMA','EXPIRED','IN_TREATMENT','CANCELLED'] %}\n"
+                         '              <option value="{{ st }}" {% if (visit.status or \'\').upper() == st '
+                         '%}selected{% endif %}>{{ st }}</option>\n'
+                         '            {% endfor %}\n'
+                         '          </select>\n'
+                         '        </div>\n'
+                         '        <button class="btn btn-sm btn-danger w-100"\n'
+                         '                onclick="return confirm(\'Confirm close visit with this status?\');">\n'
+                         '          Close visit\n'
+                         '        </button>\n'
+                         '      </form>\n'
+                         '      {% else %}\n'
+                         '        <div class="alert alert-info small mt-2 mb-0">\n'
+                         '          Final close of the visit is limited to doctors / admins.\n'
+                         '        </div>\n'
+                         '      {% endif %}\n'
+                         '    </div>\n'
+                         '  </div>\n'
+                         '</div>\n'
+                         '\n'
+                         '{% endblock %}\n',
+ 'ed_board.html': '\n'
+                  '{% extends "base.html" %}\n'
+                  '{% block content %}\n'
+                  '<div class="card shadow-sm mb-3 ed-board-card w-100">\n'
+                  '  <div class="card-header d-flex flex-wrap justify-content-between align-items-center py-2">\n'
+                  '    <div>\n'
+                  '      <h5 class="mb-0">ED Board</h5>\n'
+                  '      <div class="small text-muted">\n'
+                  '        Realtime overview for active ED visits with triage colors &amp; wait times.\n'
+                  '      </div>\n'
+                  '    </div>\n'
+                  '    <div class="d-flex gap-2 align-items-center mt-2 mt-md-0">\n'
+                  '      {% if total %}\n'
+                  '        <span class="badge bg-light text-dark border small">\n'
+                  '          Total: <span class="fw-bold">{{ total }}</span>\n'
+                  '        </span>\n'
+                  '      {% endif %}\n'
+                  '      <a class="btn btn-sm btn-outline-primary" href="{{ url_for(\'export_ed_board_csv\') }}">\n'
+                  '        ⬇︎ Export CSV\n'
+                  '      </a>\n'
+                  '    </div>\n'
+                  '  </div>\n'
+                  '\n'
+                  '  <div class="card-body pb-2">\n'
+                  '\n'
+                  '    {% if status_counts or triage_counts %}\n'
+                  '    <div class="row g-2 mb-3">\n'
+                  '      <div class="col-lg-5 col-md-6">\n'
+                  '        <div class="border rounded-3 px-2 py-2 bg-light">\n'
+                  '          <div class="small fw-bold text-muted mb-1">By status</div>\n'
+                  '          {% set sc = status_counts or {} %}\n'
+                  '          <div class="d-flex flex-wrap gap-1">\n'
+                  '            <span class="badge rounded-pill bg-success-subtle text-success border border-success">\n'
+                  '              OPEN: <span class="fw-bold">{{ sc.get(\'OPEN\', 0) }}</span>\n'
+                  '            </span>\n'
+                  '            <span class="badge rounded-pill bg-primary-subtle text-primary border border-primary">\n'
+                  '              IN_TREATMENT: <span class="fw-bold">{{ sc.get(\'IN_TREATMENT\', 0) }}</span>\n'
+                  '            </span>\n'
+                  '            <span class="badge rounded-pill bg-info-subtle text-info border border-info">\n'
+                  '              ADMITTED: <span class="fw-bold">{{ sc.get(\'ADMITTED\', 0) }}</span>\n'
+                  '            </span>\n'
+                  '            <span class="badge rounded-pill bg-secondary-subtle text-secondary border '
+                  'border-secondary">\n'
+                  '              DISCHARGED: <span class="fw-bold">{{ sc.get(\'DISCHARGED\', 0) }}</span>\n'
+                  '            </span>\n'
+                  '            <span class="badge rounded-pill bg-warning-subtle text-warning border border-warning">\n'
+                  '              TRANSFERRED: <span class="fw-bold">{{ sc.get(\'TRANSFERRED\', 0) }}</span>\n'
+                  '            </span>\n'
+                  '            <span class="badge rounded-pill bg-dark-subtle text-dark border border-dark">\n'
+                  '              LAMA: <span class="fw-bold">{{ sc.get(\'LAMA\', 0) }}</span>\n'
+                  '            </span>\n'
+                  '            <span class="badge rounded-pill bg-danger-subtle text-danger border border-danger">\n'
+                  '              EXPIRED: <span class="fw-bold">{{ sc.get(\'EXPIRED\', 0) }}</span>\n'
+                  '            </span>\n'
+                  '            <span class="badge rounded-pill bg-light text-muted border">\n'
+                  '              CANCELLED: <span class="fw-bold">{{ sc.get(\'CANCELLED\', 0) }}</span>\n'
+                  '            </span>\n'
+                  '          </div>\n'
+                  '        </div>\n'
+                  '      </div>\n'
+                  '      <div class="col-lg-7 col-md-6">\n'
+                  '        <div class="border rounded-3 px-2 py-2 bg-light">\n'
+                  '          <div class="small fw-bold text-muted mb-1">By triage (ES)</div>\n'
+                  '          {% set tc = triage_counts or {} %}\n'
+                  '          <div class="d-flex flex-wrap gap-1">\n'
+                  '            <span class="badge cat-red">ES1: <span class="fw-bold">{{ tc.get(\'ES1\', 0) '
+                  '}}</span></span>\n'
+                  '            <span class="badge cat-orange">ES2: <span class="fw-bold">{{ tc.get(\'ES2\', 0) '
+                  '}}</span></span>\n'
+                  '            <span class="badge cat-yellow">ES3: <span class="fw-bold">{{ tc.get(\'ES3\', 0) '
+                  '}}</span></span>\n'
+                  '            <span class="badge cat-green">ES4: <span class="fw-bold">{{ tc.get(\'ES4\', 0) '
+                  '}}</span></span>\n'
+                  '            <span class="badge cat-none">ES5: <span class="fw-bold">{{ tc.get(\'ES5\', 0) '
+                  '}}</span></span>\n'
+                  '          </div>\n'
+                  '        </div>\n'
+                  '      </div>\n'
+                  '    </div>\n'
+                  '    {% endif %}\n'
+                  '\n'
+                  '    <form class="mb-3" method="GET">\n'
+                  '      <div class="row g-2 align-items-end">\n'
+                  '        <div class="col-md-2 col-sm-6">\n'
+                  '          <label class="form-label fw-bold small">Status</label>\n'
+                  '          <select name="status" class="form-select form-select-sm" onchange="this.form.submit()">\n'
+                  '            <option value="ALL" {% if status_filter==\'ALL\' %}selected{% endif %}>ALL</option>\n'
+                  '            <option value="OPEN" {% if status_filter==\'OPEN\' %}selected{% endif %}>OPEN</option>\n'
+                  '            <option value="IN_TREATMENT" {% if status_filter==\'IN_TREATMENT\' %}selected{% endif '
+                  '%}>IN_TREATMENT</option>\n'
+                  '            <option value="ADMITTED" {% if status_filter==\'ADMITTED\' %}selected{% endif '
+                  '%}>ADMITTED</option>\n'
+                  '            <option value="DISCHARGED" {% if status_filter==\'DISCHARGED\' %}selected{% endif '
+                  '%}>DISCHARGED</option>\n'
+                  '            <option value="TRANSFERRED" {% if status_filter==\'TRANSFERRED\' %}selected{% endif '
+                  '%}>TRANSFERRED</option>\n'
+                  '            <option value="LAMA" {% if status_filter==\'LAMA\' %}selected{% endif %}>LAMA</option>\n'
+                  '            <option value="EXPIRED" {% if status_filter==\'EXPIRED\' %}selected{% endif '
+                  '%}>EXPIRED</option>\n'
+                  '            <option value="CANCELLED" {% if status_filter==\'CANCELLED\' %}selected{% endif '
+                  '%}>CANCELLED</option>\n'
+                  '          </select>\n'
+                  '        </div>\n'
+                  '\n'
+                  '        <div class="col-md-2 col-sm-6">\n'
+                  '          <label class="form-label fw-bold small">Triage ES</label>\n'
+                  '          <select name="cat" class="form-select form-select-sm" onchange="this.form.submit()">\n'
+                  '            <option value="ALL" {% if cat_filter==\'ALL\' %}selected{% endif %}>All ES</option>\n'
+                  '            <option value="ES1" {% if cat_filter==\'ES1\' %}selected{% endif %}>ES1</option>\n'
+                  '            <option value="ES2" {% if cat_filter==\'ES2\' %}selected{% endif %}>ES2</option>\n'
+                  '            <option value="ES3" {% if cat_filter==\'ES3\' %}selected{% endif %}>ES3</option>\n'
+                  '            <option value="ES4" {% if cat_filter==\'ES4\' %}selected{% endif %}>ES4</option>\n'
+                  '            <option value="ES5" {% if cat_filter==\'ES5\' %}selected{% endif %}>ES5</option>\n'
+                  '          </select>\n'
+                  '        </div>\n'
+                  '\n'
+                  '        <div class="col-md-2 col-sm-6">\n'
+                  '          <label class="form-label fw-bold small">Visit ID</label>\n'
+                  '          <input class="form-control form-control-sm"\n'
+                  '                 name="visit_id"\n'
+                  '                 value="{{ visit_f or \'\' }}"\n'
+                  '                 placeholder="ED-...">\n'
+                  '        </div>\n'
+                  '\n'
+                  '        <div class="col-md-2 col-sm-6">\n'
+                  '          <label class="form-label fw-bold small">User</label>\n'
+                  '          <select class="form-select form-select-sm" name="user" onchange="this.form.submit()">\n'
+                  '            <option value="">ALL</option>\n'
+                  '            {% for u in users %}\n'
+                  '              <option value="{{ u.created_by }}" {% if user_f==u.created_by %}selected{% endif '
+                  '%}>{{ u.created_by }}</option>\n'
+                  '            {% endfor %}\n'
+                  '          </select>\n'
+                  '        </div>\n'
+                  '\n'
+                  '        <div class="col-md-2 col-sm-6">\n'
+                  '          <label class="form-label fw-bold small">From</label>\n'
+                  '          <input class="form-control form-control-sm"\n'
+                  '                 type="date"\n'
+                  '                 name="date_from"\n'
+                  '                 value="{{ dfrom or \'\' }}">\n'
+                  '        </div>\n'
+                  '\n'
+                  '        <div class="col-md-2 col-sm-6">\n'
+                  '          <label class="form-label fw-bold small">To</label>\n'
+                  '          <div class="d-flex gap-1">\n'
+                  '            <input class="form-control form-control-sm"\n'
+                  '                   type="date"\n'
+                  '                   name="date_to"\n'
+                  '                   value="{{ dto or \'\' }}">\n'
+                  '            <button class="btn btn-sm btn-outline-secondary">Go</button>\n'
+                  '          </div>\n'
+                  '        </div>\n'
+                  '      </div>\n'
+                  '    </form>\n'
+                  '\n'
+                  '    <div class="table-responsive">\n'
+                  '      <div class="table-responsive">\n'
+                  '        <table class="table table-sm table-hover align-middle mb-1 ed-board-table">\n'
+                  '        <thead class="table-light">\n'
+                  '          <tr>\n'
+                  '            <th>Queue</th>\n'
+                  '            <th>Visit</th>\n'
+                  '            <th>Patient</th>\n'
+                  '            <th>Age</th>\n'
+                  '            <th>ID</th>\n'
+                  '            <th>Insurance</th>\n'
+                  '            <th>Payment</th>\n'
+                  '            <th>Triage</th>\n'
+                  '            <th>ES</th>\n'
+                  '            <th>Wait / LOS</th>\n'
+                  '            <th>Status</th>\n'
+                  '            <th>User</th>\n'
+                  '            <th>Created</th>\n'
+                  '            <th style="width:260px;">Actions</th>\n'
+                  '          </tr>\n'
+                  '        </thead>\n'
+                  '        <tbody>\n'
+                  '          {% if not visits %}\n'
+                  '            <tr>\n'
+                  '              <td colspan="14" class="text-center text-muted small py-3">\n'
+                  '                No visits found for current filters.\n'
+                  '              </td>\n'
+                  '            </tr>\n'
+                  '          {% else %}\n'
+                  '            {% for v in visits %}\n'
+                  '            <tr class="{% if v.triage_cat==\'ES1\' %}table-danger{% elif v.triage_cat==\'ES2\' '
+                  "%}table-warning{% elif v.triage_cat=='ES3' %}table-light{% elif v.triage_cat=='ES4' "
+                  '%}table-primary{% elif v.triage_cat==\'ES5\' %}table-success{% endif %}">\n'
+                  '              <td class="fw-bold text-center small col-queue">{{ v.queue_no }}</td>\n'
+                  '              <td class="fw-bold small text-nowrap col-visit">{{ v.visit_id }}</td>\n'
+                  '              <td>\n'
+                  '                <div class="fw-bold">{{ v.name }}</div>\n'
+                  '                <div class="small text-muted">\n'
+                  "                  {% set vt = (v.visit_type or 'NEW') %}\n"
+                  "                  {% if vt == 'NEW' %}\n"
+                  '                    New visit\n'
+                  "                  {% elif vt == 'TREATMENT' %}\n"
+                  '                    Treatment\n'
+                  "                  {% elif vt in ['FOLLOW_UP','FOLLOW-UP','FOLLOWUP'] %}\n"
+                  '                    Follow-up\n'
+                  "                  {% elif vt == 'PROCEDURE' %}\n"
+                  '                    Procedure / Dressing\n'
+                  '                  {% else %}\n'
+                  '                    {{ vt }}\n'
+                  '                  {% endif %}\n'
+                  '                </div>\n'
+                  '              </td>\n'
+                  '              <td class="text-center small col-age">{{ v.age or \'-\' }}</td>\n'
+                  '              <td class="text-nowrap small col-id">\n'
+                  '                {{ v.id_number }}\n'
+                  '                {% if v.id_attachment %}\n'
+                  '                  <a href="{{ url_for(\'uploaded_file\', filename=v.id_attachment) }}"\n'
+                  '                     target="_blank"\n'
+                  '                     class="ms-1 text-decoration-none"\n'
+                  '                     title="View ID / attachments">📎</a>\n'
+                  '                {% endif %}\n'
+                  '              </td>\n'
+                  '              <td class="text-nowrap small col-insurance">{{ v.insurance }}</td>\n'
+                  '              <td class="col-payment">\n'
+                  '                {% if v.payment_details %}\n'
+                  '                  <span class="text-muted">Recorded</span>\n'
+                  '                {% else %}\n'
+                  '                  -\n'
+                  '                {% endif %}\n'
+                  '              </td>\n'
+                  '              <td>\n'
+                  "                {% if v.triage_status=='YES' %}\n"
+                  '                  <span class="badge badge-triage-yes">YES</span>\n'
+                  '                {% else %}\n'
+                  '                  <span class="badge badge-triage-no">NO</span>\n'
+                  '                {% endif %}\n'
+                  '              </td>\n'
+                  '              <td>\n'
+                  "                {% set cat = (v.triage_cat or '').lower() %}\n"
+                  '                {% if cat == \'es1\' %}<span class="badge cat-red">ES1</span>\n'
+                  '                {% elif cat == \'es2\' %}<span class="badge cat-orange">ES2</span>\n'
+                  '                {% elif cat == \'es3\' %}<span class="badge cat-yellow">ES3</span>\n'
+                  '                {% elif cat == \'es4\' %}<span class="badge cat-green">ES4</span>\n'
+                  '                {% elif cat == \'es5\' %}<span class="badge cat-none">ES5</span>\n'
+                  '                {% else %}<span class="badge cat-none">-</span>{% endif %}\n'
+                  '              </td>\n'
+                  '              <td class="wait-cell">\n'
+                  '                {% if v.waiting_text %}\n'
+                  "                  {% set wl = v.waiting_level or 'none' %}\n"
+                  '                  <span class="wait-pill {% if wl == \'short\' %}wait-short{% elif wl == \'medium\' '
+                  '%}wait-medium{% elif wl == \'long\' %}wait-long{% else %}wait-none{% endif %}">\n'
+                  '                    {{ v.waiting_text }}\n'
+                  '                  </span>\n'
+                  '                {% else %}\n'
+                  '                  <span class="text-muted">-</span>\n'
+                  '                {% endif %}\n'
+                  '              </td>\n'
+                  '              <td class="text-center small col-status">{{ v.status }}</td>\n'
+                  '              <td class="text-center small col-user">{{ v.created_by }}</td>\n'
+                  '              <td class="text-nowrap small text-muted col-created">{{ v.created_at }}</td>\n'
+                  '              <td>\n'
+                  '                <div class="ed-actions">\n'
+                  '                  <div class="ed-actions-row">\n'
+                  '                    <a class="btn btn-sm btn-outline-primary"\n'
+                  '                       href="{{ url_for(\'patient_details\', visit_id=v.visit_id) }}">\n'
+                  '                       Open\n'
+                  '                    </a>\n'
+                  '                    <a class="btn btn-sm btn-outline-secondary"\n'
+                  '                       target="_blank"\n'
+                  '                       href="{{ url_for(\'sticker_html\', visit_id=v.visit_id) }}">\n'
+                  '                       Sticker\n'
+                  '                    </a>\n'
+                  '                  </div>\n'
+                  '                  <div class="ed-actions-row">\n'
+                  "                    {% if session.get('role') in ['nurse','doctor','admin'] %}\n"
+                  '                      <a class="btn btn-sm btn-outline-success"\n'
+                  '                         href="{{ url_for(\'triage\', visit_id=v.visit_id) }}">\n'
+                  '                         Triage\n'
+                  '                      </a>\n'
+                  '                    {% endif %}\n'
+                  "                    {% if session.get('role') != 'reception' %}\n"
+                  '                      <a class="btn btn-sm btn-outline-primary"\n'
+                  '                         target="_blank"\n'
+                  '                         href="{{ url_for(\'patient_summary_pdf\', visit_id=v.visit_id) }}">\n'
+                  '                         Summary PDF\n'
+                  '                      </a>\n'
+                  '                    {% endif %}\n'
+                  '                  </div>\n'
+                  '                </div>\n'
+                  '              </td>\n'
+                  '            </tr>\n'
+                  '            {% endfor %}\n'
+                  '          {% endif %}\n'
+                  '        </tbody>\n'
+                  '      </table>\n'
+                  '      </div>\n'
+                  '    </div>\n'
+                  '\n'
+                  '  </div> <!-- /card-body -->\n'
+                  '\n'
+                  '  <div class="card-footer d-flex justify-content-between align-items-center py-2">\n'
+                  '    <div class="small text-muted">\n'
+                  '      Page {{ page }} / {{ pages }} - Total: {{ total }}\n'
+                  '    </div>\n'
+                  '    <div class="d-flex align-items-center gap-2">\n'
+                  '      <ul class="pagination pagination-sm mb-0">\n'
+                  '        <li class="page-item {% if page <= 1 %}disabled{% endif %}">\n'
+                  '          <a class="page-link"\n'
+                  '             href="{{ url_for(\'ed_board\',\n'
+                  '                              status=status_filter,\n'
+                  '                              cat=cat_filter,\n'
+                  '                              visit_id=visit_f,\n'
+                  '                              user=user_f,\n'
+                  '                              date_from=dfrom,\n'
+                  '                              date_to=dto,\n'
+                  '                              page=page-1) }}">\n'
+                  '            Prev\n'
+                  '          </a>\n'
+                  '        </li>\n'
+                  '        <li class="page-item {% if page >= pages %}disabled{% endif %}">\n'
+                  '          <a class="page-link"\n'
+                  '             href="{{ url_for(\'ed_board\',\n'
+                  '                              status=status_filter,\n'
+                  '                              cat=cat_filter,\n'
+                  '                              visit_id=visit_f,\n'
+                  '                              user=user_f,\n'
+                  '                              date_from=dfrom,\n'
+                  '                              date_to=dto,\n'
+                  '                              page=page+1) }}">\n'
+                  '            Next\n'
+                  '          </a>\n'
+                  '        </li>\n'
+                  '      </ul>\n'
+                  '      <button class="btn btn-sm btn-outline-secondary" onclick="location.reload()">🔄 Manual '
+                  'Refresh</button>\n'
+                  '    </div>\n'
+                  '  </div>\n'
+                  '</div>\n'
+                  '{% endblock %}\n',
+ 'edit_patient.html': '{% extends "base.html" %}\n{% block content %}\n\n<div class="d-flex justify-content-between align-items-start mb-3 flex-wrap gap-2">\n  <div>\n    <h4 class="mb-0">Edit Patient</h4>\n    <div class="text-muted small">\n      Visit {{ r.visit_id }}{% if r.queue_no %} · Queue {{ r.queue_no }}{% endif %}\n    </div>\n  </div>\n\n  <div class="text-end small">\n    {% set st = (r.status or \'\').upper() %}\n    {% set st_class = \'secondary\' %}\n    {% if st == \'OPEN\' %}\n      {% set st_class = \'success\' %}\n    {% elif st in [\'DISCHARGED\',\'TRANSFERRED\',\'LAMA\',\'EXPIRED\',\'CANCELLED\'] %}\n      {% set st_class = \'danger\' %}\n    {% endif %}\n    <div>\n      Status:\n      <span class="badge bg-{{ st_class }}">{{ r.status or \'-\' }}</span>\n    </div>\n  </div>\n</div>\n\n{% with messages = get_flashed_messages(with_categories=true) %}\n  {% if messages %}\n    {% for category, msg in messages %}\n      <div class="alert alert-{{ category }} py-2 mb-2">{{ msg }}</div>\n    {% endfor %}\n  {% endif %}\n{% endwith %}\n\n<div class="alert alert-light border-start border-3 border-warning py-2 small mb-3">\n  <strong>Note:</strong> Editing patient demographics (name, ID, DOB, sex, nationality, phone)\n  will update this patient for all visits. Payment details affect this visit only.\n</div>\n\n<form method="POST" class="card p-3 bg-white">\n  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">\n\n  <div class="row g-2">\n\n    <!-- Basic info -->\n    <div class="col-md-6">\n      <label class="form-label fw-bold small mb-1">\n        Name <span class="text-danger">*</span>\n      </label>\n      <input\n        class="form-control"\n        name="name"\n        value="{{ r.name }}"\n        required\n        maxlength="150">\n    </div>\n\n    <div class="col-md-3 col-sm-6">\n      <label class="form-label fw-bold small mb-1">\n        ID Number\n      </label>\n      <input\n        class="form-control"\n        name="id_number"\n        value="{{ r.id_number }}"\n        maxlength="50"\n        inputmode="numeric">\n    </div>\n\n    <div class="col-md-3 col-sm-6">\n      <label class="form-label fw-bold small mb-1">\n        Phone <span class="text-danger">*</span>\n      </label>\n      <input\n        type="tel"\n        class="form-control"\n        name="phone"\n        value="{{ r.phone }}"\n        maxlength="20">\n    </div>\n\n    <!-- Insurance -->\n    <div class="col-md-4 col-sm-6">\n      <label class="form-label fw-bold small mb-1">\n        Insurance\n      </label>\n      <input\n        class="form-control"\n        name="insurance"\n        value="{{ r.insurance }}"\n        list="insurance_list"\n        maxlength="50">\n      <datalist id="insurance_list">\n        <option value="thiqa">\n        <option value="self-pay">\n        <option value="private">\n        <option value="company">\n        <option value="other">\n      </datalist>\n    </div>\n\n    <div class="col-md-4 col-sm-6">\n      <label class="form-label fw-bold small mb-1">\n        Insurance No\n      </label>\n      <input\n        class="form-control"\n        name="insurance_no"\n        value="{{ r.insurance_no }}"\n        maxlength="50">\n    </div>\n\n    <!-- DOB + Age -->\n    <div class="col-md-4 col-sm-6">\n      <label class="form-label fw-bold small mb-1">\n        DOB <span class="text-danger">*</span>\n      </label>\n      <div class="input-group">\n        <input\n          type="text"\n          class="form-control"\n          name="dob"\n          id="dob_input"\n          value="{{ r.dob }}"\n          required\n          placeholder="YYYY-MM-DD">\n        <span class="input-group-text small">\n          Age: <span id="age_value" class="fw-bold ms-1">-</span>\n        </span>\n      </div>\n      <div class="form-text small">\n        Accepted formats: YYYY-MM-DD or DD/MM/YYYY\n      </div>\n    </div>\n\n    <!-- Sex -->\n    <div class="col-md-2 col-sm-4">\n      <label class="form-label fw-bold small mb-1">\n        Sex <span class="text-danger">*</span>\n      </label>\n      <select class="form-select" name="sex" required>\n        <option value="" {% if not r.sex %}selected{% endif %}></option>\n        <option value="M" {% if r.sex == \'M\' %}selected{% endif %}>M</option>\n        <option value="F" {% if r.sex == \'F\' %}selected{% endif %}>F</option>\n      </select>\n    </div>\n\n    <!-- Nationality -->\n    <div class="col-md-4 col-sm-8">\n      <label class="form-label fw-bold small mb-1">\n        Nationality <span class="text-danger">*</span>\n      </label>\n      <input\n        class="form-control"\n        name="nationality"\n        value="{{ r.nationality }}"\n        list="nationality_list"\n        maxlength="50"\n        required>\n      <datalist id="nationality_list">\n        <option value="EG">\n        <option value="SA">\n        <option value="IN">\n        <option value="PH">\n        <option value="PK">\n        <option value="SD">\n        <option value="Other">\n      </datalist>\n    </div>\n\n    <!-- Payment -->\n    <div class="col-12">\n      <label class="form-label fw-bold small mb-1">\n        Payment Details\n      </label>\n      <input\n        class="form-control"\n        name="payment_details"\n        value="{{ r.payment_details }}"\n        maxlength="200"\n        placeholder="e.g. Thiqa - 50 SAR co-pay / Self-pay - 200 SAR">\n      <div class="form-text small">\n        Short note about how this visit will be paid (cash, insurance, company, etc.).\n      </div>\n    </div>\n\n  </div>\n\n  <div class="mt-3 pt-3 d-flex flex-wrap justify-content-between align-items-center gap-2 border-top">\n    <div class="small text-muted">\n      Fields marked <span class="text-danger">*</span> are required.\n    </div>\n    <div class="d-flex gap-2">\n      <button class="btn btn-success" type="submit">\n        Save Changes\n      </button>\n      <a\n        class="btn btn-secondary"\n        href="{{ url_for(\'patient_details\', visit_id=r.visit_id) }}">\n        Cancel\n      </a>\n    </div>\n  </div>\n</form>\n\n<script>\n  function calcAgeFromDob(dob) {\n    if (!dob) { return ""; }\n    dob = dob.trim();\n    var parts;\n    if (dob.indexOf("-") !== -1) {\n      parts = dob.split("-");\n    } else if (dob.indexOf("/") !== -1) {\n      parts = dob.split("/");\n    } else {\n      return "";\n    }\n    parts = parts.filter(function(p) { return p; });\n    if (parts.length !== 3) { return ""; }\n\n    var yearIndex = 0;\n    for (var i = 0; i < parts.length; i++) {\n      if (parts[i].length === 4) {\n        yearIndex = i;\n        break;\n      }\n    }\n\n    var year = parseInt(parts[yearIndex], 10);\n    if (isNaN(year)) { return ""; }\n\n    var others = [];\n    for (var j = 0; j < 3; j++) {\n      if (j !== yearIndex) {\n        others.push(parseInt(parts[j], 10));\n      }\n    }\n    if (others.length !== 2 || isNaN(others[0]) || isNaN(others[1])) {\n      return "";\n    }\n\n    var month = others[0];\n    var day = others[1];\n    var born = new Date(year, month - 1, day);\n    if (isNaN(born.getTime())) { return ""; }\n\n    var today = new Date();\n    var age = today.getFullYear() - born.getFullYear();\n    var m = today.getMonth() - born.getMonth();\n    if (m < 0 || (m === 0 && today.getDate() < born.getDate())) {\n      age--;\n    }\n    if (age < 0 || age > 150) { return ""; }\n    return age;\n  }\n\n  document.addEventListener("DOMContentLoaded", function() {\n    var dobInput = document.getElementById("dob_input");\n    var ageSpan = document.getElementById("age_value");\n\n    function updateAge() {\n      if (!dobInput || !ageSpan) return;\n      var age = calcAgeFromDob(dobInput.value);\n      ageSpan.textContent = age ? (age + " yrs") : "-";\n    }\n\n    if (dobInput && ageSpan) {\n      updateAge();\n      ["change", "blur", "keyup"].forEach(function(evt) {\n        dobInput.addEventListener(evt, updateAge);\n      });\n    }\n  });\n</script>\n\n{% endblock %}\n',
 
+ 'lab_board.html': '\n'
+                   '{% extends "base.html" %}\n'
+                   '{% block content %}\n'
+                   '<h4 class="mb-3">Lab Board</h4>\n'
+                   '\n'
+                   '{% with messages = get_flashed_messages(with_categories=true) %}\n'
+                   '  {% for category, msg in messages %}\n'
+                   '    <div class="alert alert-{{ category }}">{{ msg }}</div>\n'
+                   '  {% endfor %}\n'
+                   '{% endwith %}\n'
+                   '\n'
+                   '<form method="GET" class="card p-2 mb-3 bg-white">\n'
+                   '  <div class="row g-2 align-items-end">\n'
+                   '    <div class="col-md-3 col-sm-4">\n'
+                   '      <label class="form-label fw-bold small mb-1">Status</label>\n'
+                   '      <select name="status" class="form-select form-select-sm">\n'
+                   '        <option value="PENDING" {% if status_filter==\'PENDING\' %}selected{% endif %}>Pending / '
+                   'Received</option>\n'
+                   '        <option value="REPORTED" {% if status_filter==\'REPORTED\' %}selected{% endif '
+                   '%}>Reported</option>\n'
+                   '        <option value="ALL" {% if status_filter==\'ALL\' %}selected{% endif %}>All</option>\n'
+                   '      </select>\n'
+                   '    </div>\n'
+                   '    <div class="col-md-3 col-sm-8">\n'
+                   '      <label class="form-label fw-bold small mb-1">Search</label>\n'
+                   '      <input type="text"\n'
+                   '             name="q"\n'
+                   '             value="{{ q or \'\' }}"\n'
+                   '             class="form-control form-control-sm"\n'
+                   '             placeholder="Name / ID / Visit / Test">\n'
+                   '    </div>\n'
+                   '    <div class="col-md-2 col-sm-6">\n'
+                   '      <label class="form-label fw-bold small mb-1">From (requested)</label>\n'
+                   '      <input type="date" name="date_from" value="{{ date_from or \'\' }}"\n'
+                   '             class="form-control form-control-sm">\n'
+                   '    </div>\n'
+                   '    <div class="col-md-2 col-sm-6">\n'
+                   '      <label class="form-label fw-bold small mb-1">To (requested)</label>\n'
+                   '      <input type="date" name="date_to" value="{{ date_to or \'\' }}"\n'
+                   '             class="form-control form-control-sm">\n'
+                   '    </div>\n'
+                   '    <div class="col-md-2 col-sm-6">\n'
+                   '      <label class="form-label fw-bold small mb-1">&nbsp;</label>\n'
+                   '      <div class="d-flex gap-1">\n'
+                   '        <button class="btn btn-sm btn-primary flex-fill">Search / Filter</button>\n'
+                   '        <a class="btn btn-sm btn-outline-secondary"\n'
+                   '           href="{{ url_for(\'export_labs_csv\', status=status_filter, q=q, date_from=date_from, '
+                   'date_to=date_to) }}">\n'
+                   '          ⬇︎ CSV\n'
+                   '        </a>\n'
+                   '      </div>\n'
+                   '    </div>\n'
+                   '  </div>\n'
+                   '</form>\n'
+                   '\n'
+                   '{% if status_counts is defined %}\n'
+                   '<div class="card p-2 mb-2">\n'
+                   '  <div class="small d-flex flex-wrap align-items-center gap-3">\n'
+                   '    <span class="text-muted">Summary:</span>\n'
+                   '    <span>\n'
+                   '      Pending: {{ pending_count }}\n'
+                   '      <span class="text-muted">(\n'
+                   "        Requested: {{ status_counts.get('REQUESTED', 0) }},\n"
+                   "        Received: {{ status_counts.get('RECEIVED', 0) }}\n"
+                   '      )</span>\n'
+                   '    </span>\n'
+                   '    <span>\n'
+                   "      Reported: {{ status_counts.get('REPORTED', 0) }}\n"
+                   '    </span>\n'
+                   '  </div>\n'
+                   '</div>\n'
+                   '{% endif %}\n'
+                   '\n'
+                   '<table class="table table-sm table-striped table-hover bg-white align-middle">\n'
+                   '  <thead class="table-light">\n'
+                   '    <tr>\n'
+                   '      <th style="width:60px;">#</th>\n'
+                   '      <th>Visit</th>\n'
+                   '      <th>Patient</th>\n'
+                   '      <th>ID</th>\n'
+                   '      <th>Test</th>\n'
+                   '      <th>Status</th>\n'
+                   '      <th>Age / TAT</th>\n'
+                   '      <th>Result</th>\n'
+                   '      <th style="width:220px;">Actions</th>\n'
+                   '    </tr>\n'
+                   '  </thead>\n'
+                   '  <tbody>\n'
+                   '  {% if not rows %}\n'
+                   '    <tr>\n'
+                   '      <td colspan="9" class="text-center text-muted small py-3">\n'
+                   '        No lab requests found for current filter.\n'
+                   '      </td>\n'
+                   '    </tr>\n'
+                   '  {% else %}\n'
+                   '    {# Group by visit so each visit/patient appears once in main rows #}\n'
+                   "    {% for group in rows|groupby('visit_id') %}\n"
+                   '      {% set r0 = group.list[0] %}\n'
+                   '      <tr class="lab-group-row" data-visit="{{ group.grouper }}">\n'
+                   '        <td>{{ loop.index }}</td>\n'
+                   '        <td class="fw-bold">\n'
+                   '          <a href="javascript:void(0)" class="lab-toggle" data-visit="{{ group.grouper }}">\n'
+                   '            {{ group.grouper }}\n'
+                   '          </a>\n'
+                   '        </td>\n'
+                   '        <td>\n'
+                   '          <a href="javascript:void(0)" class="lab-toggle" data-visit="{{ group.grouper }}">\n'
+                   '            {{ r0.name }}\n'
+                   '          </a>\n'
+                   '        </td>\n'
+                   '        <td>\n'
+                   '          <a href="javascript:void(0)" class="lab-toggle" data-visit="{{ group.grouper }}">\n'
+                   "            {{ r0.id_number or '-' }}\n"
+                   '          </a>\n'
+                   '        </td>\n'
+                   '        <td colspan="5" class="text-muted small">\n'
+                   '          Click patient name / visit / ID to show tests for this visit.\n'
+                   '        </td>\n'
+                   '      </tr>\n'
+                   '\n'
+                   '      {% for r in group.list %}\n'
+                   '      <tr class="lab-test-row d-none" data-visit="{{ group.grouper }}">\n'
+                   '        <td></td>\n'
+                   '        <td></td>\n'
+                   '        <td></td>\n'
+                   '        <td></td>\n'
+                   '        <td>{{ r.test_name }}</td>\n'
+                   '        <td>\n'
+                   "          {% if r.status == 'REQUESTED' %}\n"
+                   '            <span class="badge bg-secondary">Requested</span>\n'
+                   "          {% elif r.status == 'COLLECTED' %}\n"
+                   '            <span class="badge bg-info text-dark">Collected</span>\n'
+                   "          {% elif r.status == 'RECEIVED' %}\n"
+                   '            <span class="badge bg-warning text-dark">Received in lab</span>\n'
+                   "          {% elif r.status == 'IN_LAB' %}\n"
+                   '            <span class="badge bg-primary">In lab</span>\n'
+                   "          {% elif r.status == 'REPORTED' %}\n"
+                   '            <span class="badge bg-success">Reported</span>\n'
+                   '          {% else %}\n'
+                   '            <span class="badge bg-light text-muted">{{ r.status }}</span>\n'
+                   '          {% endif %}\n'
+                   '        </td>\n'
+                   '        <td>\n'
+                   '          {% if r.age_minutes is not none %}\n'
+                   "            {% if r.age_level == 'long' %}\n"
+                   '              <span class="badge text-bg-danger">{{ r.age_text }}</span>\n'
+                   "            {% elif r.age_level == 'medium' %}\n"
+                   '              <span class="badge text-bg-warning text-dark">{{ r.age_text }}</span>\n'
+                   "            {% elif r.age_level == 'short' %}\n"
+                   '              <span class="badge text-bg-light text-muted">{{ r.age_text }}</span>\n'
+                   '            {% else %}\n'
+                   '              <span class="badge text-bg-light text-muted">{{ r.age_text }}</span>\n'
+                   '            {% endif %}\n'
+                   '          {% else %}\n'
+                   '            <span class="text-muted">-</span>\n'
+                   '          {% endif %}\n'
+                   '        </td>\n'
+                   "        {% set _rt = (r.result_text or '')|lower %}\n"
+                   "        {% set _abn = 'high' in _rt or 'low' in _rt or 'crit' in _rt or 'abnormal' in _rt or "
+                   "'positive' in _rt or 'pos ' in _rt or 'pos.' in _rt or 'مرتفع' in _rt or 'منخفض' in _rt or "
+                   "'ايجابي' in _rt or 'إيجابي' in _rt %}\n"
+                   '        <td style="max-width:260px; white-space:pre-wrap; font-size:0.85rem;" {% if _abn '
+                   '%}class="text-danger fw-bold"{% endif %}>\n'
+                   "          {{ r.result_text or '-' }}\n"
+                   '        </td>\n'
+                   '        <td>\n'
+                   '          <div class="d-flex flex-column gap-1">\n'
+                   "            {% if session.get('role') in ['lab','admin'] %}\n"
+                   "              {% if r.status == 'REQUESTED' %}\n"
+                   '                <form method="POST"\n'
+                   '                      action="{{ url_for(\'lab_collect_sample\', rid=r.id) }}">\n'
+                   '                  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">\n'
+                   '                  <button class="btn btn-sm btn-outline-primary w-100">\n'
+                   '                    🩸 Collect sample\n'
+                   '                  </button>\n'
+                   '                </form>\n'
+                   "              {% elif r.status == 'COLLECTED' %}\n"
+                   '                <form method="POST"\n'
+                   '                      action="{{ url_for(\'lab_receive_sample\', rid=r.id) }}">\n'
+                   '                  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">\n'
+                   '                  <button class="btn btn-sm btn-outline-primary w-100">\n'
+                   '                    ✅ Receive in lab\n'
+                   '                  </button>\n'
+                   '                </form>\n'
+                   "              {% elif r.status == 'RECEIVED' %}\n"
+                   '                <form method="POST"\n'
+                   '                      action="{{ url_for(\'lab_start_in_lab\', rid=r.id) }}">\n'
+                   '                  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">\n'
+                   '                  <button class="btn btn-sm btn-outline-primary w-100">\n'
+                   '                    ▶ Start in lab\n'
+                   '                  </button>\n'
+                   '                </form>\n'
+                   '              {% endif %}\n'
+                   '\n'
+                   '              {# Result entry allowed once sample at least collected #}\n'
+                   "              {% if r.status in ['COLLECTED','RECEIVED','IN_LAB','REPORTED'] %}\n"
+                   '                <button class="btn btn-sm btn-outline-secondary w-100 mt-1"\n'
+                   '                        type="button"\n'
+                   '                        data-bs-toggle="modal"\n'
+                   '                        data-bs-target="#labResultModal"\n'
+                   '                        data-rid="{{ r.id }}"\n'
+                   '                        data-visit="{{ r.visit_id }}"\n'
+                   '                        data-patient="{{ r.name }}"\n'
+                   '                        data-test="{{ r.test_name }}"\n'
+                   '                        data-result="{{ (r.result_text or \'\')|e }}"\n'
+                   '                        data-url="{{ url_for(\'lab_report_result\', rid=r.id) }}">\n'
+                   '                  ✏️ Edit / Add Result\n'
+                   '                </button>\n'
+                   '              {% endif %}\n'
+                   '\n'
+                   "              {% if r.status == 'REPORTED' %}\n"
+                   '                <div class="mt-1">\n'
+                   '                  <span class="badge text-bg-light text-muted">\n'
+                   "                    Reported by {{ r.reported_by or '?' }}\n"
+                   '                  </span>\n'
+                   '                </div>\n'
+                   '              {% endif %}\n'
+                   '            {% endif %}\n'
+                   '\n'
+                   "            {% if session.get('role') in ['lab','admin'] %}\n"
+                   '              <form method="POST"\n'
+                   '                    enctype="multipart/form-data"\n'
+                   '                    action="{{ url_for(\'lab_upload_result_file\', rid=r.id) }}"\n'
+                   '                    class="d-flex gap-1 mt-1">\n'
+                   '                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">\n'
+                   '                <input type="file" name="file" class="form-control form-control-sm">\n'
+                   '                <button class="btn btn-sm btn-outline-secondary">Upload</button>\n'
+                   '              </form>\n'
+                   '            {% endif %}\n'
+                   '          </div>\n'
+                   '        </td>\n'
+                   '      </tr>\n'
+                   '      {% endfor %}\n'
+                   '    {% endfor %}\n'
+                   '  {% endif %}\n'
+                   '</tbody>\n'
+                   '\n'
+                   '</table>\n'
+                   '\n'
+                   '<div class="small text-muted mt-2">Showing latest 500 requests (before filters & limits).</div>\n'
+                   '\n'
+                   '<!-- Lab Result Modal -->\n'
+                   '<div class="modal fade" id="labResultModal" tabindex="-1" aria-hidden="true">\n'
+                   '  <div class="modal-dialog modal-lg modal-dialog-scrollable">\n'
+                   '    <div class="modal-content">\n'
+                   '      <form method="POST" id="labResultForm">\n'
+                   '        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">\n'
+                   '        <div class="modal-header">\n'
+                   '          <h5 class="modal-title">Lab Result</h5>\n'
+                   '          <button type="button" class="btn-close" data-bs-dismiss="modal" '
+                   'aria-label="Close"></button>\n'
+                   '        </div>\n'
+                   '        <div class="modal-body">\n'
+                   '          <div class="small text-muted mb-2" id="labResultMeta"></div>\n'
+                   '          <div class="mb-2">\n'
+                   '            <label class="form-label small">Result</label>\n'
+                   '            <textarea class="form-control" name="result_text" id="labResultText" rows="5"\n'
+                   '                      placeholder="Enter result..."></textarea>\n'
+                   '          </div>\n'
+                   '        </div>\n'
+                   '        <div class="modal-footer">\n'
+                   '          <button type="button" class="btn btn-sm btn-outline-secondary" '
+                   'data-bs-dismiss="modal">Close</button>\n'
+                   '          <button type="submit" class="btn btn-sm btn-primary">Save Result</button>\n'
+                   '        </div>\n'
+                   '      </form>\n'
+                   '    </div>\n'
+                   '  </div>\n'
+                   '</div>\n'
+                   '\n'
+                   '<script>\n'
+                   "  document.addEventListener('DOMContentLoaded', function () {\n"
+                   "    var labModal = document.getElementById('labResultModal');\n"
+                   '    if (labModal) {\n'
+                   "      labModal.addEventListener('show.bs.modal', function (event) {\n"
+                   '        var button = event.relatedTarget;\n'
+                   '        if (!button) return;\n'
+                   "        var visit = button.getAttribute('data-visit') || '';\n"
+                   "        var patient = button.getAttribute('data-patient') || '';\n"
+                   "        var test = button.getAttribute('data-test') || '';\n"
+                   "        var result = button.getAttribute('data-result') || '';\n"
+                   "        var url = button.getAttribute('data-url') || '';\n"
+                   '\n'
+                   "        var form = document.getElementById('labResultForm');\n"
+                   "        var textArea = document.getElementById('labResultText');\n"
+                   "        var meta = document.getElementById('labResultMeta');\n"
+                   '\n'
+                   '        if (form) form.action = url;\n'
+                   '        if (textArea) textArea.value = result;\n'
+                   "        if (meta) meta.textContent = 'Visit ' + visit + ' - ' + patient + ' - ' + test;\n"
+                   '      });\n'
+                   '    }\n'
+                   '\n'
+                   '    // Toggle tests per visit/patient\n'
+                   "    var toggleButtons = document.querySelectorAll('.lab-toggle');\n"
+                   '    toggleButtons.forEach(function (btn) {\n'
+                   "      btn.addEventListener('click', function (e) {\n"
+                   '        e.preventDefault();\n'
+                   "        var visit = btn.getAttribute('data-visit');\n"
+                   '        if (!visit) return;\n'
+                   '        var rows = document.querySelectorAll(\'tr.lab-test-row[data-visit="\' + visit + \'"]\');\n'
+                   '        if (!rows.length) return;\n'
+                   '\n'
+                   '        var anyHidden = false;\n'
+                   '        rows.forEach(function (row) {\n'
+                   "          if (row.classList.contains('d-none')) {\n"
+                   '            anyHidden = true;\n'
+                   '          }\n'
+                   '        });\n'
+                   '\n'
+                   '        rows.forEach(function (row) {\n'
+                   '          if (anyHidden) {\n'
+                   "            row.classList.remove('d-none');\n"
+                   '          } else {\n'
+                   "            row.classList.add('d-none');\n"
+                   '          }\n'
+                   '        });\n'
+                   '      });\n'
+                   '    });\n'
+                   '  });\n'
+                   '</script>\n'
+                   '\n'
+                   '\n'
+                   '{% endblock %}\n',
+ 'login.html': '\n'
+               '{% extends "base.html" %}\n'
+               '{% block content %}\n'
+               '<div class="row justify-content-center mt-5">\n'
+               '  <div class="col-md-4">\n'
+               '    <h4 class="mb-3 text-center">Login</h4>\n'
+               '    {% with messages = get_flashed_messages(with_categories=true) %}\n'
+               '      {% for category, msg in messages %}\n'
+               '        <div class="alert alert-{{ category }}">{{ msg }}</div>\n'
+               '      {% endfor %}\n'
+               '    {% endwith %}\n'
+               '    <form method="POST">\n'
+               '  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">\n'
+               '      <input class="form-control mb-2" name="username" placeholder="username">\n'
+               '      <input class="form-control mb-2" name="password" placeholder="password" type="password">\n'
+               '      <button class="btn btn-primary w-100">Login</button>\n'
+               '    </form>\n'
+               '    <div class="text-muted small mt-2">\n'
+               '    </div>\n'
+               '  </div>\n'
+               '</div>\n'
+               '{% endblock %}\n',
+ 'patient_details.html': '\n'
+                         '{% extends "base.html" %}\n'
+                         '{% block content %}\n'
+                         '\n'
+                         '<div class="d-flex justify-content-between align-items-start mb-3 flex-wrap gap-2">\n'
+                         '  <div>\n'
+                         '    <h4 class="mb-0">Patient Details</h4>\n'
+                         '    <div class="text-muted small">Visit {{ visit.visit_id }}</div>\n'
+                         '  </div>\n'
+                         '  <div class="text-end">\n'
+                         '    <div class="mb-1">\n'
+                         "      {% set cat = (visit.triage_cat or '').lower() %}\n"
+                         '      {% if cat == \'es1\' %}<span class="badge bg-danger">ES1</span>\n'
+                         '      {% elif cat == \'es2\' %}<span class="badge bg-warning text-dark">ES2</span>\n'
+                         '      {% elif cat == \'es3\' %}<span class="badge bg-info text-dark">ES3</span>\n'
+                         '      {% elif cat == \'es4\' %}<span class="badge bg-primary">ES4</span>\n'
+                         '      {% elif cat == \'es5\' %}<span class="badge bg-success">ES5</span>\n'
+                         '      {% else %}<span class="badge bg-secondary">No ES</span>\n'
+                         '      {% endif %}\n'
+                         '    </div>\n'
+                         '    <div>\n'
+                         "      {% set st = (visit.status or '').upper() %}\n"
+                         "      {% set st_class = 'secondary' %}\n"
+                         "      {% if st == 'OPEN' %}{% set st_class = 'success' %}{% endif %}\n"
+                         "      {% if st in ['DISCHARGED','TRANSFERRED','LAMA','EXPIRED','CANCELLED'] %}{% set "
+                         "st_class = 'danger' %}{% endif %}\n"
+                         '      <span class="badge bg-{{ st_class }}">{{ visit.status or \'-\' }}</span>\n'
+                         '    </div>\n'
+                         '  </div>\n'
+                         '\n'
+                         '</div>\n'
+                         '\n'
+                         '<div class="alert d-flex justify-content-between align-items-center px-3 py-2 mb-3 {% if '
+                         "(visit.allergy_status or '').upper() == 'YES' %}banner-allergy{% else %}banner-no-allergy{% "
+                         'endif %}">\n'
+                         '  <div class="d-flex align-items-center gap-2">\n'
+                         '    <span class="badge {% if (visit.allergy_status or \'\').upper() == \'YES\' %}bg-danger{% '
+                         'else %}bg-secondary{% endif %}">\n'
+                         '      ALLERGY\n'
+                         '    </span>\n'
+                         '    <div class="small">\n'
+                         "      {% set alg_status = (visit.allergy_status or '').upper() %}\n"
+                         "      {% if alg_status == 'YES' %}\n"
+                         "        <strong>{{ visit.allergy_details or 'Allergy documented' }}</strong>\n"
+                         "      {% elif alg_status == 'NKDA' %}\n"
+                         '        NKDA (No known drug allergy)\n'
+                         '      {% elif alg_status %}\n'
+                         '        {{ alg_status }}\n'
+                         '      {% else %}\n'
+                         '        No allergy info recorded.\n'
+                         '      {% endif %}\n'
+                         '    </div>\n'
+                         '  </div>\n'
+                         '  <div class="small text-muted text-end">\n'
+                         "    Loc: {{ visit.location or '-' }}\n"
+                         '    {% if visit.bed_no %}\n'
+                         "      · Bed: {{ visit.bed_no }} ({{ visit.bed_status or 'EMPTY' }})\n"
+                         '    {% endif %}\n'
+                         '  </div>\n'
+                         '</div>\n'
+                         '\n'
+                         '{% with messages = get_flashed_messages(with_categories=true) %}\n'
+                         '\n'
+                         '  {% for category, msg in messages %}\n'
+                         '    <div class="alert alert-{{ category }}">{{ msg }}</div>\n'
+                         '  {% endfor %}\n'
+                         '{% endwith %}\n'
+                         '\n'
+                         '<div class="card mb-3">\n'
+                         '  <div class="card-body">\n'
+                         '    <div class="row g-3">\n'
+                         '      <div class="col-md-6">\n'
+                         '        <h6 class="fw-bold text-muted mb-2">Patient &amp; Contact</h6>\n'
+                         '        <dl class="row mb-0 small">\n'
+                         '          <dt class="col-4">Name</dt>\n'
+                         '          <dd class="col-8 fw-semibold">{{ visit.name }}</dd>\n'
+                         '\n'
+                         '          <dt class="col-4">ID</dt>\n'
+                         '          <dd class="col-8">{{ visit.id_number or \'-\' }}</dd>\n'
+                         '\n'
+                         '          <dt class="col-4">Phone</dt>\n'
+                         '          <dd class="col-8">{{ visit.phone or \'-\' }}</dd>\n'
+                         '\n'
+                         '          <dt class="col-4">Nationality</dt>\n'
+                         '          <dd class="col-8">{{ visit.nationality or \'-\' }}</dd>\n'
+                         '\n'
+                         '          <dt class="col-4">Visit type</dt>\n'
+                         '          <dd class="col-8">\n'
+                         "            {% set vt = (visit.visit_type or 'NEW') %}\n"
+                         "            {% if vt == 'NEW' %}\n"
+                         '              New visit\n'
+                         "            {% elif vt == 'TREATMENT' %}\n"
+                         '              Treatment\n'
+                         "            {% elif vt in ['FOLLOW_UP','FOLLOW-UP','FOLLOWUP'] %}\n"
+                         '              Follow-up\n'
+                         "            {% elif vt == 'PROCEDURE' %}\n"
+                         '              Procedure / Dressing\n'
+                         '            {% else %}\n'
+                         '              {{ vt }}\n'
+                         '            {% endif %}\n'
+                         '          </dd>\n'
+                         '        </dl>\n'
+                         '      </div>\n'
+                         '      <div class="col-md-6">\n'
+                         '        <h6 class="fw-bold text-muted mb-2">Insurance &amp; Financial</h6>\n'
+                         '        <dl class="row mb-0 small">\n'
+                         '          <dt class="col-4">Insurance</dt>\n'
+                         '          <dd class="col-8">{{ visit.insurance or \'-\' }}</dd>\n'
+                         '\n'
+                         '          <dt class="col-4">Insurance No</dt>\n'
+                         '          <dd class="col-8">{{ visit.insurance_no or \'-\' }}</dd>\n'
+                         '\n'
+                         '          <dt class="col-4">Payment</dt>\n'
+                         '          <dd class="col-8">{{ visit.payment_details or \'-\' }}</dd>\n'
+                         '        </dl>\n'
+                         '      </div>\n'
+                         '    </div>\n'
+                         '\n'
+                         '    <hr class="my-3">\n'
+                         '\n'
+                         '    <div class="row g-3">\n'
+                         '      <div class="col-md-6">\n'
+                         '        <h6 class="fw-bold text-muted mb-2">Clinical Information</h6>\n'
+                         '        <div class="small mb-2">\n'
+                         '          <span class="fw-semibold">Patient Complaint:</span>\n'
+                         "          <div>{{ visit.comment or '-' }}</div>\n"
+                         '        </div>\n'
+                         '        <div class="small mb-2">\n'
+                         '          <span class="fw-semibold">Allergy:</span>\n'
+                         '          <div>\n'
+                         "            {{ visit.allergy_status or '-' }}\n"
+                         '            {% if visit.allergy_details %}\n'
+                         '              - {{ visit.allergy_details }}\n'
+                         '            {% endif %}\n'
+                         '          </div>\n'
+                         '        </div>\n'
+                         '        <div class="small mb-2">\n'
+                         '          <span class="fw-semibold">Triage Status:</span>\n'
+                         '          <span class="ms-1">{{ visit.triage_status }}</span>\n'
+                         '        </div>\n'
+                         '      </div>\n'
+                         '      <div class="col-md-6">\n'
+                         '        <h6 class="fw-bold text-muted mb-2">Vital Signs</h6>\n'
+                         '        <div class="d-flex flex-wrap gap-1 small">\n'
+                         '          <span class="badge text-bg-light">PR: {{ visit.pulse_rate or \'-\' }} bpm</span>\n'
+                         '          <span class="badge text-bg-light">RR: {{ visit.resp_rate or \'-\' }}/min</span>\n'
+                         '          <span class="badge text-bg-light">BP: {{ visit.bp_systolic or \'-\' }}/{{ '
+                         "visit.bp_diastolic or '-' }}</span>\n"
+                         '          <span class="badge text-bg-light">Temp: {{ visit.temperature or \'-\' }} '
+                         '°C</span>\n'
+                         '          <span class="badge text-bg-light">SpO2: {{ visit.spo2 or \'-\' }}%</span>\n'
+                         '          <span class="badge text-bg-light">Pain: {{ visit.pain_score or \'-\' }}/10</span>\n'
+                         '          <span class="badge text-bg-light">Consciousness: {{ visit.consciousness_level or '
+                         "'-' }}</span>\n"
+                         '          <span class="badge text-bg-light">Wt: {{ visit.weight or \'-\' }} kg</span>\n'
+                         '          <span class="badge text-bg-light">Ht: {{ visit.height or \'-\' }} cm</span>\n'
+                         '        </div>\n'
+                         '      </div>\n'
+                         '    </div>\n'
+                         '\n'
+                         "    {% if visit.status == 'CANCELLED' %}\n"
+                         '    <hr class="my-3">\n'
+                         '    <div class="row g-2 small">\n'
+                         '      <div class="col-md-6">\n'
+                         '        <span class="fw-semibold">Cancel Reason:</span>\n'
+                         '        <span class="ms-1">{{ visit.cancel_reason or \'-\' }}</span>\n'
+                         '      </div>\n'
+                         '      <div class="col-md-6">\n'
+                         '        <span class="fw-semibold">Cancelled By:</span>\n'
+                         '        <span class="ms-1">{{ visit.cancelled_by or \'-\' }}</span>\n'
+                         '      </div>\n'
+                         '    </div>\n'
+                         '    {% endif %}\n'
+                         '  </div>\n'
+                         '</div>\n'
+                         '\n'
+                         '<div class="card p-3 bg-white mb-3">\n'
+                         '  <div class="d-flex justify-content-between align-items-center mb-2">\n'
+                         '    <h6 class="fw-bold mb-0">Location / Bed</h6>\n'
+                         '    <div class="small text-muted">Greaseboard-style slot</div>\n'
+                         '  </div>\n'
+                         '  <div class="row g-2 align-items-end small">\n'
+                         '    <div class="col-md-3 col-4">\n'
+                         '      <label class="form-label mb-1">Location</label>\n'
+                         "      <div>{{ visit.location or '-' }}</div>\n"
+                         '    </div>\n'
+                         '    <div class="col-md-2 col-4">\n'
+                         '      <label class="form-label mb-1">Bed</label>\n'
+                         "      <div>{{ visit.bed_no or '-' }}</div>\n"
+                         '    </div>\n'
+                         '    <div class="col-md-3 col-4">\n'
+                         '      <label class="form-label mb-1">Bed Status</label>\n'
+                         "      <div>{{ visit.bed_status or '-' }}</div>\n"
+                         '    </div>\n'
+                         '    <div class="col-md-4">\n'
+                         "      {% if session.get('role') in ['reception','nurse','doctor','admin'] %}\n"
+                         '      <form class="row g-1 align-items-end" method="POST" action="{{ '
+                         'url_for(\'update_location_bed\', visit_id=visit.visit_id) }}">\n'
+                         '        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">\n'
+                         '        <div class="col-4">\n'
+                         '          <label class="form-label mb-1 small">Loc</label>\n'
+                         '          <input type="text" class="form-control form-control-sm" name="location" value="{{ '
+                         'visit.location or \'\' }}" placeholder="WR / R1 / FT">\n'
+                         '        </div>\n'
+                         '        <div class="col-3">\n'
+                         '          <label class="form-label mb-1 small">Bed</label>\n'
+                         '          <input type="text" class="form-control form-control-sm" name="bed_no" value="{{ '
+                         'visit.bed_no or \'\' }}">\n'
+                         '        </div>\n'
+                         '        <div class="col-3">\n'
+                         '          <label class="form-label mb-1 small">Status</label>\n'
+                         "          {% set bs = (visit.bed_status or '').upper() %}\n"
+                         '          <select class="form-select form-select-sm" name="bed_status">\n'
+                         '            <option value="" {% if not bs %}selected{% endif %}>-</option>\n'
+                         '            <option value="EMPTY" {% if bs == \'EMPTY\' %}selected{% endif '
+                         '%}>EMPTY</option>\n'
+                         '            <option value="OCCUPIED" {% if bs == \'OCCUPIED\' %}selected{% endif '
+                         '%}>OCCUPIED</option>\n'
+                         '            <option value="DIRTY" {% if bs == \'DIRTY\' %}selected{% endif '
+                         '%}>DIRTY</option>\n'
+                         '          </select>\n'
+                         '        </div>\n'
+                         '        <div class="col-2">\n'
+                         '          <button class="btn btn-sm btn-primary w-100">Save</button>\n'
+                         '        </div>\n'
+                         '      </form>\n'
+                         '      {% endif %}\n'
+                         '    </div>\n'
+                         '  </div>\n'
+                         '</div>\n'
+                         '\n'
+                         "{% if session.get('role') == 'reception' %}\n"
+                         '<div class="card p-3 bg-white mb-3">\n'
+                         '  <h6 class="fw-bold mb-2">Investigations (Read-only for Reception)</h6>\n'
+                         '  <div class="row">\n'
+                         '    <div class="col-md-6 mb-2">\n'
+                         '      <strong>Lab Results:</strong>\n'
+                         '      {% if lab_reqs %}\n'
+                         '        <ul class="small mb-0">\n'
+                         '          {% for l in lab_reqs %}\n'
+                         "            {% if l.status == 'REPORTED' %}\n"
+                         "              {% set _rt = (l.result_text or '')|lower %}\n"
+                         "              {% set _abn = 'high' in _rt or 'low' in _rt or 'crit' in _rt or 'abnormal' in "
+                         "_rt or 'positive' in _rt or 'pos ' in _rt or 'pos.' in _rt or 'مرتفع' in _rt or 'منخفض' in "
+                         "_rt or 'ايجابي' in _rt or 'إيجابي' in _rt %}\n"
+                         '              <li{% if _abn %} class="text-danger fw-bold"{% endif %}>{{ l.test_name }}: {{ '
+                         "l.result_text or '-' }}</li>\n"
+                         '            {% else %}\n'
+                         '              <li>{{ l.test_name }} - {{ l.status }}</li>\n'
+                         '            {% endif %}\n'
+                         '          {% endfor %}\n'
+                         '        </ul>\n'
+                         '      {% else %}\n'
+                         '        <div class="small text-muted">No lab requests for this visit.</div>\n'
+                         '      {% endif %}\n'
+                         '    </div>\n'
+                         '    <div class="col-md-6 mb-2">\n'
+                         '      <strong>Radiology Reports:</strong>\n'
+                         '      {% if rad_reqs %}\n'
+                         '        <ul class="small mb-0">\n'
+                         '          {% for r in rad_reqs %}\n'
+                         "            {% if r.status == 'REPORTED' %}\n"
+                         "              <li>{{ r.test_name }}: {{ r.report_text or '-' }}</li>\n"
+                         '            {% else %}\n'
+                         '              <li>{{ r.test_name }} - {{ r.status }}</li>\n'
+                         '            {% endif %}\n'
+                         '          {% endfor %}\n'
+                         '        </ul>\n'
+                         '      {% else %}\n'
+                         '        <div class="small text-muted">No radiology requests for this visit.</div>\n'
+                         '      {% endif %}\n'
+                         '    </div>\n'
+                         '  </div>\n'
+                         '  <div class="small text-muted mt-1">\n'
+                         '    * View only - reception cannot edit results.\n'
+                         '  </div>\n'
+                         '</div>\n'
+                         '{% endif %}\n'
+                         '\n'
+                         '<div class="card p-3 bg-white mb-3">\n'
+                         '  <h6 class="fw-bold mb-2">Quick Actions</h6>\n'
+                         '  <div class="d-flex gap-2 flex-wrap">\n'
+                         "    {% if session.get('role') in ['reception','admin'] %}\n"
+                         '      <a class="btn btn-sm btn-outline-warning" href="{{ url_for(\'edit_patient\', '
+                         'visit_id=visit.visit_id) }}">Edit Patient</a>\n'
+                         '    {% endif %}\n'
+                         '\n'
+                         '    <a class="btn btn-sm btn-outline-secondary"\n'
+                         '       target="_blank"\n'
+                         '       href="{{ url_for(\'triage_pdf\', visit_id=visit.visit_id) }}">\n'
+                         '      Print Triage PDF\n'
+                         '    </a>\n'
+                         '    <a class="btn btn-sm btn-outline-secondary"\n'
+                         '       target="_blank"\n'
+                         '       href="{{ url_for(\'lab_results_pdf\', visit_id=visit.visit_id) }}">\n'
+                         '      Print Lab Results PDF\n'
+                         '    </a>\n'
+                         '    <a class="btn btn-sm btn-outline-secondary"\n'
+                         '       target="_blank"\n'
+                         '       href="{{ url_for(\'radiology_results_pdf\', visit_id=visit.visit_id) }}">\n'
+                         '      Print Radiology PDF\n'
+                         '    </a>\n'
+                         '    <a class="btn btn-sm btn-outline-secondary"\n'
+                         '       target="_blank"\n'
+                         '       href="{{ url_for(\'auto_summary_pdf\', visit_id=visit.visit_id) }}">\n'
+                         '      Auto-Summary PDF\n'
+                         '    </a>\n'
+                         '\n'
+                         "    {% if session.get('role') in ['nurse','doctor','admin'] %}\n"
+                         '      <a class="btn btn-sm btn-success" href="{{ url_for(\'triage\', '
+                         'visit_id=visit.visit_id) }}">Triage</a>\n'
+                         '    {% endif %}\n'
+                         '\n'
+                         "    {% if session.get('role') != 'reception' %}\n"
+                         '      <a class="btn btn-sm btn-primary" href="{{ url_for(\'clinical_orders_page\', '
+                         'visit_id=visit.visit_id) }}">Clinical Orders</a>\n'
+                         '    {% endif %}\n'
+                         '\n'
+                         "    {% if session.get('role') in ['nurse','doctor','admin'] %}\n"
+                         '      <a class="btn btn-sm btn-outline-dark" target="_blank" href="{{ '
+                         'url_for(\'auto_summary_pdf\', visit_id=visit.visit_id) }}">Auto Summary</a>\n'
+                         '      <a class="btn btn-sm btn-outline-primary" target="_blank" href="{{ '
+                         'url_for(\'patient_summary_pdf\', visit_id=visit.visit_id) }}"\n'
+                         '>ED Visit Summary - Patient Copy</a>\n'
+                         '    {% endif %}\n'
+                         '\n'
+                         "    {% if session.get('role') in ['reception','nurse','doctor','admin'] %}\n"
+                         '      <a class="btn btn-sm btn-outline-secondary" target="_blank" href="{{ '
+                         'url_for(\'home_med_pdf\', visit_id=visit.visit_id) }}">Home Medication</a>\n'
+                         '    {% endif %}\n'
+                         '\n'
+                         '    <a class="btn btn-sm btn-outline-dark" target="_blank" href="{{ '
+                         'url_for(\'sticker_html\', visit_id=visit.visit_id) }}">Sticker</a>\n'
+                         '    <a class="btn btn-sm btn-outline-secondary" target="_blank" href="{{ '
+                         'url_for(\'sticker_zpl\', visit_id=visit.visit_id) }}">ZPL</a>\n'
+                         '  </div>\n'
+                         '</div>\n'
+                         '\n'
+                         "{% if session.get('role') in ['reception','admin'] and visit.status == 'OPEN' and "
+                         'orders_count == 0 %}\n'
+                         '<div class="card p-3 bg-white mb-3">\n'
+                         '  <h6 class="fw-bold mb-2">Cancel Visit</h6>\n'
+                         '  <p class="small text-muted mb-2">You can cancel an OPEN visit with no clinical '
+                         'orders.</p>\n'
+                         '  <form method="POST" action="{{ url_for(\'cancel_visit\', visit_id=visit.visit_id) }}">\n'
+                         '    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">\n'
+                         '    <div class="row g-2 align-items-end">\n'
+                         '      <div class="col-md-6">\n'
+                         '        <label class="form-label fw-bold small mb-1">Reason</label>\n'
+                         '        <input class="form-control" name="reason" required>\n'
+                         '      </div>\n'
+                         '      <div class="col-md-3">\n'
+                         '        <button class="btn btn-outline-danger w-100"\n'
+                         '                onclick="return confirm(\'Are you sure you want to cancel this visit?\');">\n'
+                         '          Cancel Visit\n'
+                         '        </button>\n'
+                         '      </div>\n'
+                         '    </div>\n'
+                         '  </form>\n'
+                         '</div>\n'
+                         '{% endif %}\n'
+                         '\n'
+                         "{% if session.get('role') in ['doctor','admin'] %}\n"
+                         '<form method="POST" action="{{ url_for(\'close_visit\', visit_id=visit.visit_id) }}" '
+                         'class="card p-3 bg-white mb-3">\n'
+                         '  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">\n'
+                         '  <h6 class="fw-bold">Update Status</h6>\n'
+                         '  <div class="row g-2 align-items-end">\n'
+                         '    <div class="col-md-4">\n'
+                         '      <label class="form-label fw-bold small mb-1">New Status</label>\n'
+                         '      <select class="form-select" name="status">\n'
+                         '        <option>DISCHARGED</option>\n'
+                         '        <option>ADMITTED</option>\n'
+                         '        <option>TRANSFERRED</option>\n'
+                         '        <option>LAMA</option>\n'
+                         '        <option>EXPIRED</option>\n'
+                         '        <option>IN_TREATMENT</option>\n'
+                         '        <option>CANCELLED</option>\n'
+                         '      </select>\n'
+                         '    </div>\n'
+                         '    <div class="col-md-3">\n'
+                         '      <button class="btn btn-danger w-100"\n'
+                         '              onclick="return confirm(\'Are you sure you want to update visit status?\');">\n'
+                         '        Update Status\n'
+                         '      </button>\n'
+                         '    </div>\n'
+                         '  </div>\n'
+                         '</form>\n'
+                         '{% endif %}\n'
+                         '\n'
+                         '<div class="card p-3 bg-white mb-3">\n'
+                         '  <h6 class="fw-bold mb-2">Attach Patient ID</h6>\n'
+                         '  <form method="POST" enctype="multipart/form-data" action="{{ url_for(\'upload_id\', '
+                         'visit_id=visit.visit_id) }}">\n'
+                         '    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">\n'
+                         '    <div class="row g-2 align-items-end">\n'
+                         '      <div class="col-md-6">\n'
+                         '        <input type="file" name="file" class="form-control">\n'
+                         '      </div>\n'
+                         '      <div class="col-md-3">\n'
+                         '        <button class="btn btn-primary btn-sm w-100">Upload</button>\n'
+                         '      </div>\n'
+                         '    </div>\n'
+                         '  </form>\n'
+                         '</div>\n'
+                         '\n'
+                         '<hr class="my-4">\n'
+                         '\n'
+                         '<div class="card bg-white p-3">\n'
+                         '  <div class="d-flex justify-content-between align-items-center mb-2">\n'
+                         '    <h5 class="mb-0">Vital Signs Trend</h5>\n'
+                         '    <small class="text-muted">Pulse / BP / Temp / SpO₂ vs time</small>\n'
+                         '  </div>\n'
+                         '  <canvas id="vitals-chart" height="120"></canvas>\n'
+                         '  <div class="small text-muted mt-2" id="vitals-chart-note">\n'
+                         '    يعرض آخر قياسات العلامات الحيوية المسجلة أثناء الزيارة.\n'
+                         '  </div>\n'
+                         '</div>\n'
+                         '\n'
+                         '<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>\n'
+                         '<script>\n'
+                         "document.addEventListener('DOMContentLoaded', function () {\n"
+                         "  var canvas = document.getElementById('vitals-chart');\n"
+                         '  if (!canvas) return;\n'
+                         '\n'
+                         "  var ctx = canvas.getContext('2d');\n"
+                         "  var noteEl = document.getElementById('vitals-chart-note');\n"
+                         '\n'
+                         '  fetch("{{ url_for(\'vitals_history\', visit_id=visit.visit_id) }}")\n'
+                         '    .then(function (r) { return r.json(); })\n'
+                         '    .then(function (payload) {\n'
+                         '      if (!payload || !payload.ok || !payload.points || !payload.points.length) {\n'
+                         "        if (noteEl) noteEl.textContent = 'لا توجد قياسات كافية لعرض رسم بياني.';\n"
+                         '        return;\n'
+                         '      }\n'
+                         '\n'
+                         '      var labels = [];\n'
+                         '      var pulseData = [];\n'
+                         '      var tempData = [];\n'
+                         '      var spo2Data = [];\n'
+                         '      var bpSysData = [];\n'
+                         '      var bpDiaData = [];\n'
+                         '\n'
+                         '      payload.points.forEach(function (p) {\n'
+                         "        labels.push(p.time || '');\n"
+                         '        pulseData.push(parseFloat(p.pulse) || null);\n'
+                         '        tempData.push(parseFloat(p.temp) || null);\n'
+                         '        spo2Data.push(parseFloat(p.spo2) || null);\n'
+                         '        bpSysData.push(parseFloat(p.bp_sys) || null);\n'
+                         '        bpDiaData.push(parseFloat(p.bp_dia) || null);\n'
+                         '      });\n'
+                         '\n'
+                         '      var anyValue = pulseData.concat(tempData, spo2Data, bpSysData, bpDiaData)\n'
+                         '                              .some(function (v) { return v !== null && !isNaN(v); });\n'
+                         '      if (!anyValue) {\n'
+                         "        if (noteEl) noteEl.textContent = 'لا توجد قيم رقمية كافية لعرض الرسم.';\n"
+                         '        return;\n'
+                         '      }\n'
+                         '\n'
+                         "      if (noteEl) noteEl.textContent = 'مرسوم بناءً على سجل الـ Triage / القياسات "
+                         "السابقة.';\n"
+                         '\n'
+                         '      new Chart(ctx, {\n'
+                         "        type: 'line',\n"
+                         '        data: {\n'
+                         '          labels: labels,\n'
+                         '          datasets: [\n'
+                         '            {\n'
+                         "              label: 'Pulse',\n"
+                         '              data: pulseData,\n'
+                         '              borderWidth: 2,\n'
+                         '              tension: 0.2\n'
+                         '            },\n'
+                         '            {\n'
+                         "              label: 'Temp (°C)',\n"
+                         '              data: tempData,\n'
+                         '              borderWidth: 2,\n'
+                         '              tension: 0.2\n'
+                         '            },\n'
+                         '            {\n'
+                         "              label: 'SpO₂ (%)',\n"
+                         '              data: spo2Data,\n'
+                         '              borderWidth: 2,\n'
+                         '              tension: 0.2\n'
+                         '            },\n'
+                         '            {\n'
+                         "              label: 'BP Sys',\n"
+                         '              data: bpSysData,\n'
+                         '              borderWidth: 1,\n'
+                         '              borderDash: [4, 2],\n'
+                         '              tension: 0.2\n'
+                         '            },\n'
+                         '            {\n'
+                         "              label: 'BP Dia',\n"
+                         '              data: bpDiaData,\n'
+                         '              borderWidth: 1,\n'
+                         '              borderDash: [4, 2],\n'
+                         '              tension: 0.2\n'
+                         '            }\n'
+                         '          ]\n'
+                         '        },\n'
+                         '        options: {\n'
+                         '          responsive: true,\n'
+                         '          maintainAspectRatio: false,\n'
+                         '          scales: {\n'
+                         '            x: {\n'
+                         '              ticks: {\n'
+                         '                autoSkip: true,\n'
+                         '                maxTicksLimit: 6\n'
+                         '              }\n'
+                         '            },\n'
+                         '            y: {\n'
+                         '              beginAtZero: false\n'
+                         '            }\n'
+                         '          },\n'
+                         '          plugins: {\n'
+                         '            legend: {\n'
+                         "              position: 'bottom'\n"
+                         '            }\n'
+                         '          }\n'
+                         '        }\n'
+                         '      });\n'
+                         '    })\n'
+                         '    .catch(function () {\n'
+                         "      if (noteEl) noteEl.textContent = 'تعذر تحميل بيانات الرسم البياني.';\n"
+                         '    });\n'
+                         '});\n'
+                         '</script>\n'
+                         '\n'
+                         '{% endblock %}\n',
+ 'radiology_board.html': '\n'
+                         '{% extends "base.html" %}\n'
+                         '{% block content %}\n'
+                         '<div class="d-flex justify-content-between align-items-center mb-2">\n'
+                         '  <div>\n'
+                         '    <h4 class="mb-0">Radiology Board</h4>\n'
+                         '    <div class="small text-muted">Imaging requests, status and reports.</div>\n'
+                         '  </div>\n'
+                         '  <div class="text-end small">\n'
+                         '    <div>\n'
+                         '      Pending / Done:\n'
+                         '      <span class="badge bg-warning-subtle text-warning border border-warning">\n'
+                         '        {{ pending_count or 0 }}\n'
+                         '      </span>\n'
+                         '    </div>\n'
+                         '    <div>\n'
+                         '      Reported:\n'
+                         '      <span class="badge bg-success-subtle text-success border border-success">\n'
+                         '        {{ reported_count or 0 }}\n'
+                         '      </span>\n'
+                         '    </div>\n'
+                         '  </div>\n'
+                         '</div>\n'
+                         '\n'
+                         '{% with messages = get_flashed_messages(with_categories=true) %}\n'
+                         '  {% for category, msg in messages %}\n'
+                         '    <div class="alert alert-{{ category }}">{{ msg }}</div>\n'
+                         '  {% endfor %}\n'
+                         '{% endwith %}\n'
+                         '\n'
+                         '{% if status_counts or modality_counts %}\n'
+                         '<div class="row g-2 mb-2">\n'
+                         '  <div class="col-lg-5 col-md-6">\n'
+                         '    <div class="card card-body py-2">\n'
+                         '      <div class="small fw-bold text-muted mb-1">By status</div>\n'
+                         '      {% set sc = status_counts or {} %}\n'
+                         '      <div class="d-flex flex-wrap gap-1">\n'
+                         '        <span class="badge rounded-pill bg-secondary-subtle text-secondary border '
+                         'border-secondary">\n'
+                         '          REQUESTED: <span class="fw-bold">{{ sc.get(\'REQUESTED\', 0) }}</span>\n'
+                         '        </span>\n'
+                         '        <span class="badge rounded-pill bg-warning-subtle text-warning border '
+                         'border-warning">\n'
+                         '          DONE: <span class="fw-bold">{{ sc.get(\'DONE\', 0) }}</span>\n'
+                         '        </span>\n'
+                         '        <span class="badge rounded-pill bg-success-subtle text-success border '
+                         'border-success">\n'
+                         '          REPORTED: <span class="fw-bold">{{ sc.get(\'REPORTED\', 0) }}</span>\n'
+                         '        </span>\n'
+                         '      </div>\n'
+                         '    </div>\n'
+                         '  </div>\n'
+                         '  <div class="col-lg-7 col-md-6">\n'
+                         '    <div class="card card-body py-2">\n'
+                         '      <div class="small fw-bold text-muted mb-1">By modality (simple)</div>\n'
+                         '      {% set mc = modality_counts or {} %}\n'
+                         '      <div class="d-flex flex-wrap gap-1">\n'
+                         '        <span class="badge rounded-pill bg-primary-subtle text-primary border '
+                         'border-primary">\n'
+                         '          XR: <span class="fw-bold">{{ mc.get(\'XR\', 0) }}</span>\n'
+                         '        </span>\n'
+                         '        <span class="badge rounded-pill bg-success-subtle text-success border '
+                         'border-success">\n'
+                         '          US: <span class="fw-bold">{{ mc.get(\'US\', 0) }}</span>\n'
+                         '        </span>\n'
+                         '        <span class="badge rounded-pill bg-warning-subtle text-warning border '
+                         'border-warning">\n'
+                         '          CT: <span class="fw-bold">{{ mc.get(\'CT\', 0) }}</span>\n'
+                         '        </span>\n'
+                         '        <span class="badge rounded-pill bg-info-subtle text-info border border-info">\n'
+                         '          MRI: <span class="fw-bold">{{ mc.get(\'MRI\', 0) }}</span>\n'
+                         '        </span>\n'
+                         '        <span class="badge rounded-pill bg-light text-muted border">\n'
+                         '          Other: <span class="fw-bold">{{ mc.get(\'Other\', 0) }}</span>\n'
+                         '        </span>\n'
+                         '      </div>\n'
+                         '    </div>\n'
+                         '  </div>\n'
+                         '</div>\n'
+                         '{% endif %}\n'
+                         '\n'
+                         '<form method="GET" class="card p-2 mb-3 bg-white">\n'
+                         '  <div class="row g-2 align-items-end">\n'
+                         '    <div class="col-md-3 col-sm-4">\n'
+                         '      <label class="form-label fw-bold small mb-1">Status</label>\n'
+                         '      <select name="status" class="form-select form-select-sm">\n'
+                         '        <option value="PENDING" {% if status_filter==\'PENDING\' %}selected{% endif '
+                         '%}>Pending / Done</option>\n'
+                         '        <option value="REPORTED" {% if status_filter==\'REPORTED\' %}selected{% endif '
+                         '%}>Reported</option>\n'
+                         '        <option value="ALL" {% if status_filter==\'ALL\' %}selected{% endif %}>All</option>\n'
+                         '      </select>\n'
+                         '    </div>\n'
+                         '    <div class="col-md-3 col-sm-6">\n'
+                         '      <label class="form-label fw-bold small mb-1">Search</label>\n'
+                         '      <input type="text"\n'
+                         '             name="q"\n'
+                         '             value="{{ q or \'\' }}"\n'
+                         '             class="form-control form-control-sm"\n'
+                         '             placeholder="Name / ID / Visit / Study">\n'
+                         '    </div>\n'
+                         '    <div class="col-md-2 col-sm-6">\n'
+                         '      <label class="form-label fw-bold small mb-1">From (requested)</label>\n'
+                         '      <input type="date" name="date_from" value="{{ date_from or \'\' }}"\n'
+                         '             class="form-control form-control-sm">\n'
+                         '    </div>\n'
+                         '    <div class="col-md-2 col-sm-6">\n'
+                         '      <label class="form-label fw-bold small mb-1">To (requested)</label>\n'
+                         '      <input type="date" name="date_to" value="{{ date_to or \'\' }}"\n'
+                         '             class="form-control form-control-sm">\n'
+                         '    </div>\n'
+                         '    <div class="col-md-2 col-sm-6">\n'
+                         '      <label class="form-label fw-bold small mb-1">&nbsp;</label>\n'
+                         '      <div class="d-flex gap-1">\n'
+                         '        <button class="btn btn-sm btn-primary flex-fill">Search / Filter</button>\n'
+                         '        <a class="btn btn-sm btn-outline-secondary"\n'
+                         '           href="{{ url_for(\'export_radiology_csv\', status=status_filter, q=q, '
+                         'date_from=date_from, date_to=date_to) }}">\n'
+                         '          ⬇︎ CSV\n'
+                         '        </a>\n'
+                         '      </div>\n'
+                         '    </div>\n'
+                         '  </div>\n'
+                         '</form>\n'
+                         '\n'
+                         '<div class="table-responsive">\n'
+                         '<table class="table table-sm table-striped table-hover bg-white align-middle">\n'
+                         '  <thead class="table-light">\n'
+                         '    <tr>\n'
+                         '      <th style="width:60px;">#</th>\n'
+                         '      <th>Visit</th>\n'
+                         '      <th>Patient</th>\n'
+                         '      <th>ID</th>\n'
+                         '      <th>Study</th>\n'
+                         '      <th>Modality</th>\n'
+                         '      <th>Requested</th>\n'
+                         '      <th>Age / TAT</th>\n'
+                         '      <th>Status</th>\n'
+                         '      <th>Report</th>\n'
+                         '      <th style="width:260px;">Actions</th>\n'
+                         '    </tr>\n'
+                         '  </thead>\n'
+                         '  <tbody>\n'
+                         '  {% if not rows %}\n'
+                         '    <tr>\n'
+                         '      <td colspan="11" class="text-center text-muted small py-3">\n'
+                         '        No radiology requests found for current filter.\n'
+                         '      </td>\n'
+                         '    </tr>\n'
+                         '  {% else %}\n'
+                         '    {# Group radiology requests by visit so each visit/patient appears once #}\n'
+                         "    {% for group in rows|groupby('visit_id') %}\n"
+                         '      {% set r0 = group.list[0] %}\n'
+                         '      <tr class="rad-group-row" data-visit="{{ group.grouper }}">\n'
+                         '        <td>{{ loop.index }}</td>\n'
+                         '        <td class="fw-bold">\n'
+                         '          <a href="javascript:void(0)" class="rad-toggle" data-visit="{{ group.grouper }}">\n'
+                         '            {{ group.grouper }}\n'
+                         '          </a>\n'
+                         '        </td>\n'
+                         '        <td>\n'
+                         '          <a href="javascript:void(0)" class="rad-toggle" data-visit="{{ group.grouper }}">\n'
+                         '            {{ r0.name }}\n'
+                         '          </a>\n'
+                         '        </td>\n'
+                         '        <td>\n'
+                         '          <a href="javascript:void(0)" class="rad-toggle" data-visit="{{ group.grouper }}">\n'
+                         "            {{ r0.id_number or '-' }}\n"
+                         '          </a>\n'
+                         '        </td>\n'
+                         '        <td colspan="7" class="text-muted small">\n'
+                         '          Click patient name / visit / ID to show imaging studies for this visit.\n'
+                         '        </td>\n'
+                         '      </tr>\n'
+                         '\n'
+                         '      {% for r in group.list %}\n'
+                         '      <tr class="{% if r.status == \'REQUESTED\' %}table-warning{% elif r.status in '
+                         '[\'DONE\',\'REPORTED\'] %}table-light{% endif %} rad-test-row d-none"\n'
+                         '          data-visit="{{ group.grouper }}">\n'
+                         '        <td></td>\n'
+                         '        <td></td>\n'
+                         '        <td></td>\n'
+                         '        <td></td>\n'
+                         '        <td>{{ r.test_name }}</td>\n'
+                         "        <td>{{ r.modality or '-' }}</td>\n"
+                         '        <td class="small text-muted">{{ r.requested_at or \'\' }}</td>\n'
+                         '        <td>\n'
+                         '          {% if r.age_text %}\n'
+                         '            <span class="badge text-bg-light text-muted">{{ r.age_text }}</span>\n'
+                         '          {% else %}\n'
+                         '            <span class="text-muted">-</span>\n'
+                         '          {% endif %}\n'
+                         '        </td>\n'
+                         '        <td>\n'
+                         "          {% if r.status == 'REQUESTED' %}\n"
+                         '            <span class="badge bg-secondary">Requested</span>\n'
+                         "          {% elif r.status == 'SCHEDULED' %}\n"
+                         '            <span class="badge bg-info text-dark">Scheduled</span>\n'
+                         "          {% elif r.status == 'DONE' %}\n"
+                         '            <span class="badge bg-success">Done</span>\n'
+                         "          {% elif r.status == 'REPORTED' %}\n"
+                         '            <span class="badge bg-success">Reported</span>\n'
+                         '          {% else %}\n'
+                         '            <span class="badge bg-light text-muted">{{ r.status }}</span>\n'
+                         '          {% endif %}\n'
+                         '        </td>\n'
+                         '        <td style="max-width:260px; white-space:pre-wrap; font-size:0.85rem;">\n'
+                         "          {{ r.report_text or '-' }}\n"
+                         '        </td>\n'
+                         '        <td>\n'
+                         '          <div class="d-flex flex-column gap-1">\n'
+                         "            {% if session.get('role') in ['radiology','admin'] %}\n"
+                         '              <button class="btn btn-sm btn-outline-secondary w-100"\n'
+                         '                      type="button"\n'
+                         '                      data-bs-toggle="modal"\n'
+                         '                      data-bs-target="#radReportModal"\n'
+                         '                      data-rid="{{ r.id }}"\n'
+                         '                      data-visit="{{ r.visit_id }}"\n'
+                         '                      data-patient="{{ r.name }}"\n'
+                         '                      data-test="{{ r.test_name }}"\n'
+                         '                      data-report="{{ (r.report_text or \'\')|e }}"\n'
+                         '                      data-url="{{ url_for(\'radiology_report_result\', rid=r.id) }}">\n'
+                         '                ✏️ Edit / Add Report\n'
+                         '              </button>\n'
+                         '            {% endif %}\n'
+                         '\n'
+                         "            {% if session.get('role') in ['radiology','admin'] %}\n"
+                         '              <form method="POST"\n'
+                         '                    enctype="multipart/form-data"\n'
+                         '                    action="{{ url_for(\'radiology_upload_result_file\', rid=r.id) }}"\n'
+                         '                    class="d-flex gap-1 mt-1">\n'
+                         '                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">\n'
+                         '                <input type="file" name="file" class="form-control form-control-sm">\n'
+                         '                <button class="btn btn-sm btn-outline-secondary">Upload</button>\n'
+                         '              </form>\n'
+                         '            {% endif %}\n'
+                         '\n'
+                         "            {% if r.status == 'REPORTED' %}\n"
+                         '              <span class="small text-muted mt-1">\n'
+                         "                {{ r.reported_at or '' }} | {{ r.reported_by or '' }}\n"
+                         '              </span>\n'
+                         '            {% endif %}\n'
+                         '          </div>\n'
+                         '        </td>\n'
+                         '      </tr>\n'
+                         '      {% endfor %}\n'
+                         '    {% endfor %}\n'
+                         '  {% endif %}\n'
+                         '</tbody>\n'
+                         '\n'
+                         '</table>\n'
+                         '</div>\n'
+                         '\n'
+                         '<div class="small text-muted mt-2">\n'
+                         '  Showing latest 500 radiology requests (before filters & limits).\n'
+                         '</div>\n'
+                         '\n'
+                         '<!-- Radiology Report Modal -->\n'
+                         '<div class="modal fade" id="radReportModal" tabindex="-1" aria-hidden="true">\n'
+                         '  <div class="modal-dialog modal-lg modal-dialog-scrollable">\n'
+                         '    <div class="modal-content">\n'
+                         '      <form method="POST" id="radReportForm">\n'
+                         '        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">\n'
+                         '        <div class="modal-header">\n'
+                         '          <h5 class="modal-title">Radiology Report</h5>\n'
+                         '          <button type="button" class="btn-close" data-bs-dismiss="modal" '
+                         'aria-label="Close"></button>\n'
+                         '        </div>\n'
+                         '        <div class="modal-body">\n'
+                         '          <div class="small text-muted mb-2" id="radReportMeta"></div>\n'
+                         '          <div class="mb-2">\n'
+                         '            <label class="form-label small">Report Text</label>\n'
+                         '            <textarea\n'
+                         '              name="report_text"\n'
+                         '              id="radReportText"\n'
+                         '              rows="12"\n'
+                         '              class="form-control form-control-sm"\n'
+                         '              placeholder="Type or paste the radiology report here..."></textarea>\n'
+                         '          </div>\n'
+                         '          <div class="alert alert-info small">\n'
+                         '            <ul class="mb-0 ps-3">\n'
+                         '              <li>Keep structured (Findings / Impression) where possible.</li>\n'
+                         '              <li>Patient &amp; visit details appear above for double-checking.</li>\n'
+                         '            </ul>\n'
+                         '          </div>\n'
+                         '        </div>\n'
+                         '        <div class="modal-footer">\n'
+                         '          <button type="button" class="btn btn-sm btn-outline-secondary" '
+                         'data-bs-dismiss="modal">Close</button>\n'
+                         '          <button type="submit" class="btn btn-sm btn-primary">Save Report</button>\n'
+                         '        </div>\n'
+                         '      </form>\n'
+                         '    </div>\n'
+                         '  </div>\n'
+                         '</div>\n'
+                         '\n'
+                         '<script>\n'
+                         "document.addEventListener('DOMContentLoaded', function () {\n"
+                         "  var radModal = document.getElementById('radReportModal');\n"
+                         '  if (radModal) {\n'
+                         "    radModal.addEventListener('show.bs.modal', function (event) {\n"
+                         '      var button = event.relatedTarget;\n'
+                         '      if (!button) return;\n'
+                         '\n'
+                         "      var rid = button.getAttribute('data-rid') || '';\n"
+                         "      var visit = button.getAttribute('data-visit') || '';\n"
+                         "      var patient = button.getAttribute('data-patient') || '';\n"
+                         "      var test = button.getAttribute('data-test') || '';\n"
+                         "      var report = button.getAttribute('data-report') || '';\n"
+                         "      var url = button.getAttribute('data-url') || '';\n"
+                         '\n'
+                         "      var form = document.getElementById('radReportForm');\n"
+                         "      var textArea = document.getElementById('radReportText');\n"
+                         "      var meta = document.getElementById('radReportMeta');\n"
+                         '\n'
+                         '      if (form) form.action = url;\n'
+                         '      if (textArea) textArea.value = report;\n'
+                         "      if (meta) meta.textContent = 'Visit ' + visit + ' - ' + patient + ' - ' + test;\n"
+                         '    });\n'
+                         '  }\n'
+                         '\n'
+                         '  // Toggle radiology studies per visit/patient\n'
+                         "  var toggleButtons = document.querySelectorAll('.rad-toggle');\n"
+                         '  toggleButtons.forEach(function (btn) {\n'
+                         "    btn.addEventListener('click', function (e) {\n"
+                         '      e.preventDefault();\n'
+                         "      var visit = btn.getAttribute('data-visit');\n"
+                         '      if (!visit) return;\n'
+                         '      var rows = document.querySelectorAll(\'tr.rad-test-row[data-visit="\' + visit + '
+                         '\'"]\');\n'
+                         '      if (!rows.length) return;\n'
+                         '\n'
+                         '      var anyHidden = false;\n'
+                         '      rows.forEach(function (row) {\n'
+                         "        if (row.classList.contains('d-none')) {\n"
+                         '          anyHidden = true;\n'
+                         '        }\n'
+                         '      });\n'
+                         '\n'
+                         '      rows.forEach(function (row) {\n'
+                         '        if (anyHidden) {\n'
+                         "          row.classList.remove('d-none');\n"
+                         '        } else {\n'
+                         "          row.classList.add('d-none');\n"
+                         '        }\n'
+                         '      });\n'
+                         '    });\n'
+                         '  });\n'
+                         '});\n'
+                         '</script>\n'
+                         '\n'
+                         '\n'
+                         '{% endblock %}\n',
+ 'register.html': '\n'
+                  '{% extends "base.html" %}\n'
+                  '{% block content %}\n'
+                  '<h4 class="mb-3">Register Patient</h4>\n'
+                  '\n'
+                  '{% with messages = get_flashed_messages(with_categories=true) %}\n'
+                  '  {% for category, msg in messages %}\n'
+                  '    <div class="alert alert-{{ category }}">{{ msg }}</div>\n'
+                  '  {% endfor %}\n'
+                  '{% endwith %}\n'
+                  '\n'
+                  '<form method="POST" enctype="multipart/form-data" class="card p-3 bg-white" id="register-form">\n'
+                  '  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">\n'
+                  '  <div class="row g-2">\n'
+                  '    <div class="col-md-6">\n'
+                  '      <label class="form-label fw-bold">Name</label>\n'
+                  '      <input class="form-control" name="name" required>\n'
+                  '    </div>\n'
+                  '\n'
+                  '    <div class="col-md-6">\n'
+                  '      <label class="form-label fw-bold">ID Number</label>\n'
+                  '      <input class="form-control" name="id_number">\n'
+                  '    </div>\n'
+                  '\n'
+                  '    <div class="col-md-4">\n'
+                  '      <label class="form-label fw-bold">Phone</label>\n'
+                  '      <input class="form-control" name="phone">\n'
+                  '    </div>\n'
+                  '\n'
+                  '    <div class="col-md-4">\n'
+                  '      <label class="form-label fw-bold">Insurance</label>\n'
+                  '      <input class="form-control" name="insurance">\n'
+                  '    </div>\n'
+                  '\n'
+                  '    <div class="col-md-4">\n'
+                  '      <label class="form-label fw-bold">Insurance No</label>\n'
+                  '      <input class="form-control" name="insurance_no">\n'
+                  '    </div>\n'
+                  '\n'
+                  '    <div class="col-md-4">\n'
+                  '      <label class="form-label fw-bold">DOB</label>\n'
+                  '      <input class="form-control" name="dob" placeholder="YYYY-MM-DD">\n'
+                  '    </div>\n'
+                  '\n'
+                  '    <div class="col-md-2">\n'
+                  '      <label class="form-label fw-bold">Sex</label>\n'
+                  '      <select class="form-select" name="sex">\n'
+                  '        <option value=""></option>\n'
+                  '        <option>M</option>\n'
+                  '        <option>F</option>\n'
+                  '      </select>\n'
+                  '    </div>\n'
+                  '\n'
+                  '    <div class="col-md-6">\n'
+                  '      <label class="form-label fw-bold">Nationality</label>\n'
+                  '      <input class="form-control" name="nationality">\n'
+                  '    </div>\n'
+                  '\n'
+                  '    <div class="col-md-4">\n'
+                  '      <label class="form-label fw-bold">Visit type</label>\n'
+                  '      <select class="form-select" name="visit_type">\n'
+                  '        <option value="NEW">New visit</option>\n'
+                  '        <option value="TREATMENT">Treatment</option>\n'
+                  '        <option value="FOLLOW_UP">Follow-up</option>\n'
+                  '        <option value="PROCEDURE">Procedure / Dressing</option>\n'
+                  '      </select>\n'
+                  '    </div>\n'
+                  '\n'
+                  '    {# hidden field that will be filled automatically from insurance block #}\n'
+                  '    <input type="hidden" name="payment_details" id="payment_details">\n'
+                  '  </div>\n'
+                  '\n'
+                  '  <hr class="mt-3 mb-2">\n'
+                  '\n'
+                  '  <h5 class="mb-2">Insurance / Contract Scheme (optional)</h5>\n'
+                  '\n'
+                  '  <div class="row g-2">\n'
+                  '    <div class="col-md-4">\n'
+                  '      <label class="form-label fw-bold">Ins. Provider</label>\n'
+                  '      <input class="form-control" id="ins_provider">\n'
+                  '    </div>\n'
+                  '\n'
+                  '    <div class="col-md-4">\n'
+                  '      <label class="form-label fw-bold">Insur. Card No</label>\n'
+                  '      <input class="form-control" id="ins_card_no">\n'
+                  '    </div>\n'
+                  '\n'
+                  '    <div class="col-md-4">\n'
+                  '      <label class="form-label fw-bold">DHA Member ID</label>\n'
+                  '      <input class="form-control" id="dha_member_id">\n'
+                  '    </div>\n'
+                  '\n'
+                  '    <div class="col-md-4">\n'
+                  '      <label class="form-label fw-bold">Ins. Plan</label>\n'
+                  '      <input class="form-control" id="ins_plan">\n'
+                  '    </div>\n'
+                  '\n'
+                  '    <div class="col-md-4">\n'
+                  '      <label class="form-label fw-bold">Policy No</label>\n'
+                  '      <input class="form-control" id="policy_no">\n'
+                  '    </div>\n'
+                  '\n'
+                  '    <div class="col-md-4">\n'
+                  '      <label class="form-label fw-bold">Policy Name</label>\n'
+                  '      <input class="form-control" id="policy_name">\n'
+                  '    </div>\n'
+                  '\n'
+                  '    <div class="col-md-3">\n'
+                  '      <label class="form-label fw-bold">Valid From</label>\n'
+                  '      <input type="date" class="form-control" id="valid_from">\n'
+                  '    </div>\n'
+                  '\n'
+                  '    <div class="col-md-3">\n'
+                  '      <label class="form-label fw-bold">Valid To</label>\n'
+                  '      <input type="date" class="form-control" id="valid_to">\n'
+                  '    </div>\n'
+                  '\n'
+                  '    <div class="col-md-6">\n'
+                  '      <label class="form-label fw-bold">Consultation Deductible %</label>\n'
+                  '      <input class="form-control" id="consult_deduct" placeholder="e.g. 20%">\n'
+                  '    </div>\n'
+                  '\n'
+                  '    <div class="col-md-12">\n'
+                  '      <label class="form-label fw-bold d-block">Contract Scheme Details</label>\n'
+                  '      <div class="small text-muted">Enter percentage or fixed amount (AED) for each service - you '
+                  'may leave any field blank.</div>\n'
+                  '    </div>\n'
+                  '\n'
+                  '    <div class="col-md-4">\n'
+                  '      <label class="form-label">Laboratory</label>\n'
+                  '      <div class="input-group mb-1">\n'
+                  '        <span class="input-group-text">%</span>\n'
+                  '        <input class="form-control" id="lab_percent" placeholder="e.g. 20">\n'
+                  '      </div>\n'
+                  '      <div class="input-group">\n'
+                  '        <span class="input-group-text">AED</span>\n'
+                  '        <input class="form-control" id="lab_amount" placeholder="e.g. 50">\n'
+                  '      </div>\n'
+                  '    </div>\n'
+                  '\n'
+                  '    <div class="col-md-4">\n'
+                  '      <label class="form-label">Radiology</label>\n'
+                  '      <div class="input-group mb-1">\n'
+                  '        <span class="input-group-text">%</span>\n'
+                  '        <input class="form-control" id="radiology_percent" placeholder="e.g. 20">\n'
+                  '      </div>\n'
+                  '      <div class="input-group">\n'
+                  '        <span class="input-group-text">AED</span>\n'
+                  '        <input class="form-control" id="radiology_amount" placeholder="e.g. 50">\n'
+                  '      </div>\n'
+                  '    </div>\n'
+                  '\n'
+                  '    <div class="col-md-4">\n'
+                  '      <label class="form-label">Investigation</label>\n'
+                  '      <div class="input-group mb-1">\n'
+                  '        <span class="input-group-text">%</span>\n'
+                  '        <input class="form-control" id="investigation_percent" placeholder="e.g. 20">\n'
+                  '      </div>\n'
+                  '      <div class="input-group">\n'
+                  '        <span class="input-group-text">AED</span>\n'
+                  '        <input class="form-control" id="investigation_amount" placeholder="e.g. 50">\n'
+                  '      </div>\n'
+                  '    </div>\n'
+                  '\n'
+                  '    <div class="col-md-4">\n'
+                  '      <label class="form-label">Inpatient</label>\n'
+                  '      <div class="input-group mb-1">\n'
+                  '        <span class="input-group-text">%</span>\n'
+                  '        <input class="form-control" id="inpatient_percent" placeholder="e.g. 10">\n'
+                  '      </div>\n'
+                  '      <div class="input-group">\n'
+                  '        <span class="input-group-text">AED</span>\n'
+                  '        <input class="form-control" id="inpatient_amount" placeholder="e.g. 100">\n'
+                  '      </div>\n'
+                  '    </div>\n'
+                  '\n'
+                  '    <div class="col-md-4">\n'
+                  '      <label class="form-label">Pharmacy</label>\n'
+                  '      <div class="input-group mb-1">\n'
+                  '        <span class="input-group-text">%</span>\n'
+                  '        <input class="form-control" id="pharmacy_percent" placeholder="e.g. 10">\n'
+                  '      </div>\n'
+                  '      <div class="input-group">\n'
+                  '        <span class="input-group-text">AED</span>\n'
+                  '        <input class="form-control" id="pharmacy_amount" placeholder="e.g. 20">\n'
+                  '      </div>\n'
+                  '    </div>\n'
+                  '\n'
+                  '    <div class="col-md-4">\n'
+                  '      <label class="form-label">Dental</label>\n'
+                  '      <div class="input-group mb-1">\n'
+                  '        <span class="input-group-text">%</span>\n'
+                  '        <input class="form-control" id="dental_percent" placeholder="e.g. 20">\n'
+                  '      </div>\n'
+                  '      <div class="input-group">\n'
+                  '        <span class="input-group-text">AED</span>\n'
+                  '        <input class="form-control" id="dental_amount" placeholder="e.g. 50">\n'
+                  '      </div>\n'
+                  '    </div>\n'
+                  '  </div>\n'
+                  '\n'
+                  '  <div class="row g-2 mt-3">\n'
+                  '    <div class="col-md-6">\n'
+                  '      <label class="form-label fw-bold">Attachment (Eligibility / ID)</label>\n'
+                  '      <input type="file" class="form-control" name="eligibility_file">\n'
+                  '    </div>\n'
+                  '  </div>\n'
+                  '\n'
+                  '  <button class="btn btn-primary mt-3">Save & Create Visit</button>\n'
+                  '</form>\n'
+                  '\n'
+                  '<script>\n'
+                  '  (function () {\n'
+                  '    const form = document.getElementById("register-form");\n'
+                  '    if (!form) return;\n'
+                  '\n'
+                  '    form.addEventListener("submit", function () {\n'
+                  '      const get = function (id) {\n'
+                  '        const el = document.getElementById(id);\n'
+                  '        return el && el.value ? el.value.trim() : "";\n'
+                  '      };\n'
+                  '\n'
+                  '      const parts = [];\n'
+                  '      const add = function (label, id) {\n'
+                  '        const v = get(id);\n'
+                  '        if (v) { parts.push(label + ": " + v); }\n'
+                  '      };\n'
+                  '\n'
+                  '      add("Provider", "ins_provider");\n'
+                  '      add("Card", "ins_card_no");\n'
+                  '      add("DHA", "dha_member_id");\n'
+                  '      add("Plan", "ins_plan");\n'
+                  '      add("PolicyNo", "policy_no");\n'
+                  '      add("PolicyName", "policy_name");\n'
+                  '\n'
+                  '      const vFrom = get("valid_from");\n'
+                  '      const vTo   = get("valid_to");\n'
+                  '      if (vFrom || vTo) {\n'
+                  '        parts.push("Valid " + (vFrom || "?") + " → " + (vTo || "?"));\n'
+                  '      }\n'
+                  '\n'
+                  '      add("Consult%", "consult_deduct");\n'
+                  '\n'
+                  '      add("Lab%", "lab_percent");\n'
+                  '      add("LabAmt", "lab_amount");\n'
+                  '\n'
+                  '      add("Rad%", "radiology_percent");\n'
+                  '      add("RadAmt", "radiology_amount");\n'
+                  '\n'
+                  '      add("Inv%", "investigation_percent");\n'
+                  '      add("InvAmt", "investigation_amount");\n'
+                  '\n'
+                  '      add("Inp%", "inpatient_percent");\n'
+                  '      add("InpAmt", "inpatient_amount");\n'
+                  '\n'
+                  '      add("Pharm%", "pharmacy_percent");\n'
+                  '      add("PharmAmt", "pharmacy_amount");\n'
+                  '\n'
+                  '      add("Dent%", "dental_percent");\n'
+                  '      add("DentAmt", "dental_amount");\n'
+                  '\n'
+                  '      document.getElementById("payment_details").value = parts.join(" | ");\n'
+                  '    });\n'
+                  '  })();\n'
+                  '</script>\n'
+                  '\n'
+                  '{% endblock %}\n',
+ 'search.html': '\n'
+                '{% extends "base.html" %}\n'
+                '{% block content %}\n'
+                '<h4 class="mb-3">Search Patients</h4>\n'
+                '\n'
+                '<form class="card p-3 mb-3 bg-white" method="GET">\n'
+                '  <div class="row g-2 align-items-end">\n'
+                '    <div class="col-md-4">\n'
+                '      <label class="form-label fw-bold">Free Search</label>\n'
+                '      <input class="form-control" name="q" placeholder="Search by name / visit / ID / insurance no" '
+                'value="{{ q }}">\n'
+                '    </div>\n'
+                '    <div class="col-md-2">\n'
+                '      <label class="form-label fw-bold">Visit ID</label>\n'
+                '      <input class="form-control" name="visit_id" value="{{ visit_f or \'\' }}">\n'
+                '    </div>\n'
+                '    <div class="col-md-2">\n'
+                '      <label class="form-label fw-bold">User</label>\n'
+                '      <select class="form-select" name="user">\n'
+                '        <option value="">ALL</option>\n'
+                '        {% for u in users %}\n'
+                '          <option value="{{u.created_by}}" {% if user_f==u.created_by %}selected{% endif '
+                '%}>{{u.created_by}}</option>\n'
+                '        {% endfor %}\n'
+                '      </select>\n'
+                '    </div>\n'
+                '    <div class="col-md-2">\n'
+                '      <label class="form-label fw-bold">From</label>\n'
+                '      <input class="form-control" type="date" name="date_from" value="{{ dfrom or \'\' }}">\n'
+                '    </div>\n'
+                '    <div class="col-md-2">\n'
+                '      <label class="form-label fw-bold">To</label>\n'
+                '      <input class="form-control" type="date" name="date_to" value="{{ dto or \'\' }}">\n'
+                '    </div>\n'
+                '    <div class="col-md-12 mt-2 d-grid">\n'
+                '      <button class="btn btn-primary btn-sm">Filter</button>\n'
+                '    </div>\n'
+                '  </div>\n'
+                '</form>\n'
+                '\n'
+                '\n'
+                '{% if q and not results %}<div class="text-muted">No results</div>{% endif %}\n'
+                '\n'
+                '<table class="table table-sm bg-white">\n'
+                '  <thead>\n'
+                '    <tr>\n'
+                '      <th>Visit</th><th>Queue</th><th>Name</th><th>ID</th><th>INS</th><th>INS No</th>\n'
+                '      <th>Phone</th><th>Payment</th><th>Triage</th><th>CAT</th><th>Status</th><th>Actions</th>\n'
+                '    </tr>\n'
+                '  </thead>\n'
+                '  <tbody>\n'
+                '  {% for r in results %}\n'
+                '    <tr>\n'
+                '      <td>{{ r.visit_id }}</td>\n'
+                '      <td class="fw-bold">{{ r.queue_no }}</td>\n'
+                '      <td>{{ r.name }}</td>\n'
+                '      <td>{{ r.id_number }}</td>\n'
+                '      <td>{{ r.insurance }}</td>\n'
+                '      <td>{{ r.insurance_no }}</td>\n'
+                '      <td>{{ r.phone }}</td>\n'
+                "      <td>{{ r.payment_details or '-' }}</td>\n"
+                '      <td>{{ r.triage_status }}</td>\n'
+                '      <td>\n'
+                "        {% set cat = (r.triage_cat or '').lower() %}\n"
+                '        {% if cat == \'es1\' %}<span class="badge cat-red">ES1</span>\n'
+                '        {% elif cat == \'es2\' %}<span class="badge cat-orange">ES2</span>\n'
+                '        {% elif cat == \'es3\' %}<span class="badge cat-yellow">ES3</span>\n'
+                '        {% elif cat == \'es4\' %}<span class="badge cat-green">ES4</span>\n'
+                '        {% elif cat == \'es5\' %}<span class="badge cat-none">ES5</span>\n'
+                '        {% else %}<span class="badge cat-none">-</span>{% endif %}\n'
+                '      </td>\n'
+                '      <td>{{ r.status }}</td>\n'
+                '      <td><a class="btn btn-sm btn-outline-primary" href="{{ url_for(\'patient_details\', '
+                'visit_id=r.visit_id) }}">Open</a></td>\n'
+                '    </tr>\n'
+                '  {% endfor %}\n'
+                '  </tbody>\n'
+                '</table>\n'
+                '{% endblock %}\n'
+                '\n'
+                '<nav class="d-flex justify-content-between align-items-center mt-2">\n'
+                '  <div class="small text-muted">\n'
+                '    Page {{page}} / {{pages}} - Total: {{total}}\n'
+                '  </div>\n'
+                '  <ul class="pagination pagination-sm mb-0">\n'
+                '    <li class="page-item {% if page<=1 %}disabled{% endif %}">\n'
+                '      <a class="page-link" href="{{ url_for(\'ed_board\', status=status_filter, cat=cat_filter, '
+                'visit_id=visit_f, user=user_f, date_from=dfrom, date_to=dto, per_page=per_page, page=page-1) '
+                '}}">Prev</a>\n'
+                '    </li>\n'
+                '    <li class="page-item {% if page>=pages %}disabled{% endif %}">\n'
+                '      <a class="page-link" href="{{ url_for(\'ed_board\', status=status_filter, cat=cat_filter, '
+                'visit_id=visit_f, user=user_f, date_from=dfrom, date_to=dto, per_page=per_page, page=page+1) '
+                '}}">Next</a>\n'
+                '    </li>\n'
+                '  </ul>\n'
+                '  <button class="btn btn-sm btn-outline-secondary" onclick="location.reload()">🔄 Manual '
+                'Refresh</button>\n'
+                '</nav>\n'
+                '\n',
+ 'sticker.html': '\n'
+                 '<!doctype html>\n'
+                 '<html>\n'
+                 '<head>\n'
+                 '  <meta charset="utf-8">\n'
+                 '  <title>Sticker</title>\n'
+                 '  <style>\n'
+                 '    @page {\n'
+                 '      size: 5cm 3cm;\n'
+                 '      margin: 0;\n'
+                 '    }\n'
+                 '    body { margin:0; padding:0; font-family: Arial; }\n'
+                 '    .label {\n'
+                 '      width: 5cm; height: 3cm;\n'
+                 '      border:1px solid #000; padding:0.06cm;\n'
+                 '      box-sizing:border-box;\n'
+                 '    }\n'
+                 '    .row { font-size:6pt; margin:0.01cm 0; white-space: normal; word-wrap: break-word; }\n'
+                 '    .title { font-weight:bold; font-size:7pt; }\n'
+                 '    .barcode {\n'
+                 '      width: 100%;\n'
+                 '      max-width: 3.5cm;\n'
+                 '      margin-top:0.05cm;\n'
+                 '    }\n'
+                 '    #btnPrint { margin-top:10px; padding:6px 12px; font-size:12px; }\n'
+                 '    @media print {\n'
+                 '      body { margin:0; padding:0; }\n'
+                 '      #btnPrint { display:none; }\n'
+                 '    }\n'
+                 '  </style>\n'
+                 '</head>\n'
+                 '<body onload="window.print()">\n'
+                 '  <div class="label">\n'
+                 '    {% set name_len = v.name|length %}\n'
+                 '    <div class="row title" style="font-size: {{ 7 if name_len <= 20 else 6 }}pt;">NAME: {{ v.name '
+                 '}}</div>\n'
+                 '    <div class="row">AGE: {{ age or \'-\' }}</div>\n'
+                 '    <div class="row">ID: {{ v.id_number or \'-\' }}</div>\n'
+                 '    <div class="row">INS: {{ v.insurance or \'-\' }}</div>\n'
+                 '    <div class="row">TIME: {{ time_only }}</div>\n'
+                 '    <div class="row">VISIT: {{ v.visit_id }}</div>\n'
+                 '    <div class="row">\n'
+                 '      <img class="barcode"\n'
+                 '           src="https://barcode.tec-it.com/barcode.ashx?data={{ (v.id_number or '
+                 'v.visit_id)|urlencode }}&code=Code128&dpi=96&imagetype=png"\n'
+                 '           alt="BARCODE">\n'
+                 '    </div>\n'
+                 '  </div>\n'
+                 '  <button id="btnPrint" onclick="window.print()">Print Again</button>\n'
+                 '</body>\n'
+                 '</html>\n',
+ 'triage.html': '\n'
+                '{% extends "base.html" %}\n'
+                '{% block content %}\n'
+                '<h4 class="mb-3">Triage - Visit {{ visit.visit_id }}\n'
+                '  {% if visit.triage_cat %}\n'
+                '    {% set es = visit.triage_cat %}\n'
+                "    {% set es_class = 'danger' if es=='ES1' else 'warning' if es=='ES2' else 'info' if es=='ES3' else "
+                "'primary' if es=='ES4' else 'success' %}\n"
+                '    <span class="badge bg-{{ es_class }} ms-2">{{ es }}</span>\n'
+                '  {% endif %}\n'
+                '</h4>\n'
+                '\n'
+                '{% with messages = get_flashed_messages(with_categories=true) %}\n'
+                '  {% for category, msg in messages %}\n'
+                '    <div class="alert alert-{{ category }}">{{ msg }}</div>\n'
+                '  {% endfor %}\n'
+                '{% endwith %}\n'
+                '\n'
+                '<form method="POST" class="card p-3 bg-white">\n'
+                '  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">\n'
+                '  <div class="mb-2"><strong>Patient:</strong> {{ visit.name }} | ID: {{ visit.id_number }} | INS: {{ '
+                'visit.insurance }}</div>\n'
+                '\n'
+                '  <label class="form-label fw-bold mt-2">Patient\'s Complaint</label>\n'
+                '  <input class="form-control" name="comment" value="{{ visit.comment or \'\' }}" required>\n'
+                '\n'
+                '  <label class="form-label fw-bold mt-2">Allergy</label>\n'
+                '  <div class="row g-2">\n'
+                '    <div class="col-md-4">\n'
+                '      <select class="form-select" name="allergy_status" id="allergy_status">\n'
+                "        {% set al = visit.allergy_status or '' %}\n"
+                '        <option value="" {% if al==\'\' %}selected{% endif %}>-- Select --</option>\n'
+                '        <option value="No" {% if al==\'No\' %}selected{% endif %}>No</option>\n'
+                '        <option value="Yes" {% if al==\'Yes\' %}selected{% endif %}>Yes</option>\n'
+                '      </select>\n'
+                '    </div>\n'
+                '    <div class="col-md-8"\n'
+                '         id="allergy_details_group"\n'
+                '         style="display: {% if (visit.allergy_status or \'\') == \'Yes\' %}block{% else %}none{% '
+                'endif %};">\n'
+                '      <input class="form-control"\n'
+                '             name="allergy_details"\n'
+                '             placeholder="Cause of allergy (drug / food / other)"\n'
+                '             value="{{ visit.allergy_details or \'\' }}">\n'
+                '    </div>\n'
+                '  </div>\n'
+                '\n'
+                '  <hr class="my-3">\n'
+                '\n'
+                '  <h6 class="fw-bold">Vital Signs</h6>\n'
+                '  <div class="row g-2">\n'
+                '    <div class="col-md-4">\n'
+                '      <label class="form-label">Pulse Rate (bpm)</label>\n'
+                '      <input class="form-control" name="pulse_rate" value="{{ visit.pulse_rate or \'\' }}">\n'
+                '    </div>\n'
+                '    <div class="col-md-4">\n'
+                '      <label class="form-label">Resp Rate (/min)</label>\n'
+                '      <input class="form-control" name="resp_rate" value="{{ visit.resp_rate or \'\' }}">\n'
+                '    </div>\n'
+                '    <div class="col-md-4">\n'
+                '      <label class="form-label">Temp (°C)</label>\n'
+                '      <input class="form-control" name="temperature" value="{{ visit.temperature or \'\' }}">\n'
+                '    </div>\n'
+                '    <div class="col-md-4">\n'
+                '      <label class="form-label">BP Systolic</label>\n'
+                '      <input class="form-control" name="bp_systolic" value="{{ visit.bp_systolic or \'\' }}">\n'
+                '    </div>\n'
+                '    <div class="col-md-4">\n'
+                '      <label class="form-label">BP Diastolic</label>\n'
+                '      <input class="form-control" name="bp_diastolic" value="{{ visit.bp_diastolic or \'\' }}">\n'
+                '    </div>\n'
+                '    <div class="col-md-4">\n'
+                '      <label class="form-label">SpO₂ (%)</label>\n'
+                '      <input class="form-control" name="spo2" value="{{ visit.spo2 or \'\' }}">  <!-- may be required '
+                'based on complaint -->\n'
+                '    </div>\n'
+                '    <div class="col-md-4">\n'
+                '      <label class="form-label">Weight (kg)</label>\n'
+                '      <input class="form-control" name="weight" value="{{ visit.weight or \'\' }}">\n'
+                '    </div>\n'
+                '    <div class="col-md-4">\n'
+                '      <label class="form-label">Height (cm)</label>\n'
+                '      <input class="form-control" name="height" value="{{ visit.height or \'\' }}">\n'
+                '    </div>\n'
+                '    <div class="col-md-6">\n'
+                '      <label class="form-label">Level of Consciousness</label>\n'
+                '      <select class="form-select" name="consciousness_level">\n'
+                "        {% set cl = visit.consciousness_level or '' %}\n"
+                '        <option value="" {% if cl==\'\' %}selected{% endif %}>-- Select --</option>\n'
+                '        <option value="Alert" {% if cl==\'Alert\' %}selected{% endif %}>Alert</option>\n'
+                '        <option value="Verbal" {% if cl==\'Verbal\' %}selected{% endif %}>Verbal</option>\n'
+                '        <option value="Pain" {% if cl==\'Pain\' %}selected{% endif %}>Pain</option>\n'
+                '        <option value="Unresponsive" {% if cl==\'Unresponsive\' %}selected{% endif '
+                '%}>Unresponsive</option>\n'
+                '      </select>\n'
+                '      <div class="form-text">AVPU scale</div>\n'
+                '    </div>\n'
+                '    <div class="col-md-6">\n'
+                '      <label class="form-label">Pain Score (0-10)</label>\n'
+                '      <input class="form-control" name="pain_score" value="{{ visit.pain_score or \'\' }}" required>\n'
+                '    </div>\n'
+                '  </div>\n'
+                '\n'
+                '  <hr class="my-3">\n'
+                '\n'
+                '  <label class="form-label fw-bold mt-2">Triage Category (ES)</label>\n'
+                '  <select class="form-select" name="triage_cat" required>\n'
+                '    <option value="">-- Select --</option>\n'
+                '    <option value="ES1" {% if visit.triage_cat==\'ES1\' %}selected{% endif %}>ES1</option>\n'
+                '    <option value="ES2" {% if visit.triage_cat==\'ES2\' %}selected{% endif %}>ES2</option>\n'
+                '    <option value="ES3" {% if visit.triage_cat==\'ES3\' %}selected{% endif %}>ES3</option>\n'
+                '    <option value="ES4" {% if visit.triage_cat==\'ES4\' %}selected{% endif %}>ES4</option>\n'
+                '    <option value="ES5" {% if visit.triage_cat==\'ES5\' %}selected{% endif %}>ES5</option>\n'
+                '  </select>\n'
+                '\n'
+                '  <div class="mt-3 d-flex gap-2">\n'
+                '    <button class="btn btn-success">Save Triage</button>\n'
+                '    <a class="btn btn-outline-secondary"\n'
+                '       target="_blank"\n'
+                '       href="{{ url_for(\'triage_pdf\', visit_id=visit.visit_id) }}">\n'
+                '      Print Triage PDF\n'
+                '    </a>\n'
+                '  </div>\n'
+                '</form>\n'
+                '\n'
+                '<script>\n'
+                "document.addEventListener('DOMContentLoaded', function () {\n"
+                "  const allergySelect = document.getElementById('allergy_status');\n"
+                "  const detailsGroup = document.getElementById('allergy_details_group');\n"
+                '  if (!allergySelect || !detailsGroup) return;\n'
+                '\n'
+                '  function toggleDetails() {\n'
+                "    if (allergySelect.value === 'Yes') {\n"
+                "      detailsGroup.style.display = 'block';\n"
+                '    } else {\n'
+                "      detailsGroup.style.display = 'none';\n"
+                '    }\n'
+                '  }\n'
+                '\n'
+                "  allergySelect.addEventListener('change', toggleDetails);\n"
+                '  toggleDetails();\n'
+                '});\n'
+                '</script>\n'
+                '{% endblock %}\n'}
 
 
 
