@@ -2382,7 +2382,6 @@ def patient_details(visit_id):
                            orders_count=orders_count)
 
 
-@app.route("/visit/<visit_id>/location_bed", methods=["POST"])
 @app.route("/patient/<visit_id>/vitals_history")
 @login_required
 def vitals_history(visit_id):
@@ -4710,74 +4709,181 @@ def auto_summary_pdf(visit_id):
     )
 
 
+
 def _resolve_doctor_name_for_visit(cur, visit_row, visit_id):
     """
     Try to determine the doctor username for this visit.
+
     Priority:
       1) discharge_summaries.updated_by / created_by
-      2) visits.closed_by / created_by
+      2) clinical_orders.updated_by / created_by (latest row)
+      3) visits.closed_by / created_by
+
+    Only returns usernames whose users.role is 'doctor' or 'admin'
+    (and is_active=1). If no matching doctor is found, returns "".
     """
-    doctor_name = ""
+
+    def _add_candidates_from_row(row, field_names, dest_list):
+        if not row:
+            return
+        for fname in field_names:
+            val = ""
+            # Row may be a sqlite3.Row (dict-like) or tuple
+            if isinstance(row, sqlite3.Row):
+                try:
+                    val = (row.get(fname) or "").strip()
+                except Exception:
+                    # Some sqlite3.Row versions do not implement .get()
+                    try:
+                        val = (row[fname] or "").strip()
+                    except Exception:
+                        val = ""
+            else:
+                # Fallback: try using column order if it is a tuple
+                try:
+                    idx = field_names.index(fname)
+                    val = (row[idx] or "").strip()
+                except Exception:
+                    val = ""
+            if val:
+                dest_list.append(val)
+
+    candidates = []
+
+    # 1) Prefer explicit discharge summary doctor if available
     try:
-        doc_row = cur.execute(
+        ds_row = cur.execute(
             "SELECT updated_by, created_by FROM discharge_summaries WHERE visit_id=?",
             (visit_id,),
         ).fetchone()
     except Exception:
-        doc_row = None
+        ds_row = None
 
-    if doc_row:
-        try:
-            doctor_name = (doc_row["updated_by"] or doc_row["created_by"] or "").strip()
-        except Exception:
+    _add_candidates_from_row(ds_row, ["updated_by", "created_by"], candidates)
+
+    # 2) Latest clinical_orders row (often entered by doctor)
+    try:
+        co_row = cur.execute(
+            """
+            SELECT updated_by, created_by
+            FROM clinical_orders
+            WHERE visit_id=?
+            ORDER BY id DESC
+            LIMIT 1
+            """,
+            (visit_id,),
+        ).fetchone()
+    except Exception:
+        co_row = None
+
+    _add_candidates_from_row(co_row, ["updated_by", "created_by"], candidates)
+
+    # 3) Fallback to visit closed_by / created_by
+    if visit_row is not None:
+        for fname in ("closed_by", "created_by"):
             try:
-                doctor_name = (doc_row[0] or doc_row[1] or "").strip()
+                val = (visit_row[fname] or "").strip()
             except Exception:
-                doctor_name = ""
+                val = ""
+            if val:
+                candidates.append(val)
 
-    if not doctor_name and visit_row is not None:
-        try:
-            closed_by = (visit_row["closed_by"] or "").strip()
-        except Exception:
-            closed_by = ""
-        try:
-            created_by = (visit_row["created_by"] or "").strip()
-        except Exception:
-            created_by = ""
-        doctor_name = closed_by or created_by
+    # Normalise, drop blanks / UNKNOWN, remove duplicates preserving order
+    cleaned = []
+    seen = set()
+    for name in candidates:
+        name = (name or "").strip()
+        if not name:
+            continue
+        if name.upper() == "UNKNOWN":
+            continue
+        if name in seen:
+            continue
+        seen.add(name)
+        cleaned.append(name)
 
-    return doctor_name
+    if not cleaned:
+        return ""
+
+    # Only accept real doctors/admins based on users table
+    for uname in cleaned:
+        try:
+            user_row = cur.execute(
+                "SELECT role FROM users WHERE username=? AND is_active=1",
+                (uname,),
+            ).fetchone()
+        except Exception:
+            user_row = None
+
+        role = ""
+        if user_row is not None:
+            try:
+                # sqlite3.Row supports dict-style access
+                role = (user_row["role"] or "").lower()
+            except Exception:
+                try:
+                    role = (user_row[0] or "").lower()
+                except Exception:
+                    role = ""
+
+        if role in ("doctor", "admin"):
+            return uname
+
+    # No valid doctor/admin found -> return empty so PDF shows blank line
+    return ""
 
 
 def _doctor_display_with_gd(cur, doctor_name):
     """
-    Return doctor display name (with GD number if available).
+    Return doctor display label (with GD number if available).
+
+    If doctor_name is empty OR the user is not a doctor/admin,
+    we return just a blank signature line ("______________________")
+    instead of a wrong staff name (e.g. reception).
     """
     if not doctor_name:
         return "______________________"
 
-    doctor_display = doctor_name
     try:
         user_row = cur.execute(
-            "SELECT gd_number FROM users WHERE username=?",
+            "SELECT role, gd_number FROM users WHERE username=? AND is_active=1",
             (doctor_name,),
         ).fetchone()
     except Exception:
         user_row = None
 
-    if user_row:
+    if not user_row:
+        # Username not found in users table – safer to leave it blank
+        return "______________________"
+
+    # Role check
+    try:
+        role = (user_row["role"] or "").lower()
+    except Exception:
         try:
-            gd_value = user_row["gd_number"]
+            role = (user_row[0] or "").lower()
         except Exception:
-            try:
-                gd_value = user_row[0]
-            except Exception:
-                gd_value = None
-        if gd_value:
-            doctor_display = f"{doctor_name}  (GD: {gd_value})"
+            role = ""
 
-    return doctor_display
+    if role not in ("doctor", "admin"):
+        # Do not show reception / nurse names as "Doctor"
+        return "______________________"
 
+    # Extract GD number
+    gd_value = None
+    try:
+        gd_value = user_row["gd_number"]
+    except Exception:
+        try:
+            gd_value = user_row[1]
+        except Exception:
+            gd_value = None
+
+    label = doctor_name
+    if gd_value:
+        label = f"{doctor_name}  (GD: {gd_value})"
+
+    return label
 
 @app.route("/patient_summary/<visit_id>/pdf")
 @login_required
