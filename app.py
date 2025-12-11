@@ -22,6 +22,12 @@ from flask import (
     render_template, render_template_string, session, Response, send_from_directory, flash, jsonify
 )
 import sqlite3
+try:
+    import psycopg2
+    import psycopg2.extras
+except ImportError:
+    psycopg2 = None
+
 from datetime import datetime, timedelta
 from functools import wraps
 from werkzeug.security import generate_password_hash, check_password_hash
@@ -91,7 +97,20 @@ app.config["PERMANENT_SESSION_LIFETIME"] = 7200
 # Idle auto-logout (minutes)
 IDLE_TIMEOUT_SECONDS = 15 * 60
 
+DB_ENGINE = APP_CONFIG.get("DB_ENGINE", os.environ.get("DB_ENGINE", "sqlite")).lower()
+
+# Default SQLite path (still used if DB_ENGINE == "sqlite")
 DATABASE = APP_CONFIG.get("DATABASE", "triage_ed.db")
+
+# PostgreSQL connection string (DSN). Override via config.py or environment.
+PG_DSN = APP_CONFIG.get(
+    "PG_DSN",
+    os.environ.get(
+        "PG_DSN",
+        "dbname=triage_ed user=triage_ed password=triage_ed host=127.0.0.1 port=5432",
+    ),
+)
+
 UPLOAD_FOLDER = APP_CONFIG.get("UPLOAD_FOLDER", "uploads")
 BACKUP_FOLDER = APP_CONFIG.get("BACKUP_FOLDER", "backups")
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
@@ -338,10 +357,66 @@ def draw_wrapped_lines(c, text, x, y, max_chars, line_height, page_height, font_
 # Database Helper
 # ============================================================
 
+class PostgresDBWrapper:
+    """
+    Thin wrapper so the rest of the code can keep using the sqlite3
+    Connection-style API (conn.execute, conn.cursor, .commit) even when
+    we are actually talking to PostgreSQL via psycopg2.
+    """
+    def __init__(self, conn):
+        self._conn = conn
+
+    def cursor(self):
+        # Use our custom cursor that accepts "?" placeholders.
+        return self._conn.cursor()
+
+    def execute(self, query, params=None):
+        cur = self.cursor()
+        cur.execute(query, params)
+        return cur
+
+    def commit(self):
+        return self._conn.commit()
+
+    def rollback(self):
+        return self._conn.rollback()
+
+    def close(self):
+        return self._conn.close()
+
+
+if psycopg2 is not None:
+    class QmarkDictCursor(psycopg2.extras.DictCursor):
+        """
+        psycopg2 cursor that mimics sqlite's "?" param style.
+
+        It transparently rewrites "?" placeholders to "%s" so the rest of
+        the application code does not need to change.
+        """
+        def _convert(self, query):
+            if query and "?" in query and "%s" not in query:
+                return query.replace("?", "%s")
+            return query
+
+        def execute(self, query, vars=None):
+            return super().execute(self._convert(query), vars)
+
+        def executemany(self, query, vars_list):
+            return super().executemany(self._convert(query), vars_list)
+
+
 def get_db():
     if "db" not in g:
-        g.db = sqlite3.connect(DATABASE, check_same_thread=False)
-        g.db.row_factory = sqlite3.Row
+        if DB_ENGINE == "postgres":
+            if psycopg2 is None:
+                raise RuntimeError("psycopg2 is required for PostgreSQL but is not installed.")
+            conn = psycopg2.connect(PG_DSN, cursor_factory=QmarkDictCursor if psycopg2 is not None else None)
+            conn.autocommit = False
+            g.db = PostgresDBWrapper(conn)
+        else:
+            conn = sqlite3.connect(DATABASE, check_same_thread=False)
+            conn.row_factory = sqlite3.Row
+            g.db = conn
     return g.db
 
 @app.teardown_appcontext
@@ -368,16 +443,29 @@ def add_security_headers(resp):
 
 def init_logging_table():
     db = get_db()
-    db.execute("""
-        CREATE TABLE IF NOT EXISTS activity_log (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            action TEXT NOT NULL,
-            visit_id TEXT,
-            username TEXT,
-            details TEXT,
-            created_at TEXT NOT NULL
-        )
-    """)
+    cur = db.cursor()
+    if DB_ENGINE == "postgres":
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS activity_log (
+                id BIGSERIAL PRIMARY KEY,
+                action TEXT NOT NULL,
+                visit_id TEXT,
+                username TEXT,
+                details TEXT,
+                created_at TEXT NOT NULL
+            )
+        """)
+    else:
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS activity_log (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                action TEXT NOT NULL,
+                visit_id TEXT,
+                username TEXT,
+                details TEXT,
+                created_at TEXT NOT NULL
+            )
+        """)
     db.commit()
 
 def log_action(action, visit_id=None, details=None):
@@ -410,6 +498,17 @@ def ensure_column(table, col, col_type):
         get_db().commit()
 
 def init_db():
+    # For PostgreSQL we assume the schema has been created/migrated already
+    # using the provided migrate_sqlite_to_postgres.py script.
+    # We do NOT run the SQLite-specific auto-upgrade / PRAGMA logic there.
+    if DB_ENGINE == "postgres":
+        try:
+            init_logging_table()
+        except Exception:
+            # Logging is nice but not critical at startup
+            pass
+        return
+
     db = get_db()
     cur = db.cursor()
 
@@ -10984,7 +11083,7 @@ def help_page():
 
 
 if __name__ == "__main__":
+    # Local dev server only. For production use a WSGI server such as gunicorn:
+    #   gunicorn -w 3 -b 0.0.0.0:8000 app_ed_downtime_bundles_pg:app
     bootstrap_once()
-    debug_env = os.environ.get("FLASK_DEBUG", "1")
-    debug = debug_env == "1"
-    app.run(host="0.0.0.0", port=5000, debug=debug)
+    app.run(host="0.0.0.0", port=5000)
